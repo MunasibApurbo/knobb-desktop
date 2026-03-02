@@ -50,23 +50,13 @@ export function AppSidebar() {
 
   return (
     <div className="w-[280px] shrink-0 h-full flex flex-col gap-2 py-2 pl-2">
-      {/* Top Nav Card */}
-      <div className="bg-card rounded-lg p-4">
-        <nav className="space-y-1">
-          {mainNav.map((item) => (
-            <NavLink
-              key={item.url}
-              to={item.url}
-              end={item.url === "/"}
-              className="flex items-center gap-4 px-3 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-md"
-              activeClassName="text-foreground"
-            >
-              <item.icon className="w-6 h-6" />
-              <span>{item.title}</span>
-            </NavLink>
-          ))}
-        </nav>
-      </div>
+      {/* Brand */}
+      <button
+        onClick={() => navigate("/")}
+        className="px-4 py-3"
+      >
+        <span className="text-xl font-extrabold tracking-tight text-foreground">Nobbb</span>
+      </button>
 
       {/* Library Card */}
       <div className="flex-1 bg-card rounded-lg flex flex-col min-h-0">
