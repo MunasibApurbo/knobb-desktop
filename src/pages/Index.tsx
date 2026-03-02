@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePlayHistory } from "@/hooks/usePlayHistory";
 import { Play, Mic2, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import { searchTracks, searchArtists, tidalTrackToAppTrack, getTidalImageUrl } from "@/lib/monochromeApi";
-import { Track, albums, playlists } from "@/data/mockData";
+import { Track } from "@/data/mockData";
 import { motion } from "framer-motion";
 import { PageTransition } from "@/components/PageTransition";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
@@ -240,25 +240,6 @@ const Index = () => {
   return (
     <PageTransition>
       <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-6">{getGreeting()}</h1>
-
-      {/* Quick Access Grid */}
-      <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-10">
-        {[...playlists.slice(0, 3), ...albums.slice(0, 3)].map((item) => (
-          <motion.div
-            key={item.id}
-            variants={fadeUp}
-            className="flex items-center bg-secondary/50 hover:bg-secondary/80 rounded-md overflow-hidden cursor-pointer group transition-colors"
-            onClick={() => navigate(`/${item.id.startsWith("playlist") ? "playlist" : "album"}/${item.id}`)}
-          >
-            <img src={item.coverUrl} alt={item.title} className="w-10 h-10 md:w-12 md:h-12 object-cover shadow-md" />
-            <span className="px-2 md:px-3 text-xs md:text-sm font-bold text-foreground truncate flex-1">{item.title}</span>
-            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 mr-2 shadow-lg"
-              style={{ background: `hsl(var(--dynamic-accent))` }}>
-              <Play className="w-3 h-3 md:w-4 md:h-4 text-foreground fill-current ml-0.5" />
-            </div>
-          </motion.div>
-        ))}
-      </motion.div>
 
       {/* Recently Played */}
       {recentTracks.length > 0 && (
