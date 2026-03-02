@@ -104,10 +104,10 @@ export function Layout({ children }: React.PropsWithChildren) {
             <ResizablePanel
               ref={sidebarPanelRef}
               defaultSize={18}
-              minSize={5}
+              minSize={4}
               maxSize={30}
               collapsible
-              collapsedSize={10}
+              collapsedSize={4}
               onCollapse={() => setSidebarCollapsed(true)}
               onExpand={() => setSidebarCollapsed(false)}
               className="py-2 pl-2"
