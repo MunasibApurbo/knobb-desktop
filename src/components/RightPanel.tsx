@@ -7,12 +7,14 @@ import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 
 type TabType = "lyrics" | "queue";
 
 export function RightPanel() {
   const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
+  const navigate = useNavigate();
   const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const [tab, setTab] = useState<TabType>("lyrics");
   const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
@@ -112,7 +114,14 @@ export function RightPanel() {
               <motion.h3 key={`t-${currentTrack.id}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="text-base font-bold text-foreground truncate">
                 {currentTrack.title}
               </motion.h3>
-              <motion.p key={`a-${currentTrack.id}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.05 }} className="text-sm text-muted-foreground">
+              <motion.p
+                key={`a-${currentTrack.id}`}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.05 }}
+                className={`text-sm ${currentTrack.artistId ? "text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors" : "text-muted-foreground"}`}
+                onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}`)}
+              >
                 {currentTrack.artist}
               </motion.p>
             </div>

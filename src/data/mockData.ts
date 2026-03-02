@@ -1,6 +1,7 @@
 export interface Track {
   id: string;
   tidalId?: number;
+  artistId?: number;
   title: string;
   artist: string;
   album: string;

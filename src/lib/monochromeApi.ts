@@ -154,28 +154,26 @@ export interface TidalLyricLine {
 export async function getLyrics(trackId: number): Promise<TidalLyricLine[]> {
   try {
     const result = await proxyRequest("lyrics", { id: String(trackId) });
-    // Try to parse different possible response formats
-    if (result?.data?.subtitles) {
-      // Tidal subtitles format
-      const parsed = typeof result.data.subtitles === "string" 
-        ? JSON.parse(result.data.subtitles) 
-        : result.data.subtitles;
-      return parsed.map((s: any) => ({
-        time: (s.startTimeMs || s.time || 0) / 1000,
-        text: s.content || s.text || "",
-      })).filter((l: TidalLyricLine) => l.text.trim());
+    
+    // Format: result.lyrics.subtitles as "[MM:SS.ms] text" lines
+    if (result?.lyrics?.subtitles) {
+      const subtitles = result.lyrics.subtitles as string;
+      const lines = subtitles.split("\n").filter((l: string) => l.trim());
+      return lines.map((line: string) => {
+        const match = line.match(/\[(\d+):(\d+\.\d+)\]\s*(.*)/);
+        if (match) {
+          const mins = parseInt(match[1]);
+          const secs = parseFloat(match[2]);
+          return { time: mins * 60 + secs, text: match[3] };
+        }
+        return null;
+      }).filter((l): l is TidalLyricLine => l !== null && l.text.trim().length > 0);
     }
-    if (result?.data?.lyrics?.lines) {
-      return result.data.lyrics.lines.map((l: any) => ({
-        time: (l.startTimeMs || l.time || 0) / 1000,
-        text: l.words || l.text || "",
-      })).filter((l: TidalLyricLine) => l.text.trim());
-    }
-    if (Array.isArray(result?.data)) {
-      return result.data.map((l: any) => ({
-        time: (l.startTimeMs || l.time || 0) / 1000,
-        text: l.content || l.text || l.words || "",
-      })).filter((l: TidalLyricLine) => l.text.trim());
+
+    // Fallback: plain lyrics without timestamps
+    if (result?.lyrics?.lyrics) {
+      const lines = (result.lyrics.lyrics as string).split("\n").filter((l: string) => l.trim());
+      return lines.map((text: string, i: number) => ({ time: i * 4, text }));
     }
   } catch (e) {
     console.warn("Lyrics not available:", e);
@@ -192,6 +190,7 @@ export function tidalTrackToAppTrack(t: TidalTrack): import("@/data/mockData").T
   return {
     id: `tidal-${t.id}`,
     tidalId: t.id,
+    artistId: t.artist?.id,
     title: t.version ? `${t.title} (${t.version})` : t.title,
     artist: t.artists?.map((a) => a.name).join(", ") || t.artist?.name || "Unknown",
     album: t.album?.title || "Unknown Album",
