@@ -10,7 +10,9 @@ import { ArtistLink } from "@/components/ArtistLink";
 import { motion } from "framer-motion";
 
 const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.03 } } };
+const staggerNone = { hidden: { opacity: 1 }, show: { opacity: 1 } };
 const fadeUp = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
+const fadeNone = { hidden: { opacity: 1, y: 0 }, show: { opacity: 1, y: 0 } };
 
 export default function ArtistPage() {
   const { id } = useParams();
@@ -27,7 +29,7 @@ export default function ArtistPage() {
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const loadIdRef = useRef<string>("");
-  const hasMounted = useRef(false);
+  const isFirstLoad = useRef(true);
 
   useEffect(() => {
     const key = `${id}-${artistName}`;
@@ -120,7 +122,10 @@ export default function ArtistPage() {
       } catch (e) {
         console.error("Failed to load artist:", e);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          isFirstLoad.current = false;
+        }
       }
     })();
 
@@ -143,7 +148,7 @@ export default function ArtistPage() {
   const displayedTracks = showAllTracks ? topTracks : topTracks.slice(0, 5);
 
   return (
-    <motion.div initial={!hasMounted.current ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} onAnimationComplete={() => { hasMounted.current = true; }}>
+    <div>
       {/* Hero */}
       <div className="flex items-end gap-6 pb-8 -mx-6 -mt-16 px-6 pt-20"
         style={{
@@ -205,13 +210,13 @@ export default function ArtistPage() {
       {topTracks.length > 0 && (
         <>
           <h2 className="text-xl font-bold text-foreground mb-4">Popular</h2>
-          <motion.div variants={stagger} initial="hidden" animate="show" className="mb-2">
+          <motion.div variants={isFirstLoad.current ? stagger : staggerNone} initial="hidden" animate="show" className="mb-2">
             {displayedTracks.map((track, i) => {
               const isCurrent = currentTrack?.id === track.id;
               return (
                 <motion.div
                   key={track.id}
-                  variants={fadeUp}
+                  variants={isFirstLoad.current ? fadeUp : fadeNone}
                   className={`grid grid-cols-[40px_1fr_1fr_40px_60px] gap-4 px-4 py-2.5 items-center cursor-pointer rounded-md transition-all group
                     ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
                   onClick={() => play(track, topTracks)}
@@ -258,11 +263,11 @@ export default function ArtistPage() {
       {discography.length > 0 && (
         <div className="mt-8">
           <h2 className="text-xl font-bold text-foreground mb-4">Discography</h2>
-          <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
+          <motion.div variants={isFirstLoad.current ? stagger : staggerNone} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
             {discography.map((album) => (
               <motion.div
                 key={album.id}
-                variants={fadeUp}
+                variants={isFirstLoad.current ? fadeUp : fadeNone}
                 className="glass-card rounded-lg p-3.5 cursor-pointer group"
                 onClick={() => navigate(`/album/tidal-${album.id}`)}
               >
@@ -294,11 +299,11 @@ export default function ArtistPage() {
       {relatedArtists.length > 0 && (
         <div className="mt-4">
           <h2 className="text-xl font-bold text-foreground mb-4">Related Artists</h2>
-          <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
+          <motion.div variants={isFirstLoad.current ? stagger : staggerNone} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
             {relatedArtists.map((ra) => (
               <motion.div
                 key={ra.id}
-                variants={fadeUp}
+                variants={isFirstLoad.current ? fadeUp : fadeNone}
                 className="glass-card rounded-lg p-3.5 cursor-pointer group"
                 onClick={() => navigate(`/artist/${ra.id}?name=${encodeURIComponent(ra.name)}`)}
               >
@@ -319,6 +324,6 @@ export default function ArtistPage() {
           </motion.div>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }
