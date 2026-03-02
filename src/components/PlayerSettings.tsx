@@ -37,7 +37,7 @@ function CollapsibleSection({
     <>
       <button
         onClick={onToggle}
-        className="group flex items-center justify-between w-full px-2 py-1.5 text-xs text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+        className="group flex items-center justify-between w-full px-2 py-1.5 text-xs text-foreground uppercase tracking-wider transition-colors"
       >
         <span className="flex items-center gap-1.5">
           {icon}
