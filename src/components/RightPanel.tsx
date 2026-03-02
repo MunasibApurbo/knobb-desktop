@@ -16,11 +16,11 @@ import { useNavigate } from "react-router-dom";
 type TabType = "lyrics" | "queue";
 
 export function RightPanel() {
-  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play, reorderQueue, removeFromQueue, seek } = usePlayer();
+  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, rightPanelTab, isPlaying, queue, play, reorderQueue, removeFromQueue, seek } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
-  const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]); // kept for queue drag refs
-  const [tab, setTab] = useState<TabType>("lyrics");
+  const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
+  const tab = rightPanelTab;
   const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const lastLyricsTrackRef = useRef<string | null>(null);
@@ -110,18 +110,6 @@ export function RightPanel() {
                 {currentTrack.artist}
               </motion.p>
             </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="px-5 pb-2">
-            <FilterPill<TabType>
-              options={[
-                { key: "lyrics" as TabType, label: "Lyrics" },
-                { key: "queue" as TabType, label: "Queue" },
-              ]}
-              value={tab}
-              onChange={(v) => setTab(v)}
-            />
           </div>
 
           {/* Tab Content */}
