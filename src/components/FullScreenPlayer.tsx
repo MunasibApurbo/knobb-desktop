@@ -165,12 +165,8 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
                 </Button>
               </div>
 
-              {/* Volume + Like */}
-              <div className="flex items-center gap-3 w-full px-6">
-                <Button variant="ghost" size="icon" className="w-8 h-8 shrink-0" onClick={() => toggleLike(currentTrack)}>
-                  <Heart className={`w-5 h-5 transition-colors ${isLiked(currentTrack.id) ? "text-[hsl(var(--dynamic-accent))] fill-current" : "text-muted-foreground"}`} />
-                </Button>
-                <div className="flex-1" />
+              {/* Volume */}
+              <div className="flex items-center gap-3 w-full px-6 justify-end">
                 <Button variant="ghost" size="icon" className="w-8 h-8 shrink-0 text-muted-foreground"
                   onClick={() => setVolume(volume > 0 ? 0 : 0.75)}
                 >
