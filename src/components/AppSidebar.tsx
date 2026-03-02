@@ -94,23 +94,26 @@ export function AppSidebar() {
             <DropdownMenuContent align="start" className="w-52">
               {user ? (
                 <>
-                  <DropdownMenuItem onClick={() => navigate("/history")}>
-                    <History className="w-4 h-4 mr-2" /> History
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate("/history")}>
-                    <BarChart3 className="w-4 h-4 mr-2" /> Listening Stats
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate("/history")}>
-                    <User className="w-4 h-4 mr-2" /> Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate("/settings")}>
-                    <Settings className="w-4 h-4 mr-2" /> Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => signOut()}>
-                    <LogOut className="w-4 h-4 mr-2" /> Sign out
-                  </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/history")}>
+                      <History className="w-4 h-4 mr-2" /> History
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/stats")}>
+                      <BarChart3 className="w-4 h-4 mr-2" /> Listening Stats
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/notifications")}>
+                      <Bell className="w-4 h-4 mr-2" /> Notifications
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate("/profile")}>
+                      <User className="w-4 h-4 mr-2" /> Profile
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/settings")}>
+                      <Settings className="w-4 h-4 mr-2" /> Settings
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => signOut()}>
+                      <LogOut className="w-4 h-4 mr-2" /> Sign out
+                    </DropdownMenuItem>
                 </>
               ) : (
                 <DropdownMenuItem onClick={() => navigate("/auth")}>
@@ -191,14 +194,14 @@ export function AppSidebar() {
                     <DropdownMenuItem onClick={() => navigate("/history")}>
                       <History className="w-4 h-4 mr-2" /> History
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate("/history")}>
+                    <DropdownMenuItem onClick={() => navigate("/stats")}>
                       <BarChart3 className="w-4 h-4 mr-2" /> Listening Stats
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate("/liked")}>
+                    <DropdownMenuItem onClick={() => navigate("/notifications")}>
                       <Bell className="w-4 h-4 mr-2" /> Notifications
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => navigate("/history")}>
+                    <DropdownMenuItem onClick={() => navigate("/profile")}>
                       <User className="w-4 h-4 mr-2" /> Profile
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => navigate("/settings")}>
