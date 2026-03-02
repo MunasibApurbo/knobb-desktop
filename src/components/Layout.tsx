@@ -10,6 +10,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 // useSearch no longer needed in layout
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import type { ImperativePanelHandle } from "react-resizable-panels";
 import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -20,8 +21,9 @@ import { useState, useCallback, useEffect, useRef, createContext, useContext } f
 interface SidebarContextType {
   collapsed: boolean;
   setCollapsed: (v: boolean) => void;
+  expandPanel: () => void;
 }
-const SidebarContext = createContext<SidebarContextType>({ collapsed: false, setCollapsed: () => {} });
+const SidebarContext = createContext<SidebarContextType>({ collapsed: false, setCollapsed: () => {}, expandPanel: () => {} });
 export function useSidebarCollapsed() { return useContext(SidebarContext); }
 
 export function Layout({ children }: React.PropsWithChildren) {
@@ -34,7 +36,12 @@ export function Layout({ children }: React.PropsWithChildren) {
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [miniPlayerVisible, setMiniPlayerVisible] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarPanelRef = useRef<ImperativePanelHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const expandPanel = useCallback(() => {
+    sidebarPanelRef.current?.expand();
+  }, []);
 
   // Scroll to top on route change
   useEffect(() => {
@@ -57,7 +64,7 @@ export function Layout({ children }: React.PropsWithChildren) {
   }, []);
 
   return (
-    <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
+    <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed, expandPanel }}>
     <div className="h-screen w-screen flex flex-col relative overflow-hidden">
       {/* Dynamic blurred background from current track artwork */}
       <div className="fixed inset-0 z-0 bg-background">
@@ -95,11 +102,12 @@ export function Layout({ children }: React.PropsWithChildren) {
           <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Left Sidebar */}
             <ResizablePanel
+              ref={sidebarPanelRef}
               defaultSize={18}
-              minSize={4}
+              minSize={5}
               maxSize={30}
               collapsible
-              collapsedSize={4}
+              collapsedSize={10}
               onCollapse={() => setSidebarCollapsed(true)}
               onExpand={() => setSidebarCollapsed(false)}
               className="py-2 pl-2"
