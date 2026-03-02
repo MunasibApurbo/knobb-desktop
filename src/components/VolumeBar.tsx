@@ -66,7 +66,7 @@ export function VolumeBar({ volume, onChange, className = "" }: VolumeBarProps) 
             className="flex-1 rounded-full origin-bottom"
             animate={{
               scaleY: heightPct,
-              opacity: isActive ? 1 : 0.25,
+              opacity: isActive ? 1 : 0.6,
             }}
             transition={{
               scaleY: { type: "spring", stiffness: 400, damping: 25 },
@@ -76,7 +76,7 @@ export function VolumeBar({ volume, onChange, className = "" }: VolumeBarProps) 
               height: "100%",
               backgroundColor: isActive
                 ? `hsl(var(--dynamic-accent))`
-                : `hsl(var(--muted-foreground) / 0.3)`,
+                : `hsl(var(--muted-foreground) / 0.5)`,
             }}
           />
         );
