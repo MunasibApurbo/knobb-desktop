@@ -28,6 +28,7 @@ export interface TidalArtist {
   picture: string | null;
   popularity: number;
   url: string;
+  bio?: string;
 }
 
 export interface TidalAlbum {
@@ -134,6 +135,15 @@ export async function getArtistAlbums(artistId: number): Promise<TidalAlbum[]> {
     return result?.data?.items || [];
   } catch {
     return [];
+  }
+}
+
+export async function getArtistBio(artistId: number): Promise<string> {
+  try {
+    const result = await proxyRequest("artist/bio", { id: String(artistId) });
+    return result?.data?.text || result?.text || "";
+  } catch {
+    return "";
   }
 }
 
