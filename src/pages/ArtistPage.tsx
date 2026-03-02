@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { searchArtists, searchTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
+import { searchArtists, searchTracks, getArtistTopTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -32,37 +32,29 @@ export default function ArtistPage() {
 
     try {
       const artistId = parseInt(id);
-      const searchQuery = artistName || id;
 
-      // Search for the artist by name (preferred) or ID as text
-      const artists = await searchArtists(searchQuery);
-      let found = artists.find((a) => a.id === artistId) || artists[0];
+      // 1. Try fetching top tracks by artist ID (Tidal-native endpoint)
+      const tidalTracks = await getArtistTopTracks(artistId, 20);
       
-      if (!found && artistName) {
-        // If exact match by ID failed, create from search result
-        found = artists[0] || null;
-      }
-
-      if (!found) {
-        // Last resort: search tracks to find artist info
-        const trackResults = await searchTracks(searchQuery, 5);
-        if (trackResults.length > 0) {
-          const firstArtist = trackResults[0].artist;
-          found = { id: artistId, name: firstArtist.name, picture: firstArtist.picture, popularity: 0, url: "" };
-        }
-      }
-
-      if (found) {
-        setArtist(found);
-        
-        // Search for tracks by artist name
-        const tracks = await searchTracks(found.name, 20);
-        const appTracks = tracks.map(tidalTrackToAppTrack);
-        setTopTracks(appTracks);
-        
-        // If artist has no picture, use first track's cover as fallback
-        if (!found.picture && appTracks.length > 0) {
-          setArtist(prev => prev ? { ...prev, picture: `fallback:${appTracks[0].coverUrl}` } : prev);
+      if (tidalTracks.length > 0) {
+        const firstTrack = tidalTracks[0];
+        const artistInfo: TidalArtist = {
+          id: artistId,
+          name: firstTrack.artist?.name || artistName || "Unknown",
+          picture: firstTrack.artist?.picture || null,
+          popularity: 0,
+          url: "",
+        };
+        setArtist(artistInfo);
+        setTopTracks(tidalTracks.map(tidalTrackToAppTrack));
+      } else if (artistName) {
+        // 2. Fallback: search by artist name
+        const artists = await searchArtists(artistName);
+        const found = artists.find((a) => a.id === artistId) || artists[0];
+        if (found) {
+          setArtist(found);
+          const tracks = await searchTracks(found.name, 20);
+          setTopTracks(tracks.map(tidalTrackToAppTrack));
         }
       }
     } catch (e) {
@@ -107,11 +99,9 @@ export default function ArtistPage() {
         >
           <img
             src={
-              artist.picture?.startsWith("fallback:")
-                ? artist.picture.replace("fallback:", "")
-                : artist.picture
-                  ? getTidalImageUrl(artist.picture, "750x750")
-                  : topTracks[0]?.coverUrl || "/placeholder.svg"
+              artist.picture
+                ? getTidalImageUrl(artist.picture, "750x750")
+                : topTracks[0]?.coverUrl || "/placeholder.svg"
             }
             alt={artist.name}
             className="w-full h-full object-cover"
