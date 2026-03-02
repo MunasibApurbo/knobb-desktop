@@ -37,7 +37,7 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", damping: 28, stiffness: 300 }}
-        className="h-[120px] shrink-0 bg-background/80 backdrop-blur-xl border-t border-border/20 flex flex-col"
+        className="h-[120px] shrink-0 glass-heavy border-t border-white/[0.06] flex flex-col"
       >
         {/* Top row: track info + controls + volume */}
         <div className="flex items-center px-4 pt-2 gap-4">
