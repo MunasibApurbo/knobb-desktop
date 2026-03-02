@@ -120,7 +120,7 @@ export function RightPanel() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.05 }}
                 className={`text-sm ${currentTrack.artistId ? "text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors" : "text-muted-foreground"}`}
-                onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}`)}
+                onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}?name=${encodeURIComponent(currentTrack.artist)}`)}
               >
                 {currentTrack.artist}
               </motion.p>

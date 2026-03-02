@@ -52,7 +52,7 @@ export function BottomPlayer() {
               <p className="text-sm font-semibold truncate text-foreground">{currentTrack.title}</p>
               <p
                 className={`text-xs truncate ${currentTrack.artistId ? "text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors" : "text-muted-foreground"}`}
-                onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}`)}
+                onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}?name=${encodeURIComponent(currentTrack.artist)}`)}
               >
                 {currentTrack.artist}
               </p>

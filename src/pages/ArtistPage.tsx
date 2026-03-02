@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { searchArtists, searchTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
@@ -13,6 +13,8 @@ const fadeUp = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transit
 
 export default function ArtistPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const artistName = searchParams.get("name") || "";
   const navigate = useNavigate();
   const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
@@ -30,14 +32,20 @@ export default function ArtistPage() {
 
     try {
       const artistId = parseInt(id);
+      const searchQuery = artistName || id;
 
-      // Search for the artist by ID or name
-      const artists = await searchArtists(id);
+      // Search for the artist by name (preferred) or ID as text
+      const artists = await searchArtists(searchQuery);
       let found = artists.find((a) => a.id === artistId) || artists[0];
       
+      if (!found && artistName) {
+        // If exact match by ID failed, create from search result
+        found = artists[0] || null;
+      }
+
       if (!found) {
-        // Try searching tracks to find the artist name
-        const trackResults = await searchTracks(id, 5);
+        // Last resort: search tracks to find artist info
+        const trackResults = await searchTracks(searchQuery, 5);
         if (trackResults.length > 0) {
           const firstArtist = trackResults[0].artist;
           found = { id: artistId, name: firstArtist.name, picture: firstArtist.picture, popularity: 0, url: "" };
@@ -62,7 +70,7 @@ export default function ArtistPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, artistName]);
 
   useEffect(() => {
     fetchedRef.current = false;

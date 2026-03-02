@@ -81,7 +81,7 @@ function TrackCard({ track, tracks }: { track: Track; tracks: Track[] }) {
         onClick={(e) => {
           if (track.artistId) {
             e.stopPropagation();
-            navigate(`/artist/${track.artistId}`);
+            navigate(`/artist/${track.artistId}?name=${encodeURIComponent(track.artist)}`);
           }
         }}
       >
@@ -230,7 +230,7 @@ const Index = () => {
             id={artist.id}
             name={artist.name}
             picture={artist.picture}
-            onClick={() => navigate(`/artist/${artist.id}`)}
+            onClick={() => navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`)}
           />
         ))}
       </motion.div>
