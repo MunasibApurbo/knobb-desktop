@@ -18,6 +18,7 @@ import LikedSongsPage from "./pages/LikedSongsPage";
 import HistoryPage from "./pages/HistoryPage";
 import UserPlaylistPage from "./pages/UserPlaylistPage";
 import AuthPage from "./pages/AuthPage";
+import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
                     <Route path="/liked" element={<LikedSongsPage />} />
                     <Route path="/history" element={<HistoryPage />} />
                     <Route path="/auth" element={<AuthPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </Layout>

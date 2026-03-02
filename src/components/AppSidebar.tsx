@@ -136,11 +136,13 @@ export function AppSidebar() {
               >
                 <Heart className="w-3.5 h-3.5 text-white fill-white" />
               </button>
-              {playlists.map((pl) => (
-                <button key={pl.id} onClick={() => navigate(`/playlist/${pl.id}`)} title={pl.title} className="shrink-0">
-                  <img src={pl.coverUrl} alt={pl.title} className="w-10 h-10 rounded-md object-cover hover:brightness-110 transition" />
-                </button>
-              ))}
+              <button
+                onClick={() => navigate("/settings")}
+                className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center bg-white/5 hover:bg-white/10 transition"
+                title="Settings"
+              >
+                <Settings className="w-4 h-4 text-muted-foreground" />
+              </button>
               {userPlaylists.map((pl) => (
                 <button key={pl.id} onClick={() => navigate(`/my-playlist/${pl.id}`)} title={pl.name} className="shrink-0">
                   <div className="w-10 h-10 rounded-md overflow-hidden bg-accent flex items-center justify-center hover:brightness-110 transition">
@@ -333,31 +335,20 @@ export function AppSidebar() {
                   </NavLink>
                 ))}
 
-                {playlists.map((pl) => {
-                  const isNowPlaying = currentTrack && pl.tracks.some((t) => t.id === currentTrack.id);
-                  return (
-                    <NavLink
-                      key={pl.id}
-                      to={`/playlist/${pl.id}`}
-                      className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
-                      activeClassName="bg-accent/60 text-foreground"
-                    >
-                      <div className="relative shrink-0">
-                        <img src={pl.coverUrl} alt={pl.title} className="w-10 h-10 rounded-md object-cover" />
-                        {isNowPlaying && (
-                          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card" style={{ background: `hsl(var(--dynamic-accent))` }} />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className={`font-semibold truncate text-sm ${isNowPlaying ? "" : "text-foreground"}`}
-                          style={isNowPlaying ? { color: `hsl(var(--dynamic-accent))` } : {}}>
-                          {pl.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">Playlist · {pl.tracks.length} songs</p>
-                      </div>
-                    </NavLink>
-                  );
-                })}
+                {/* Settings link */}
+                <NavLink
+                  to="/settings"
+                  className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
+                  activeClassName="bg-accent/60 text-foreground"
+                >
+                  <div className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center bg-white/5">
+                    <Settings className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate text-sm">Settings</p>
+                    <p className="text-xs text-muted-foreground truncate">Preferences & account</p>
+                  </div>
+                </NavLink>
               </>
             )}
 
