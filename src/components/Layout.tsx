@@ -69,7 +69,7 @@ export function Layout({ children }: React.PropsWithChildren) {
       {/* Main Content Area */}
       <div className="flex flex-1 min-h-0">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0 pr-2 pt-2 pb-0">
+        <div className="flex-1 flex flex-col min-w-0 pr-2 pt-2">
           <div className="flex-1 flex min-h-0">
             <div className="flex-1 bg-card/40 rounded-t-lg flex flex-col min-w-0 overflow-hidden">
               <TopBar />

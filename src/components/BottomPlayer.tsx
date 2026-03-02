@@ -8,7 +8,7 @@ import { formatDuration } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
-import { WaveformCanvas } from "@/components/WaveformCanvas";
+import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector";
 import { VolumeBar } from "@/components/VolumeBar";
 import { PlayerSettings } from "@/components/PlayerSettings";
 import { KeyboardShortcutsOverlay } from "@/components/KeyboardShortcutsOverlay";
@@ -22,7 +22,7 @@ interface BottomPlayerProps {
 export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
   const {
     currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading, radioMode,
-    togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, openRightPanel,
+    togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
   } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
@@ -80,11 +80,10 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
               variant="ghost" size="icon"
               className={`w-8 h-8 transition-colors ${shuffle ? "text-[hsl(var(--dynamic-accent))]" : "text-muted-foreground hover:text-foreground"}`}
               onClick={toggleShuffle}
-              aria-label={shuffle ? "Disable shuffle" : "Enable shuffle"}
             >
               <Shuffle className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground" onClick={previous} aria-label="Previous track">
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground" onClick={previous}>
               <SkipBack className="w-5 h-5 fill-current" />
             </Button>
             <Button
@@ -92,7 +91,6 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
               className="w-10 h-10 rounded-full bg-foreground/10 border border-foreground/20 text-foreground hover:bg-foreground/20 transition-all active:scale-95"
               onClick={togglePlay}
               disabled={isLoading && !isPlaying}
-              aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isLoading && !isPlaying ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -102,7 +100,7 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
                 <Play className="w-5 h-5 ml-0.5" />
               )}
             </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground" onClick={next} aria-label="Next track">
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground" onClick={next}>
               <SkipForward className="w-5 h-5 fill-current" />
             </Button>
             <Button
@@ -123,10 +121,10 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
             )}
             <PlayerSettings />
             <KeyboardShortcutsOverlay />
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openRightPanel("lyrics")} aria-label="Show lyrics">
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={toggleRightPanel}>
               <Mic2 className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openRightPanel("queue")} aria-label="Show queue">
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={toggleRightPanel}>
               <ListMusic className="w-4 h-4" />
             </Button>
             <Button
@@ -158,7 +156,7 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
               seek(pct * trackDuration);
             }}
           >
-            <WaveformCanvas />
+            <VisualizerSelector className="h-full" />
           </div>
           <span className="text-[11px] font-mono text-muted-foreground w-10 tabular-nums">
             {formatDuration(Math.floor(trackDuration))}

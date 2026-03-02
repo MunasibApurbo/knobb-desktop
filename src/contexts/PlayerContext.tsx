@@ -6,8 +6,6 @@ import { extractDominantColor } from "@/lib/colorExtractor";
 
 export type AudioQuality = "LOW" | "HIGH" | "LOSSLESS";
 
-export type RightPanelTab = "lyrics" | "queue";
-
 interface PlayerState {
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -18,7 +16,6 @@ interface PlayerState {
   repeat: "off" | "one" | "all";
   volume: number;
   showRightPanel: boolean;
-  rightPanelTab: RightPanelTab;
   isLoading: boolean;
   quality: AudioQuality;
   radioMode: boolean;
@@ -35,7 +32,6 @@ interface PlayerContextType extends PlayerState {
   toggleRepeat: () => void;
   setVolume: (v: number) => void;
   toggleRightPanel: () => void;
-  openRightPanel: (tab: RightPanelTab) => void;
   setQuality: (q: AudioQuality) => void;
   toggleRadioMode: () => void;
   setCrossfadeDuration: (s: number) => void;
@@ -56,7 +52,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     repeat: "off",
     volume: 0.75,
     showRightPanel: true,
-    rightPanelTab: "lyrics" as RightPanelTab,
     isLoading: false,
     quality: (localStorage.getItem("audio-quality") as AudioQuality) || "HIGH",
     radioMode: localStorage.getItem("radio-mode") === "true",
@@ -288,15 +283,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, showRightPanel: !prev.showRightPanel }));
   }, []);
 
-  const openRightPanel = useCallback((tab: RightPanelTab) => {
-    setState((prev) => {
-      if (prev.showRightPanel && prev.rightPanelTab === tab) {
-        return { ...prev, showRightPanel: false };
-      }
-      return { ...prev, showRightPanel: true, rightPanelTab: tab };
-    });
-  }, []);
-
   const setQuality = useCallback((q: AudioQuality) => {
     localStorage.setItem("audio-quality", q);
     setState((prev) => ({ ...prev, quality: q }));
@@ -336,7 +322,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       value={{
         ...state,
         play, togglePlay, next, previous, seek,
-        toggleShuffle, toggleRepeat, setVolume, toggleRightPanel, openRightPanel,
+        toggleShuffle, toggleRepeat, setVolume, toggleRightPanel,
         setQuality, toggleRadioMode, setCrossfadeDuration,
         reorderQueue, removeFromQueue,
       }}
