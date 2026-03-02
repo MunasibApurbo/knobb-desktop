@@ -24,11 +24,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type FilterType = "playlists" | "albums" | "artists";
-type SearchTab = "tidal" | "tracks" | "albums" | "playlists";
+type SearchTab = "all" | "tracks" | "artists" | "albums" | "playlists";
 
 const searchTabs: { key: SearchTab; label: string }[] = [
-  { key: "tidal", label: "Tidal" },
-  { key: "tracks", label: "Library" },
+  { key: "all", label: "All" },
+  { key: "tracks", label: "Songs" },
+  { key: "artists", label: "Artists" },
   { key: "albums", label: "Albums" },
   { key: "playlists", label: "Playlists" },
 ];
@@ -142,7 +143,7 @@ export function AppSidebar() {
                 value={query}
                 onChange={(e) => onQueryChange(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && searchTab === "tidal") handleSearch(query);
+                  if (e.key === "Enter") handleSearch(query);
                   if (e.key === "Escape") closeSearch();
                 }}
                 className="border-0 bg-transparent p-0 h-auto text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 min-w-0"
@@ -163,7 +164,7 @@ export function AppSidebar() {
             <FilterPill<SearchTab>
               options={searchTabs.map(t => ({ key: t.key, label: t.label }))}
               value={searchTab}
-              onChange={(v) => { setSearchTab(v); if (v === "tidal" && query) handleSearch(query); }}
+              onChange={(v) => { setSearchTab(v); }}
             />
             <ScrollArea className="flex-1 -mx-3">
               <SidebarSearchResults />
@@ -332,7 +333,7 @@ export function AppSidebar() {
 }
 
 function SidebarSearchResults() {
-  const { searchTab, tidalResults, isSearching, filteredTracks, filteredAlbums, filteredPlaylists, closeSearch, query } = useSearch();
+  const { searchTab, tidalTracks, tidalArtists, tidalAlbums, isSearching, filteredTracks, filteredAlbums, filteredPlaylists, closeSearch, query } = useSearch();
   const { currentTrack, play } = usePlayer();
   const navigate = useNavigate();
 
@@ -341,33 +342,114 @@ function SidebarSearchResults() {
     closeSearch();
   };
 
+  const q = query.toLowerCase();
+
+  // "All" tab shows a mix of everything
+  if (searchTab === "all") {
+    const hasQuery = q.length > 0;
+    if (!hasQuery && !isSearching) {
+      return (
+        <div className="text-center py-10 px-3">
+          <Search className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+          <p className="text-muted-foreground text-xs">Search songs, artists, albums...</p>
+        </div>
+      );
+    }
+    return (
+      <div className="px-3 space-y-3">
+        {/* Top Artists */}
+        {tidalArtists.length > 0 && (
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Artists</p>
+            {tidalArtists.slice(0, 3).map((artist) => (
+              <button key={artist.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`); closeSearch(); }}>
+                <div className="w-9 h-9 rounded-full bg-accent overflow-hidden shrink-0">
+                  {artist.imageUrl ? <img src={artist.imageUrl} alt={artist.name} className="w-full h-full object-cover" /> : <User className="w-4 h-4 m-2.5 text-muted-foreground" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold truncate">{artist.name}</p>
+                  <p className="text-[10px] text-muted-foreground">Artist</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Top Albums */}
+        {tidalAlbums.length > 0 && (
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Albums</p>
+            {tidalAlbums.slice(0, 3).map((album) => (
+              <button key={album.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/album/${album.id}`); closeSearch(); }}>
+                <img src={album.coverUrl} alt={album.title} className="w-9 h-9 rounded object-cover shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold truncate">{album.title}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{album.artist}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Songs */}
+        {tidalTracks.length > 0 && (
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Songs</p>
+            {tidalTracks.slice(0, 6).map((track) => (
+              <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, tidalTracks)} />
+            ))}
+          </div>
+        )}
+        {/* Local Playlists */}
+        {filteredPlaylists.length > 0 && (
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Playlists</p>
+            {filteredPlaylists.slice(0, 3).map((pl) => (
+              <button key={pl.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/playlist/${pl.id}`); closeSearch(); }}>
+                <img src={pl.coverUrl} alt={pl.title} className="w-9 h-9 rounded object-cover shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold truncate">{pl.title}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{pl.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {tidalTracks.length === 0 && tidalArtists.length === 0 && tidalAlbums.length === 0 && !isSearching && (
+          <p className="text-center text-muted-foreground text-xs py-10">No results found</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="px-3">
-      {searchTab === "tidal" && (
+      {searchTab === "tracks" && (
         <>
-          {tidalResults.length === 0 && !isSearching && (
-            <div className="text-center py-10">
-              <Search className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-muted-foreground text-xs">Search for songs, artists...</p>
-            </div>
-          )}
-          {tidalResults.map((track) => (
-            <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, tidalResults)} />
+          {tidalTracks.length === 0 && !isSearching && <p className="text-center text-muted-foreground text-xs py-10">No songs found</p>}
+          {tidalTracks.map((track) => (
+            <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, tidalTracks)} />
           ))}
         </>
       )}
-      {searchTab === "tracks" && (
+      {searchTab === "artists" && (
         <>
-          {filteredTracks.length === 0 && <p className="text-center text-muted-foreground text-xs py-10">No tracks found</p>}
-          {filteredTracks.map((track) => (
-            <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, filteredTracks)} />
+          {tidalArtists.length === 0 && !isSearching && <p className="text-center text-muted-foreground text-xs py-10">No artists found</p>}
+          {tidalArtists.map((artist) => (
+            <button key={artist.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`); closeSearch(); }}>
+              <div className="w-9 h-9 rounded-full bg-accent overflow-hidden shrink-0">
+                {artist.imageUrl ? <img src={artist.imageUrl} alt={artist.name} className="w-full h-full object-cover" /> : <User className="w-4 h-4 m-2.5 text-muted-foreground" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold truncate">{artist.name}</p>
+                <p className="text-[10px] text-muted-foreground">Artist</p>
+              </div>
+            </button>
           ))}
         </>
       )}
       {searchTab === "albums" && (
         <>
-          {filteredAlbums.length === 0 && <p className="text-center text-muted-foreground text-xs py-10">No albums found</p>}
-          {filteredAlbums.map((album) => (
+          {tidalAlbums.length === 0 && !isSearching && <p className="text-center text-muted-foreground text-xs py-10">No albums found</p>}
+          {tidalAlbums.map((album) => (
             <button key={album.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/album/${album.id}`); closeSearch(); }}>
               <img src={album.coverUrl} alt={album.title} className="w-9 h-9 rounded object-cover shrink-0" />
               <div className="min-w-0">
