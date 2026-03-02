@@ -73,7 +73,7 @@ export function Layout({ children }: React.PropsWithChildren) {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="absolute inset-0 bg-background/75" />
+        <div className="absolute inset-0 bg-background/70" />
       </div>
 
       {/* Main Content Area */}
@@ -83,7 +83,7 @@ export function Layout({ children }: React.PropsWithChildren) {
 
         <div className="flex-1 flex flex-col min-w-0 md:pr-2 md:pt-2">
           <div className="flex-1 flex min-h-0">
-            <div className="flex-1 bg-card/40 md:rounded-t-lg flex flex-col min-w-0 overflow-hidden">
+            <div className="flex-1 bg-card/50 backdrop-blur-sm md:rounded-t-lg flex flex-col min-w-0 overflow-hidden border border-border/10">
               <TopBar />
               <ScrollArea className="flex-1" ref={scrollRef}>
                 <main className="px-4 md:px-6 pb-8">

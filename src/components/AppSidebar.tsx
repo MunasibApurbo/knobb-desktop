@@ -59,7 +59,7 @@ export function AppSidebar() {
       </button>
 
       {/* Library Card */}
-      <div className="flex-1 bg-card rounded-lg flex flex-col min-h-0">
+      <div className="flex-1 bg-card/80 backdrop-blur-md rounded-lg flex flex-col min-h-0 border border-border/10">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <button
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
