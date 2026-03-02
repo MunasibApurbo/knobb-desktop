@@ -20,7 +20,6 @@ type FilterType = "playlists" | "albums" | "artists";
 const mainNav = [
   { title: "Home", url: "/", icon: Home },
   { title: "Browse", url: "/genre", icon: Compass },
-  { title: "History", url: "/history", icon: Clock },
 ];
 
 export function AppSidebar() {
@@ -197,50 +196,7 @@ export function AppSidebar() {
           </div>
         </ScrollArea>
 
-        {/* Auth + Now Playing */}
-        <div className="px-2 pb-2 space-y-2">
-          {/* Auth button */}
-          {user ? (
-            <button
-              onClick={() => signOut()}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all"
-            >
-              <User className="w-5 h-5" />
-              <span className="truncate flex-1 text-left text-xs">{user.email}</span>
-              <LogOut className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={() => navigate("/auth")}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all"
-            >
-              <LogIn className="w-5 h-5" />
-              <span className="text-xs font-semibold">Sign in</span>
-            </button>
-          )}
-
-          {/* Now Playing Mini */}
-          <AnimatePresence>
-            {currentTrack && (
-              <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                className="relative rounded-lg overflow-hidden"
-              >
-                <img src={currentTrack.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-50" />
-                <div className="absolute inset-0 bg-background/60" />
-                <div className="relative flex items-center gap-3 p-3">
-                  <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-10 h-10 rounded object-cover" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-foreground truncate">{currentTrack.title}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{currentTrack.artist}</p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+      
       </div>
 
       {/* Create Playlist Dialog */}
