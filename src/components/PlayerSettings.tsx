@@ -44,7 +44,7 @@ function CollapsibleSection({
           {label}
           {badge}
         </span>
-        <span className={`transition-all duration-200 ease-out ${expanded ? "opacity-100 rotate-90" : "opacity-0 group-hover:opacity-100 translate-x-1 group-hover:translate-x-0"}`}>
+        <span className={`transition-all duration-200 ease-out ${expanded ? "rotate-90" : ""}`}>
           <ChevronRight className="w-3 h-3" />
         </span>
       </button>
