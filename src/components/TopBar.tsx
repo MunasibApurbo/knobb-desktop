@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, User, Search, Loader2, Play, X, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Search, Loader2, Play, X, Settings, History, Bell, LogIn, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,13 +11,20 @@ import { searchTracks, tidalTrackToAppTrack } from "@/lib/monochromeApi";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FilterPill } from "@/components/ui/filter-pill";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type TabType = "tidal" | "tracks" | "albums" | "playlists";
 
 export function TopBar() {
   const navigate = useNavigate();
   const { currentTrack, play } = usePlayer();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const isMobile = useIsMobile();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -238,19 +245,43 @@ export function TopBar() {
 
       {/* Right actions */}
       <div className="flex items-center gap-1 md:gap-2">
-        <button
-          className="flex items-center gap-2 rounded-full bg-background/60 hover:bg-background/80 transition-colors p-1 pr-2 md:pr-3"
-          onClick={() => user ? navigate("/history") : navigate("/auth")}
-        >
-          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center">
-            <User className="w-4 h-4 text-foreground" />
-          </div>
-          {!isMobile && (
-            <span className="text-sm font-semibold text-foreground">
-              {user ? "Account" : "Sign in"}
-            </span>
-          )}
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2 rounded-full bg-background/60 hover:bg-background/80 transition-colors p-1 pr-2 md:pr-3">
+              <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center">
+                <User className="w-4 h-4 text-foreground" />
+              </div>
+              {!isMobile && (
+                <span className="text-sm font-semibold text-foreground">
+                  {user ? "Account" : "Menu"}
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {user ? (
+              <>
+                <DropdownMenuItem onClick={() => navigate("/history")}>
+                  <User className="w-4 h-4 mr-2" /> Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/history")}>
+                  <History className="w-4 h-4 mr-2" /> History
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/liked")}>
+                  <Bell className="w-4 h-4 mr-2" /> Notifications
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => { signOut(); }}>
+                  <LogOut className="w-4 h-4 mr-2" /> Sign out
+                </DropdownMenuItem>
+              </>
+            ) : (
+              <DropdownMenuItem onClick={() => navigate("/auth")}>
+                <LogIn className="w-4 h-4 mr-2" /> Sign in
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
