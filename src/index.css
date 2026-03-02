@@ -32,7 +32,8 @@
     --input: 225 15% 20%;
     --ring: 215 20% 65%;
 
-    --radius: 0.75rem;
+    /* SHARP — no rounding */
+    --radius: 0px;
 
     /* Glassmorphic tokens */
     --glass-bg: 225 20% 12% / 0.6;
@@ -91,13 +92,14 @@
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     border: 1px solid hsl(var(--glass-border));
-    border-radius: var(--radius);
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .glass-card:hover {
     background: hsl(225 20% 15% / 0.7);
     border-color: hsl(225 15% 35% / 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px hsl(var(--dynamic-accent-glow));
   }
 
   .accent-glow {
@@ -111,5 +113,57 @@
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Smooth page transition wrapper */
+  .page-enter {
+    animation: pageSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes pageSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Stagger children animation */
+  .stagger-children > * {
+    opacity: 0;
+    animation: staggerFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+  .stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+  .stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+  @keyframes staggerFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Active lyric glow */
+  .lyric-active {
+    text-shadow: 0 0 20px hsl(var(--dynamic-accent-glow));
+  }
+
+  /* Waveform seekbar hover */
+  .seekbar-hover:hover {
+    transform: scaleY(1.15);
   }
 }

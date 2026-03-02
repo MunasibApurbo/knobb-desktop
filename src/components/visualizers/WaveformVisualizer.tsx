@@ -5,7 +5,17 @@ import { usePlayer } from "@/contexts/PlayerContext";
 export function WaveformVisualizer({ className = "" }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
+  const barsRef = useRef<number[]>([]);
   const { isPlaying, currentTime, currentTrack } = usePlayer();
+
+  // Generate static bar heights per track
+  useEffect(() => {
+    const bars: number[] = [];
+    for (let i = 0; i < 120; i++) {
+      bars.push(0.12 + Math.random() * 0.88);
+    }
+    barsRef.current = bars;
+  }, [currentTrack?.id]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -25,73 +35,55 @@ export function WaveformVisualizer({ className = "" }: { className?: string }) {
     ctx.clearRect(0, 0, w, h);
 
     const engine = getAudioEngine();
-    const timeDomain = engine.getTimeDomainData();
+    const freqData = engine.getFrequencyData();
     const accentHsl = getComputedStyle(document.documentElement)
       .getPropertyValue("--player-waveform")
       .trim();
 
     const duration = engine.duration || currentTrack.duration;
     const progress = duration > 0 ? currentTime / duration : 0;
-    const progressX = progress * w;
 
-    // Draw waveform from time domain data
-    if (timeDomain.length > 0 && isPlaying) {
-      // Played section
-      ctx.beginPath();
-      ctx.strokeStyle = `hsl(${accentHsl})`;
-      ctx.lineWidth = 2;
-      for (let i = 0; i < timeDomain.length; i++) {
-        const x = (i / timeDomain.length) * w;
-        if (x > progressX) break;
-        const v = timeDomain[i] / 128.0;
-        const y = (v * h) / 2;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+    const bars = barsRef.current;
+    const barCount = bars.length;
+    const gap = 1;
+    const barWidth = (w - gap * (barCount - 1)) / barCount;
+
+    for (let i = 0; i < barCount; i++) {
+      const x = i * (barWidth + gap);
+      
+      // Modulate bar height with frequency data when playing
+      let barHeight = bars[i];
+      if (isPlaying && freqData.length > 0) {
+        const freqIdx = Math.floor((i / barCount) * freqData.length * 0.5);
+        const freqInfluence = (freqData[freqIdx] || 0) / 255;
+        barHeight = bars[i] * 0.5 + freqInfluence * 0.5;
       }
-      ctx.stroke();
 
-      // Unplayed section
-      ctx.beginPath();
-      ctx.strokeStyle = `hsl(${accentHsl} / 0.25)`;
-      ctx.lineWidth = 2;
-      let started = false;
-      for (let i = 0; i < timeDomain.length; i++) {
-        const x = (i / timeDomain.length) * w;
-        if (x < progressX) continue;
-        const v = timeDomain[i] / 128.0;
-        const y = (v * h) / 2;
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else {
-          ctx.lineTo(x, y);
-        }
+      const barH = barHeight * h * 0.9;
+      const y = (h - barH) / 2;
+      const played = i / barCount <= progress;
+
+      if (played) {
+        ctx.fillStyle = `hsl(${accentHsl})`;
+      } else {
+        ctx.fillStyle = `hsl(${accentHsl} / 0.18)`;
       }
-      ctx.stroke();
-    } else {
-      // Static bars when paused
-      const barCount = 80;
-      const barWidth = w / barCount - 1;
 
-      for (let i = 0; i < barCount; i++) {
-        const x = i * (barWidth + 1);
-        const barH = (0.15 + Math.sin(i * 0.3 + currentTime * 0.1) * 0.35 + 0.35) * h * 0.85;
-        const y = (h - barH) / 2;
-        const played = i / barCount < progress;
-
-        ctx.fillStyle = played ? `hsl(${accentHsl})` : `hsl(${accentHsl} / 0.25)`;
-        ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barH, 1);
-        ctx.fill();
-      }
+      // Sharp rectangles — no rounding
+      ctx.fillRect(x, y, barWidth, barH);
     }
 
-    // Playhead
+    // Playhead line
     if (progress > 0 && progress < 1) {
+      const px = progress * w;
       ctx.fillStyle = `hsl(${accentHsl})`;
-      ctx.beginPath();
-      ctx.arc(progressX, h / 2, 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(px - 1, 0, 2, h);
+      
+      // Playhead glow
+      ctx.shadowColor = `hsl(${accentHsl})`;
+      ctx.shadowBlur = 8;
+      ctx.fillRect(px - 1, 0, 2, h);
+      ctx.shadowBlur = 0;
     }
 
     animationRef.current = requestAnimationFrame(draw);
@@ -107,7 +99,7 @@ export function WaveformVisualizer({ className = "" }: { className?: string }) {
   return (
     <canvas
       ref={canvasRef}
-      className={`w-full h-full ${className}`}
+      className={`w-full h-full seekbar-hover transition-transform duration-200 ${className}`}
       style={{ display: "block" }}
     />
   );
