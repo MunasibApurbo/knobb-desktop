@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector";
+import { VolumeBar } from "@/components/VolumeBar";
 
 export function BottomPlayer() {
   const {
@@ -111,12 +112,10 @@ export function BottomPlayer() {
             >
               {volume === 0 ? <VolumeX className="w-4 h-4" /> : volume < 0.5 ? <Volume1 className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </Button>
-            <Slider
-              value={[volume * 100]}
-              onValueChange={([v]) => setVolume(v / 100)}
-              max={100}
-              step={1}
-              className="w-24"
+            <VolumeBar
+              volume={volume}
+              onChange={setVolume}
+              className="w-28"
             />
           </div>
         </div>
