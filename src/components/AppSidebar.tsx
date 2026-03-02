@@ -1,8 +1,9 @@
-import { Home, Search, Library, Heart, Plus, Music } from "lucide-react";
+import { Home, Library, Heart, Plus, Music, Compass } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { playlists, albums } from "@/data/mockData";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,11 +12,13 @@ type FilterType = "playlists" | "albums" | "artists";
 
 const mainNav = [
   { title: "Home", url: "/", icon: Home },
+  { title: "Browse", url: "/genre", icon: Compass },
 ];
 
 export function AppSidebar() {
   const [filter, setFilter] = useState<FilterType>("playlists");
   const { currentTrack } = usePlayer();
+  const { likedSongs } = useLikedSongs();
   const navigate = useNavigate();
 
   const filters: { key: FilterType; label: string }[] = [
@@ -46,7 +49,6 @@ export function AppSidebar() {
 
       {/* Library Card */}
       <div className="flex-1 bg-card rounded-lg flex flex-col min-h-0">
-        {/* Library Header */}
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <button
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
@@ -77,12 +79,11 @@ export function AppSidebar() {
           ))}
         </div>
 
-        {/* Playlist/Album/Artist List */}
         <ScrollArea className="flex-1 px-2">
           <div className="space-y-0.5 pb-4">
             {filter === "playlists" && (
               <>
-                {/* Liked Songs special entry */}
+                {/* Liked Songs */}
                 <NavLink
                   to="/liked"
                   className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
@@ -94,7 +95,7 @@ export function AppSidebar() {
                   </div>
                   <div className="min-w-0">
                     <p className="font-semibold text-foreground truncate text-sm">Liked Songs</p>
-                    <p className="text-xs text-muted-foreground truncate">Playlist · 0 songs</p>
+                    <p className="text-xs text-muted-foreground truncate">Playlist · {likedSongs.length} songs</p>
                   </div>
                 </NavLink>
                 {playlists.map((pl) => (
@@ -104,11 +105,7 @@ export function AppSidebar() {
                     className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
                     activeClassName="bg-accent/60 text-foreground"
                   >
-                    <img
-                      src={pl.coverUrl}
-                      alt={pl.title}
-                      className="w-12 h-12 rounded-md object-cover shrink-0"
-                    />
+                    <img src={pl.coverUrl} alt={pl.title} className="w-12 h-12 rounded-md object-cover shrink-0" />
                     <div className="min-w-0">
                       <p className="font-semibold text-foreground truncate text-sm">{pl.title}</p>
                       <p className="text-xs text-muted-foreground truncate">Playlist · {pl.tracks.length} songs</p>
@@ -118,28 +115,20 @@ export function AppSidebar() {
               </>
             )}
 
-            {filter === "albums" && (
-              <>
-                {albums.map((album) => (
-                  <NavLink
-                    key={album.id}
-                    to={`/album/${album.id}`}
-                    className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
-                    activeClassName="bg-accent/60 text-foreground"
-                  >
-                    <img
-                      src={album.coverUrl}
-                      alt={album.title}
-                      className="w-12 h-12 rounded-md object-cover shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-foreground truncate text-sm">{album.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">Album · {album.artist}</p>
-                    </div>
-                  </NavLink>
-                ))}
-              </>
-            )}
+            {filter === "albums" && albums.map((album) => (
+              <NavLink
+                key={album.id}
+                to={`/album/${album.id}`}
+                className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
+                activeClassName="bg-accent/60 text-foreground"
+              >
+                <img src={album.coverUrl} alt={album.title} className="w-12 h-12 rounded-md object-cover shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground truncate text-sm">{album.title}</p>
+                  <p className="text-xs text-muted-foreground truncate">Album · {album.artist}</p>
+                </div>
+              </NavLink>
+            ))}
 
             {filter === "artists" && (
               <>
@@ -151,11 +140,7 @@ export function AppSidebar() {
                       onClick={() => navigate(`/search?q=${encodeURIComponent(artist)}`)}
                       className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group w-full text-left"
                     >
-                      <img
-                        src={album.coverUrl}
-                        alt={artist}
-                        className="w-12 h-12 rounded-full object-cover shrink-0"
-                      />
+                      <img src={album.coverUrl} alt={artist} className="w-12 h-12 rounded-full object-cover shrink-0" />
                       <div className="min-w-0">
                         <p className="font-semibold text-foreground truncate text-sm">{artist}</p>
                         <p className="text-xs text-muted-foreground truncate">Artist</p>
@@ -168,7 +153,7 @@ export function AppSidebar() {
           </div>
         </ScrollArea>
 
-        {/* Now Playing Mini - Dribbblish style */}
+        {/* Now Playing Mini */}
         <AnimatePresence>
           {currentTrack && (
             <motion.div
@@ -177,18 +162,10 @@ export function AppSidebar() {
               exit={{ y: 20, opacity: 0 }}
               className="relative mx-2 mb-2 rounded-lg overflow-hidden"
             >
-              <img
-                src={currentTrack.coverUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-50"
-              />
+              <img src={currentTrack.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-50" />
               <div className="absolute inset-0 bg-background/60" />
               <div className="relative flex items-center gap-3 p-3">
-                <img
-                  src={currentTrack.coverUrl}
-                  alt={currentTrack.title}
-                  className="w-10 h-10 rounded object-cover"
-                />
+                <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-10 h-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold text-foreground truncate">{currentTrack.title}</p>
                   <p className="text-[10px] text-muted-foreground truncate">{currentTrack.artist}</p>

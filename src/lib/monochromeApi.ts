@@ -22,6 +22,25 @@ export interface TidalTrack {
   peak: number;
 }
 
+export interface TidalArtist {
+  id: number;
+  name: string;
+  picture: string | null;
+  popularity: number;
+  url: string;
+}
+
+export interface TidalAlbum {
+  id: number;
+  title: string;
+  cover: string;
+  vibrantColor: string | null;
+  releaseDate?: string;
+  numberOfTracks?: number;
+  artist?: { id: number; name: string };
+  artists?: { id: number; name: string }[];
+}
+
 export interface TidalSearchResult {
   version: string;
   data: {
@@ -79,8 +98,18 @@ export async function searchTracks(query: string, limit = 25): Promise<TidalTrac
   return result?.data?.items || [];
 }
 
-export async function searchArtists(query: string): Promise<any[]> {
+export async function searchArtists(query: string): Promise<TidalArtist[]> {
   const result = await proxyRequest("search", { a: query });
+  return result?.data?.items || [];
+}
+
+export async function getArtistTopTracks(artistId: number, limit = 20): Promise<TidalTrack[]> {
+  const result = await proxyRequest("artist/top", { id: String(artistId), limit: String(limit) });
+  return result?.data?.items || [];
+}
+
+export async function getArtistAlbums(artistId: number): Promise<TidalAlbum[]> {
+  const result = await proxyRequest("artist/albums", { id: String(artistId) });
   return result?.data?.items || [];
 }
 
@@ -100,13 +129,12 @@ export async function getStreamUrl(trackId: number, quality = "HIGH"): Promise<s
     return manifest.urls[0];
   }
 
-  // Fallback: try to decode manifest client-side
   if (result?.data?.manifest) {
     try {
       const decoded = JSON.parse(atob(result.data.manifest));
       if (decoded.urls?.[0]) return decoded.urls[0];
     } catch {
-      // Might be DASH XML, not supported for direct playback
+      // Might be DASH XML
     }
   }
 
