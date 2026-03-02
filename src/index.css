@@ -142,93 +142,78 @@
   .beautiful-lyrics-content {
     display: flex;
     flex-direction: column;
+    gap: 0.6em;
   }
 
   .beautiful-lyrics-line {
-    /* CSS variable defaults */
-    --gradient-progress: 0%;
-    --text-shadow-blur: 4px;
-    --text-shadow-opacity: 0;
-    --line-opacity: 0.51;
+    --line-opacity: 0.4;
     --line-scale: 1;
     --text-blur: 0px;
 
     display: flex;
     flex-wrap: wrap;
     cursor: pointer;
-    padding: 4px 0;
+    padding: 2px 0;
     transform-origin: left center;
     opacity: var(--line-opacity);
     transform: scale(var(--line-scale));
-    transition: opacity 0.25s cubic-bezier(0.61, 1, 0.88, 1),
-                transform 0.1s cubic-bezier(0.37, 0, 0.63, 1);
-    will-change: transform, opacity;
+    filter: blur(var(--text-blur));
+    transition: opacity 0.35s cubic-bezier(0.25, 1, 0.5, 1),
+                transform 0.25s cubic-bezier(0.25, 1, 0.5, 1),
+                filter 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    will-change: transform, opacity, filter;
   }
 
   .beautiful-lyrics-text {
-    position: relative;
-    font-size: clamp(1.5rem, 4vw, 2.2rem);
-    font-weight: 800;
+    font-size: clamp(1.4rem, 3.5vw, 2rem);
+    font-weight: 700;
     font-family: 'Montserrat', 'Inter', sans-serif;
-    line-height: 1.2;
+    line-height: 1.25;
     letter-spacing: -0.01em;
     white-space: pre-wrap;
-
-    /* All text uses background-clip:text for consistent rendering */
-    -webkit-text-fill-color: transparent;
-    -webkit-background-clip: text;
-    background-clip: text;
-
-    /* Default: solid white at controlled alpha */
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.5) var(--gradient-progress),
-      rgba(255, 255, 255, 0.5) calc(var(--gradient-progress) + 20%)
-    );
-
-    /* Blur for upcoming lines */
-    text-shadow: 0 0 var(--text-blur) rgba(255, 255, 255, 0.5);
+    color: hsl(var(--foreground));
   }
 
-  /* Active state: bright gradient sweep + glow */
+  /* Active: solid white, large, no blur */
+  .beautiful-lyrics-line[data-state="active"] {
+    --line-opacity: 1;
+    --line-scale: 1;
+    --text-blur: 0px;
+  }
+
   .beautiful-lyrics-line[data-state="active"] .beautiful-lyrics-text {
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.92) var(--gradient-progress),
-      rgba(255, 255, 255, 0.45) calc(var(--gradient-progress) + 15%)
-    );
-    text-shadow: 0 0 var(--text-shadow-blur) rgba(255, 255, 255, var(--text-shadow-opacity));
+    font-weight: 800;
   }
 
-  /* Sung state: consistent alpha, no blur */
-  .beautiful-lyrics-line[data-state="sung"] .beautiful-lyrics-text {
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.85) 100%,
-      rgba(255, 255, 255, 0.85) 100%
-    );
-    text-shadow: 0 0 var(--text-blur) rgba(255, 255, 255, 0.85);
+  /* Sung: dimmed, sharp */
+  .beautiful-lyrics-line[data-state="sung"] {
+    --line-opacity: 0.35;
+    --line-scale: 1;
+    --text-blur: 0px;
+  }
+
+  /* Idle/upcoming: dimmed + blurred */
+  .beautiful-lyrics-line[data-state="idle"] {
+    --line-opacity: 0.35;
+    --text-blur: 2.5px;
   }
 
   /* Hover: remove blur, brighten */
-  .beautiful-lyrics-line:hover .beautiful-lyrics-text {
-    --text-blur: 0px !important;
-  }
   .beautiful-lyrics-line:hover {
-    --line-opacity: 1 !important;
+    --line-opacity: 0.8 !important;
+    --text-blur: 0px !important;
   }
 
   /* Interlude dots */
   .beautiful-lyrics-interlude {
     display: flex;
     gap: clamp(0.3rem, 1.7vw, 0.8rem);
-    padding: 12px 0;
+    padding: 8px 0;
     padding-left: calc(clamp(0.3rem, 1.7vw, 0.8rem) * 1.1);
-    opacity: 0.3;
+    opacity: 0.25;
     transition: opacity 0.4s ease;
   }
 
-  .beautiful-lyrics-line[data-state="active"] ~ .beautiful-lyrics-interlude,
   .beautiful-lyrics-interlude[data-state="active"] {
     opacity: 1;
   }
@@ -238,7 +223,7 @@
     width: calc(clamp(0.3rem, 1.7vw, 0.8rem) * 1.75);
     height: calc(clamp(0.3rem, 1.7vw, 0.8rem) * 1.75);
     border-radius: 100rem;
-    background-color: rgba(255, 255, 255, 0.85);
+    background-color: hsl(var(--foreground) / 0.85);
     will-change: transform;
   }
 
