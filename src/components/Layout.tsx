@@ -5,7 +5,9 @@ import { RightPanel } from "@/components/RightPanel";
 import { FullScreenPlayer } from "@/components/FullScreenPlayer";
 import { MiniPlayer } from "@/components/MiniPlayer";
 import { MobileNav } from "@/components/MobileNav";
+import { SearchOverlay } from "@/components/SearchOverlay";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useSearch } from "@/contexts/SearchContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AnimatePresence, motion } from "framer-motion";
@@ -17,6 +19,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
+  const { searchOpen } = useSearch();
   const location = useLocation();
   const isMobile = useIsMobile();
   useKeyboardShortcuts();
@@ -89,8 +92,9 @@ export function Layout({ children }: React.PropsWithChildren) {
 
             {/* Center Content */}
             <ResizablePanel defaultSize={showRightPanel ? 64 : 82} minSize={40} className="pt-2 pr-2">
-              <div className="flex h-full min-h-0">
-                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <div className="relative flex h-full min-h-0">
+                {/* Page content */}
+                <div className={`flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300 ${searchOpen ? "blur-md opacity-30 pointer-events-none" : ""}`}>
                   <TopBar />
                   <ScrollArea className="flex-1" ref={scrollRef}>
                     <main className="px-4 md:px-6 pb-8">
@@ -98,6 +102,8 @@ export function Layout({ children }: React.PropsWithChildren) {
                     </main>
                   </ScrollArea>
                 </div>
+                {/* Search overlay expands over center content */}
+                <SearchOverlay />
               </div>
             </ResizablePanel>
 
