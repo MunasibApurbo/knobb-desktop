@@ -3,6 +3,7 @@ import {
   Volume2, VolumeX, Volume1, ListMusic, Heart, Mic2, Maximize2, Loader2
 } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { formatDuration } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -14,6 +15,7 @@ export function BottomPlayer() {
     currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading,
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
   } = usePlayer();
+  const { isLiked, toggleLike } = useLikedSongs();
 
   if (!currentTrack) return null;
 
@@ -47,8 +49,12 @@ export function BottomPlayer() {
               <p className="text-sm font-semibold truncate text-foreground">{currentTrack.title}</p>
               <p className="text-xs text-muted-foreground truncate">{currentTrack.artist}</p>
             </div>
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground shrink-0">
-              <Heart className="w-4 h-4" />
+            <Button
+              variant="ghost" size="icon"
+              className="w-8 h-8 shrink-0"
+              onClick={() => toggleLike(currentTrack)}
+            >
+              <Heart className={`w-4 h-4 transition-colors ${isLiked(currentTrack.id) ? "text-[hsl(var(--dynamic-accent))] fill-current" : "text-muted-foreground hover:text-foreground"}`} />
             </Button>
           </div>
 

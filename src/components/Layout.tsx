@@ -6,14 +6,16 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { currentTrack, showRightPanel } = usePlayer();
   const location = useLocation();
+  useKeyboardShortcuts();
 
   return (
     <div className="h-screen w-screen flex flex-col relative overflow-hidden bg-background">
-      {/* Dynamic blurred background — Dribbblish style: large album art behind everything */}
+      {/* Dynamic blurred background */}
       <div className="fixed inset-0 -z-10">
         <AnimatePresence mode="wait">
           {currentTrack && (
@@ -48,7 +50,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pr-2 pt-2">
           <div className="flex-1 flex min-h-0">
-            {/* Center content */}
             <div className="flex-1 bg-card/40 rounded-t-lg flex flex-col min-w-0 overflow-hidden">
               <TopBar />
               <ScrollArea className="flex-1">
@@ -66,14 +67,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </AnimatePresence>
               </ScrollArea>
             </div>
-
-            {/* Right Panel */}
             <RightPanel />
           </div>
         </div>
       </div>
 
-      {/* Bottom Player */}
       <BottomPlayer />
     </div>
   );

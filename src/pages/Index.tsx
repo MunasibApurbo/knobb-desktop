@@ -70,7 +70,7 @@ function TrackCard({ track, tracks, index }: { track: Track; tracks: Track[]; in
   );
 }
 
-function ArtistCircle({ name, picture, onClick }: { name: string; picture: string; onClick: () => void }) {
+function ArtistCircle({ id, name, picture, onClick }: { id: number; name: string; picture: string; onClick: () => void }) {
   return (
     <motion.div
       variants={fadeUp}
@@ -107,7 +107,7 @@ const Index = () => {
   const [popTracks, setPopTracks] = useState<Track[]>([]);
   const [electronicTracks, setElectronicTracks] = useState<Track[]>([]);
   const [hipHopTracks, setHipHopTracks] = useState<Track[]>([]);
-  const [artists, setArtists] = useState<{ name: string; picture: string }[]>([]);
+  const [artists, setArtists] = useState<{ id: number; name: string; picture: string }[]>([]);
   const [loaded, setLoaded] = useState(false);
   const fetchedRef = useRef(false);
 
@@ -130,10 +130,10 @@ const Index = () => {
           try {
             const results = await searchArtists(q);
             if (results.length > 0) {
-              return { name: results[0].name, picture: results[0].picture ? getTidalImageUrl(results[0].picture, "320x320") : "" };
+              return { id: results[0].id, name: results[0].name, picture: results[0].picture ? getTidalImageUrl(results[0].picture, "320x320") : "" };
             }
           } catch { }
-          return { name: q, picture: "" };
+          return { id: 0, name: q, picture: "" };
         })
       );
       setArtists(artistResults);
@@ -213,9 +213,10 @@ const Index = () => {
         {artists.map((artist, i) => (
           <ArtistCircle
             key={`${artist.name}-${i}`}
+            id={artist.id}
             name={artist.name}
             picture={artist.picture}
-            onClick={() => navigate(`/search?q=${encodeURIComponent(artist.name)}`)}
+            onClick={() => navigate(`/artist/${artist.id}`)}
           />
         ))}
       </motion.div>
