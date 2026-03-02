@@ -104,7 +104,7 @@ export function Layout({ children }: React.PropsWithChildren) {
             <ResizablePanel
               ref={sidebarPanelRef}
               defaultSize={18}
-              minSize={4}
+              minSize={12}
               maxSize={30}
               collapsible
               collapsedSize={4}
