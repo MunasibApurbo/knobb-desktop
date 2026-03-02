@@ -5,6 +5,7 @@ import { getLyrics, TidalLyricLine } from "@/lib/monochromeApi";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ArtistLink } from "@/components/ArtistLink";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -201,7 +202,7 @@ export function RightPanel() {
                 <img src={currentTrack.coverUrl} alt="" className="w-10 h-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold truncate" style={{ color: `hsl(var(--dynamic-accent))` }}>{currentTrack.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">{currentTrack.artist}</p>
+                  <p className="text-xs text-muted-foreground truncate"><ArtistLink name={currentTrack.artist} artistId={currentTrack.artistId} className="text-xs" /></p>
                 </div>
                 <span className="text-xs text-muted-foreground font-mono">{formatDuration(currentTrack.duration)}</span>
               </div>
@@ -221,7 +222,7 @@ export function RightPanel() {
                       <img src={track.coverUrl} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm truncate text-foreground">{track.title}</p>
-                        <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+                        <p className="text-xs text-muted-foreground truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-xs" /></p>
                       </div>
                       <span className="text-xs text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
                     </button>
