@@ -15,7 +15,14 @@ import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, createContext, useContext } from "react";
+
+interface SidebarContextType {
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
+}
+const SidebarContext = createContext<SidebarContextType>({ collapsed: false, setCollapsed: () => {} });
+export function useSidebarCollapsed() { return useContext(SidebarContext); }
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
@@ -26,6 +33,7 @@ export function Layout({ children }: React.PropsWithChildren) {
   usePlayHistoryRecorder();
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [miniPlayerVisible, setMiniPlayerVisible] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top on route change
@@ -49,6 +57,7 @@ export function Layout({ children }: React.PropsWithChildren) {
   }, []);
 
   return (
+    <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
     <div className="h-screen w-screen flex flex-col relative overflow-hidden">
       {/* Dynamic blurred background from current track artwork */}
       <div className="fixed inset-0 z-0 bg-background">
@@ -85,7 +94,16 @@ export function Layout({ children }: React.PropsWithChildren) {
         {!isMobile ? (
           <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Left Sidebar */}
-            <ResizablePanel defaultSize={18} minSize={4} maxSize={30} collapsible collapsedSize={0} className="py-2 pl-2">
+            <ResizablePanel
+              defaultSize={18}
+              minSize={4}
+              maxSize={30}
+              collapsible
+              collapsedSize={4}
+              onCollapse={() => setSidebarCollapsed(true)}
+              onExpand={() => setSidebarCollapsed(false)}
+              className="py-2 pl-2"
+            >
               <AppSidebar />
             </ResizablePanel>
             <ResizableHandle className="w-1 bg-transparent hover:bg-white/10 transition-colors" />
@@ -136,5 +154,6 @@ export function Layout({ children }: React.PropsWithChildren) {
       {/* Mini player (PiP) - desktop only */}
       {!isMobile && <MiniPlayer visible={miniPlayerVisible} onExpand={openFullScreen} onClose={closeMiniPlayer} />}
     </div>
+    </SidebarContext.Provider>
   );
 }
