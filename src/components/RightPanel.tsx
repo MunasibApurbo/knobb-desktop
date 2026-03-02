@@ -10,7 +10,7 @@ export function RightPanel() {
   const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying } = usePlayer();
   const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
 
-  const activeLyricIdx = mockLyrics.reduce((acc, l, i) => (currentTime >= l.time ? i : acc), 0);
+  const activeLyricIdx = currentTrack ? mockLyrics.reduce((acc, l, i) => (currentTime >= l.time ? i : acc), 0) : 0;
 
   // Auto-scroll to active lyric
   useEffect(() => {
