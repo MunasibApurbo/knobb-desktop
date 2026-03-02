@@ -12,14 +12,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
-type TabType = "lyrics" | "queue";
+import { RightPanelTab } from "@/contexts/PlayerContext";
 
 export function RightPanel() {
-  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play, reorderQueue, removeFromQueue, seek } = usePlayer();
+  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play, reorderQueue, removeFromQueue, seek, rightPanelTab, openRightPanel } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
   const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]); // kept for queue drag refs
-  const [tab, setTab] = useState<TabType>("lyrics");
+  const tab = rightPanelTab;
   const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const lastLyricsTrackRef = useRef<string | null>(null);
@@ -124,7 +124,7 @@ export function RightPanel() {
           {/* Tabs */}
           <div className="flex gap-1 px-5 pb-2">
             <button
-              onClick={() => setTab("lyrics")}
+              onClick={() => openRightPanel("lyrics")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 tab === "lyrics" ? "bg-foreground text-background" : "bg-accent text-muted-foreground hover:bg-accent/80"
               }`}
@@ -133,7 +133,7 @@ export function RightPanel() {
               Lyrics
             </button>
             <button
-              onClick={() => setTab("queue")}
+              onClick={() => openRightPanel("queue")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 tab === "queue" ? "bg-foreground text-background" : "bg-accent text-muted-foreground hover:bg-accent/80"
               }`}
