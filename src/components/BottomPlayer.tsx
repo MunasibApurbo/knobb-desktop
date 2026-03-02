@@ -66,7 +66,7 @@ export function BottomPlayer() {
             </Button>
             <Button
               variant="ghost" size="icon"
-              className="w-10 h-10 rounded-md bg-foreground/10 border border-foreground/20 text-foreground hover:bg-foreground/20 transition-all active:scale-95"
+              className="w-10 h-10 rounded-full bg-foreground/10 border border-foreground/20 text-foreground hover:bg-foreground/20 transition-all active:scale-95"
               onClick={togglePlay}
               disabled={isLoading && !isPlaying}
             >
