@@ -85,6 +85,40 @@ export function AppSidebar() {
           >
             <Search className="w-4 h-4 text-muted-foreground" />
           </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors" title="Menu">
+                <AlignJustify className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              {user ? (
+                <>
+                  <DropdownMenuItem onClick={() => navigate("/history")}>
+                    <History className="w-4 h-4 mr-2" /> History
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate("/history")}>
+                    <BarChart3 className="w-4 h-4 mr-2" /> Listening Stats
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigate("/history")}>
+                    <User className="w-4 h-4 mr-2" /> Profile
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate("/settings")}>
+                    <Settings className="w-4 h-4 mr-2" /> Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => signOut()}>
+                    <LogOut className="w-4 h-4 mr-2" /> Sign out
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem onClick={() => navigate("/auth")}>
+                  <LogIn className="w-4 h-4 mr-2" /> Sign in
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Library: icon-only thumbnails */}
