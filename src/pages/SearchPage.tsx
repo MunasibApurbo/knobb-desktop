@@ -5,6 +5,7 @@ import { allTracks, albums, playlists, formatDuration, Track } from "@/data/mock
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useNavigate } from "react-router-dom";
 import { searchTracks, tidalTrackToAppTrack } from "@/lib/monochromeApi";
+import { ArtistLink } from "@/components/ArtistLink";
 import { motion } from "framer-motion";
 
 type TabType = "tidal" | "tracks" | "albums" | "playlists";
@@ -137,7 +138,7 @@ export default function SearchPage() {
                     style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
                     {track.title}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">{track.artist} · {track.album}</p>
+                  <p className="text-xs truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-xs" /> · {track.album}</p>
                 </div>
                 <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
                 <Play className="w-4 h-4 text-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -166,7 +167,7 @@ export default function SearchPage() {
                     style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
                     {track.title}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">{track.artist} · {track.album}</p>
+                  <p className="text-xs truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-xs" /> · {track.album}</p>
                 </div>
                 <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
               </motion.div>

@@ -3,6 +3,7 @@ import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { formatDuration, getTotalDuration } from "@/data/mockData";
 import { Play, Pause, Shuffle, Heart, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ArtistLink } from "@/components/ArtistLink";
 import { motion } from "framer-motion";
 
 const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.03 } } };
@@ -102,7 +103,7 @@ export default function LikedSongsPage() {
                       style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
                       {track.title}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+                    <p className="text-xs truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-xs" /></p>
                   </div>
                 </div>
                 <span className="text-sm text-muted-foreground truncate">{track.album}</span>

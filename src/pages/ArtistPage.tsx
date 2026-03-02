@@ -6,6 +6,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { Play, Pause, Shuffle, Heart, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ArtistLink } from "@/components/ArtistLink";
 import { motion } from "framer-motion";
 
 const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.03 } } };

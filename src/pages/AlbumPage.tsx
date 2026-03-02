@@ -3,6 +3,7 @@ import { albums, formatDuration, getTotalDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Play, Pause, Shuffle, Heart, MoreHorizontal, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ArtistLink } from "@/components/ArtistLink";
 import { motion } from "framer-motion";
 
 const stagger = {
@@ -114,7 +115,7 @@ export default function AlbumPage() {
                 style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
                 {track.title}
               </span>
-              <span className="text-sm text-muted-foreground truncate">{track.artist}</span>
+              <span className="text-sm truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-sm" /></span>
               <span className="text-sm text-muted-foreground text-right font-mono">{formatDuration(track.duration)}</span>
             </motion.div>
           );
