@@ -11,7 +11,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import type { ImperativePanelHandle } from "react-resizable-panels";
-import { AnimatePresence, motion } from "framer-motion";
+// AnimatePresence removed to prevent background flashing
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
@@ -68,31 +68,23 @@ export function Layout({ children }: React.PropsWithChildren) {
     <div className="h-screen w-screen flex flex-col relative overflow-hidden">
       {/* Dynamic blurred background from current track artwork */}
       <div className="fixed inset-0 z-0 bg-background">
-        <AnimatePresence mode="wait">
-          {currentTrack && (
-            <motion.div
+        {currentTrack && (
+          <div className="absolute inset-0">
+            <img
               key={currentTrack.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 1.5 }}
-              className="absolute inset-0"
-            >
-              <img
-                src={currentTrack.coverUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover scale-150 blur-[80px] opacity-50"
-              />
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: `radial-gradient(ellipse at 20% 20%, hsl(${currentTrack.canvasColor} / 0.3), transparent 50%),
-                               radial-gradient(ellipse at 80% 80%, hsl(${currentTrack.canvasColor} / 0.15), transparent 50%)`,
-                }}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+              src={currentTrack.coverUrl}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover scale-150 blur-[80px] opacity-50 transition-opacity duration-[1500ms]"
+            />
+            <div
+              className="absolute inset-0 transition-all duration-[1500ms]"
+              style={{
+                background: `radial-gradient(ellipse at 20% 20%, hsl(${currentTrack.canvasColor} / 0.3), transparent 50%),
+                             radial-gradient(ellipse at 80% 80%, hsl(${currentTrack.canvasColor} / 0.15), transparent 50%)`,
+              }}
+            />
+          </div>
+        )}
         <div className="absolute inset-0 bg-black/50" />
       </div>
 
