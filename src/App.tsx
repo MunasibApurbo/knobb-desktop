@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { LikedSongsProvider } from "@/contexts/LikedSongsContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { SearchProvider } from "@/contexts/SearchContext";
 import { Layout } from "@/components/Layout";
 import Index from "./pages/Index";
 import AlbumPage from "./pages/AlbumPage";
@@ -30,21 +31,23 @@ const App = () => (
         <PlayerProvider>
           <LikedSongsProvider>
             <BrowserRouter>
-              <Layout>
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/album/:id" element={<AlbumPage />} />
-                  <Route path="/playlist/:id" element={<PlaylistPage />} />
-                  <Route path="/my-playlist/:id" element={<UserPlaylistPage />} />
-                  <Route path="/search" element={<SearchPage />} />
-                  <Route path="/artist/:id" element={<ArtistPage />} />
-                  <Route path="/genre" element={<GenrePage />} />
-                  <Route path="/liked" element={<LikedSongsPage />} />
-                  <Route path="/history" element={<HistoryPage />} />
-                  <Route path="/auth" element={<AuthPage />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Layout>
+              <SearchProvider>
+                <Layout>
+                  <Routes>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/album/:id" element={<AlbumPage />} />
+                    <Route path="/playlist/:id" element={<PlaylistPage />} />
+                    <Route path="/my-playlist/:id" element={<UserPlaylistPage />} />
+                    <Route path="/search" element={<SearchPage />} />
+                    <Route path="/artist/:id" element={<ArtistPage />} />
+                    <Route path="/genre" element={<GenrePage />} />
+                    <Route path="/liked" element={<LikedSongsPage />} />
+                    <Route path="/history" element={<HistoryPage />} />
+                    <Route path="/auth" element={<AuthPage />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Layout>
+              </SearchProvider>
             </BrowserRouter>
           </LikedSongsProvider>
         </PlayerProvider>
