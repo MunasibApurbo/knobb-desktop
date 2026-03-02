@@ -22,7 +22,7 @@ interface BottomPlayerProps {
 export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
   const {
     currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading, radioMode,
-    togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
+    togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, openRightPanel,
   } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
@@ -120,10 +120,10 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
               </span>
             )}
             <PlayerSettings />
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={toggleRightPanel}>
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openRightPanel("queue")}>
               <ListMusic className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={toggleRightPanel}>
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openRightPanel("lyrics")}>
               <Mic2 className="w-4 h-4" />
             </Button>
             <Button
