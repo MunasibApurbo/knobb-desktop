@@ -69,6 +69,16 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Montserrat', 'Inter', sans-serif;
   }
+
+  /* Global focus-visible for keyboard accessibility */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Smooth transitions on all interactive elements */
+  button, a, input, select, textarea {
+    @apply transition-colors duration-200;
+  }
 }
 
 @layer utilities {
@@ -182,12 +192,6 @@
   /* Hover: remove blur, brighten */
   .beautiful-lyrics-line:hover {
     --line-opacity: 0.9 !important;
-    --text-blur: 0px !important;
-  }
-
-  /* Hover: remove blur, brighten */
-  .beautiful-lyrics-line:hover {
-    --line-opacity: 0.8 !important;
     --text-blur: 0px !important;
   }
 

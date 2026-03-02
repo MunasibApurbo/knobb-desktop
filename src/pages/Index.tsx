@@ -5,6 +5,8 @@ import { Play, Mic2 } from "lucide-react";
 import { searchTracks, searchArtists, tidalTrackToAppTrack, getTidalImageUrl } from "@/lib/monochromeApi";
 import { Track, albums, playlists } from "@/data/mockData";
 import { motion } from "framer-motion";
+import { PageTransition } from "@/components/PageTransition";
+import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 
 const FEATURED_QUERIES = ["trending 2025", "pop hits", "electronic", "hip hop new"];
 const ARTIST_QUERIES = ["drake", "the weeknd", "taylor swift", "billie eilish", "dua lipa", "kendrick lamar"];
@@ -175,30 +177,10 @@ const Index = () => {
     loadContent();
   }, [loadContent]);
 
-  if (!loaded) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <motion.div
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="flex gap-1 items-end"
-        >
-          {[0, 1, 2, 3, 4].map((i) => (
-            <motion.div
-              key={i}
-              animate={{ scaleY: [0.3, 1, 0.3] }}
-              transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.08 }}
-              className="w-1.5 h-8 rounded-full"
-              style={{ background: `hsl(var(--dynamic-accent))` }}
-            />
-          ))}
-        </motion.div>
-      </div>
-    );
-  }
+  if (!loaded) return <LoadingSkeleton />;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+    <PageTransition>
       {/* Greeting */}
       <h1 className="text-3xl font-bold text-foreground mb-6">{getGreeting()}</h1>
 
@@ -266,7 +248,7 @@ const Index = () => {
           <TrackCard key={track.id} track={track} tracks={hipHopTracks} />
         ))}
       </motion.div>
-    </motion.div>
+    </PageTransition>
   );
 };
 

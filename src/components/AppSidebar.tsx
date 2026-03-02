@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
+import { FilterPill } from "@/components/ui/filter-pill";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -90,20 +91,12 @@ export function AppSidebar() {
         </div>
 
         {/* Filter Pills */}
-        <div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
-          {filters.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 ${
-                filter === f.key
-                  ? "bg-foreground text-background"
-                  : "bg-accent text-muted-foreground hover:bg-accent/80 hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="px-4 pb-3">
+          <FilterPill<FilterType>
+            options={filters}
+            value={filter}
+            onChange={(v) => setFilter(v)}
+          />
         </div>
 
         <ScrollArea className="flex-1 px-2">

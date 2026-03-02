@@ -1,19 +1,16 @@
 import { useParams } from "react-router-dom";
-import { playlists, formatDuration, getTotalDuration } from "@/data/mockData";
+import { playlists, getTotalDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { Play, Pause, Shuffle, Heart, MoreHorizontal, Clock } from "lucide-react";
+import { Play, Pause, Shuffle, Heart, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ArtistLink } from "@/components/ArtistLink";
+import { TrackListRow } from "@/components/TrackListRow";
+import { TrackListHeader } from "@/components/TrackListHeader";
+import { PageTransition } from "@/components/PageTransition";
 import { motion } from "framer-motion";
 
 const stagger = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.03 } },
-};
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
 export default function PlaylistPage() {
@@ -26,7 +23,7 @@ export default function PlaylistPage() {
   const isCurrentPlaylist = currentTrack && playlist.tracks.some((t) => t.id === currentTrack.id);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+    <PageTransition>
       {/* Hero Header */}
       <div
         className="flex gap-6 pb-8 -mx-6 -mt-16 px-6 pt-20"
@@ -79,48 +76,11 @@ export default function PlaylistPage() {
 
       {/* Track list */}
       <motion.div variants={stagger} initial="hidden" animate="show">
-        <div className="grid grid-cols-[40px_1fr_1fr_1fr_60px] gap-4 px-4 py-2 text-xs font-medium text-muted-foreground border-b border-border/30 uppercase tracking-wider mb-1">
-          <span className="text-center">#</span>
-          <span>Title</span>
-          <span>Artist</span>
-          <span>Album</span>
-          <span className="text-right"><Clock className="w-4 h-4 inline" /></span>
-        </div>
-
-        {playlist.tracks.map((track, i) => {
-          const isCurrent = currentTrack?.id === track.id;
-          return (
-            <motion.div
-              key={track.id}
-              variants={fadeUp}
-              className={`grid grid-cols-[40px_1fr_1fr_1fr_60px] gap-4 px-4 py-2.5 items-center cursor-pointer rounded-md transition-all duration-200 group
-                ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
-              onClick={() => play(track, playlist.tracks)}
-            >
-              <span className="text-center text-sm text-muted-foreground">
-                {isCurrent && isPlaying ? (
-                  <div className="playing-bars flex items-end gap-[2px] justify-center">
-                    <span /><span /><span />
-                  </div>
-                ) : (
-                  <span className="group-hover:hidden">{i + 1}</span>
-                )}
-                <Play className="w-4 h-4 mx-auto text-foreground hidden group-hover:block" />
-              </span>
-              <div className="flex items-center gap-3 min-w-0">
-                <img src={track.coverUrl} alt="" className="w-10 h-10 rounded object-cover" />
-                <span className={`text-sm truncate ${isCurrent ? "font-semibold" : ""}`}
-                  style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
-                  {track.title}
-                </span>
-              </div>
-              <span className="text-sm truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-sm" /></span>
-              <span className="text-sm text-muted-foreground truncate">{track.album}</span>
-              <span className="text-sm text-muted-foreground text-right font-mono">{formatDuration(track.duration)}</span>
-            </motion.div>
-          );
-        })}
+        <TrackListHeader showAlbum />
+        {playlist.tracks.map((track, i) => (
+          <TrackListRow key={track.id} track={track} index={i} tracks={playlist.tracks} showCover showAlbum />
+        ))}
       </motion.div>
-    </motion.div>
+    </PageTransition>
   );
 }
