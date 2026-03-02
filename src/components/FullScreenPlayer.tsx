@@ -9,6 +9,7 @@ import { getLyrics, TidalLyricLine } from "@/lib/monochromeApi";
 import { Button } from "@/components/ui/button";
 import { VolumeBar } from "@/components/VolumeBar";
 import { CircularVisualizer } from "@/components/visualizers/CircularVisualizer";
+import { BeautifulLyrics } from "@/components/BeautifulLyrics";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Slider } from "@/components/ui/slider";
@@ -24,7 +25,6 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek,
   } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
-  const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
   const lastTrackRef = useRef<string | null>(null);
 
@@ -44,15 +44,6 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
   const trackDuration = duration || currentTrack?.duration || 0;
   const progress = trackDuration > 0 ? currentTime / trackDuration : 0;
 
-  const activeLyricIdx = lyrics.length > 0
-    ? lyrics.reduce((acc, l, i) => (currentTime >= l.time ? i : acc), 0)
-    : -1;
-
-  useEffect(() => {
-    if (!open || activeLyricIdx < 0) return;
-    const el = lyricRefs.current[activeLyricIdx];
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [activeLyricIdx, open]);
 
   // Close on Escape
   useEffect(() => {
@@ -190,31 +181,14 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
             </div>
 
             {/* Right: Lyrics */}
-            <div className="flex-1 h-[70vh] overflow-y-auto scrollbar-thin max-w-[500px]">
+            <div className="flex-1 h-[70vh] max-w-[520px]">
               {lyrics.length > 0 ? (
-                <div className="space-y-8 py-[30vh]">
-                  {lyrics.map((line, i) => {
-                    const isActive = i === activeLyricIdx;
-                    const isPast = i < activeLyricIdx;
-                    return (
-                      <motion.p
-                        key={i}
-                        ref={(el) => { lyricRefs.current[i] = el; }}
-                        animate={{
-                          scale: isActive ? 1.05 : 1,
-                          opacity: isActive ? 1 : isPast ? 0.15 : 0.3,
-                        }}
-                        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                        className={`text-2xl leading-relaxed origin-left cursor-default select-none font-semibold transition-colors duration-500 ${
-                          isActive ? "text-foreground lyric-active" : "text-muted-foreground"
-                        }`}
-                        onClick={() => seek(line.time)}
-                      >
-                        {line.text}
-                      </motion.p>
-                    );
-                  })}
-                </div>
+                <BeautifulLyrics
+                  lyrics={lyrics}
+                  currentTime={currentTime}
+                  onSeek={seek}
+                  isPlaying={isPlaying}
+                />
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <CircularVisualizer className="w-[300px] h-[300px]" />
