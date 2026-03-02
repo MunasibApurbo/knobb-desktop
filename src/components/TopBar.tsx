@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, User, Search, Loader2, Play, X, Settings, History, Bell, LogIn, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Search, Loader2, Play, X, Settings, History, Bell, LogIn, LogOut, Compass } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,7 +147,17 @@ export function TopBar() {
               </Button>
             </>
           ) : (
-            <span className="text-sm font-semibold text-muted-foreground">Search</span>
+            <>
+              <span className="text-sm font-semibold text-muted-foreground flex-1">Search</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-7 h-7 shrink-0 rounded-full"
+                onClick={(e) => { e.stopPropagation(); navigate("/genre"); }}
+              >
+                <Compass className="w-4 h-4 text-muted-foreground" />
+              </Button>
+            </>
           )}
         </div>
 

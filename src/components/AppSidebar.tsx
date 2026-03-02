@@ -19,7 +19,6 @@ type FilterType = "playlists" | "albums" | "artists";
 
 const mainNav = [
   { title: "Home", url: "/", icon: Home },
-  { title: "Browse", url: "/genre", icon: Compass },
 ];
 
 export function AppSidebar() {
