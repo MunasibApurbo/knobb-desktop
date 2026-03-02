@@ -5,9 +5,9 @@ import { RightPanel } from "@/components/RightPanel";
 import { FullScreenPlayer } from "@/components/FullScreenPlayer";
 import { MiniPlayer } from "@/components/MiniPlayer";
 import { MobileNav } from "@/components/MobileNav";
-import { SearchOverlay } from "@/components/SearchOverlay";
+// SearchOverlay removed - search results now inline in sidebar
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useSearch } from "@/contexts/SearchContext";
+// useSearch no longer needed in layout
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AnimatePresence, motion } from "framer-motion";
@@ -19,7 +19,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
-  const { searchOpen } = useSearch();
+  // search state no longer needed in layout
   const location = useLocation();
   const isMobile = useIsMobile();
   useKeyboardShortcuts();
@@ -92,18 +92,13 @@ export function Layout({ children }: React.PropsWithChildren) {
 
             {/* Center Content */}
             <ResizablePanel defaultSize={showRightPanel ? 64 : 82} minSize={40} className="pt-2 pr-2">
-              <div className="relative flex h-full min-h-0">
-                {/* Page content */}
-                <div className={`flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300 ${searchOpen ? "blur-md opacity-30 pointer-events-none" : ""}`}>
-                  <TopBar />
-                  <ScrollArea className="flex-1" ref={scrollRef}>
-                    <main className="px-4 md:px-6 pb-8">
-                      {children}
-                    </main>
-                  </ScrollArea>
-                </div>
-                {/* Search overlay expands over center content */}
-                <SearchOverlay />
+              <div className="flex flex-col h-full min-h-0">
+                <TopBar />
+                <ScrollArea className="flex-1" ref={scrollRef}>
+                  <main className="px-4 md:px-6 pb-8">
+                    {children}
+                  </main>
+                </ScrollArea>
               </div>
             </ResizablePanel>
 

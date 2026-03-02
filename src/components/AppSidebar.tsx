@@ -1,7 +1,8 @@
-import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell } from "lucide-react";
+import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell, Play } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { playlists, albums } from "@/data/mockData";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -67,8 +68,8 @@ export function AppSidebar() {
 
   return (
     <div className="w-full h-full flex flex-col gap-1.5">
-      {/* Top section: Brand + Nav + Menu */}
-      <div className="rounded-lg glass-heavy px-3 py-3 flex flex-col gap-3 relative" style={{ overflow: searchOpen ? 'visible' : 'hidden' }}>
+      {/* Top section: Brand + Nav + Menu + Search */}
+      <div className={`rounded-lg glass-heavy px-3 py-3 flex flex-col gap-3 transition-all duration-300 ${searchOpen ? "flex-1 min-h-0" : ""}`} style={{ overflow: 'hidden' }}>
         {/* Brand row with nav and menu */}
         <div className="flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-1">
@@ -116,59 +117,56 @@ export function AppSidebar() {
           </div>
         </div>
 
-        {/* Search bar — expands rightward when open */}
-        <div className="relative" style={{ zIndex: searchOpen ? 50 : 'auto' }}>
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-text transition-all ${
-              searchOpen
-                ? "bg-white/10 border border-white/15"
-                : "bg-white/5 hover:bg-white/10"
-            }`}
-            onClick={() => setSearchOpen(true)}
-            style={searchOpen ? { 
-              position: 'absolute',
-              left: 0,
-              right: '-120%',
-              top: 0,
-              zIndex: 50,
-              background: 'hsl(0 0% 10% / 0.95)',
-              backdropFilter: 'blur(20px)',
-            } : {}}
-          >
-            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-            {searchOpen ? (
-              <>
-                <Input
-                  ref={inputRef}
-                  placeholder="Search..."
-                  value={query}
-                  onChange={(e) => onQueryChange(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && searchTab === "tidal") handleSearch(query);
-                    if (e.key === "Escape") closeSearch();
-                  }}
-                  className="border-0 bg-transparent p-0 h-auto text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 min-w-0"
-                />
-                {isSearching && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />}
-                <Button variant="ghost" size="icon" className="w-5 h-5 shrink-0 rounded-full" onClick={(e) => { e.stopPropagation(); closeSearch(); }}>
-                  <X className="w-3.5 h-3.5" />
-                </Button>
-                <div className="h-4 w-px bg-white/15 shrink-0 mx-1" />
-                <FilterPill<SearchTab>
-                  options={searchTabs.map(t => ({ key: t.key, label: t.label }))}
-                  value={searchTab}
-                  onChange={(v) => { setSearchTab(v); if (v === "tidal" && query) handleSearch(query); }}
-                />
-              </>
-            ) : (
-              <span className="text-sm text-muted-foreground flex-1">Search</span>
-            )}
-          </div>
+        {/* Search bar */}
+        <div
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-text transition-all ${
+            searchOpen
+              ? "bg-white/10 border border-white/15"
+              : "bg-white/5 hover:bg-white/10"
+          }`}
+          onClick={() => setSearchOpen(true)}
+        >
+          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+          {searchOpen ? (
+            <>
+              <Input
+                ref={inputRef}
+                placeholder="Search..."
+                value={query}
+                onChange={(e) => onQueryChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && searchTab === "tidal") handleSearch(query);
+                  if (e.key === "Escape") closeSearch();
+                }}
+                className="border-0 bg-transparent p-0 h-auto text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 min-w-0"
+              />
+              {isSearching && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />}
+              <Button variant="ghost" size="icon" className="w-5 h-5 shrink-0 rounded-full" onClick={(e) => { e.stopPropagation(); closeSearch(); }}>
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground flex-1">Search</span>
+          )}
         </div>
+
+        {/* Search tabs + results inside the box */}
+        {searchOpen && (
+          <>
+            <FilterPill<SearchTab>
+              options={searchTabs.map(t => ({ key: t.key, label: t.label }))}
+              value={searchTab}
+              onChange={(v) => { setSearchTab(v); if (v === "tidal" && query) handleSearch(query); }}
+            />
+            <ScrollArea className="flex-1 -mx-3">
+              <SidebarSearchResults />
+            </ScrollArea>
+          </>
+        )}
       </div>
 
-      {/* Library Card */}
-      <div className={`flex-1 rounded-lg flex flex-col min-h-0 glass-heavy transition-all duration-300 ${searchOpen ? "blur-md opacity-40 pointer-events-none" : ""}`}>
+      {/* Library Card - hidden when search is open */}
+      <div className={`flex-1 rounded-lg flex flex-col min-h-0 glass-heavy transition-all duration-300 ${searchOpen ? "hidden" : ""}`}>
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <button
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
@@ -323,5 +321,88 @@ export function AppSidebar() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function SidebarSearchResults() {
+  const { searchTab, tidalResults, isSearching, filteredTracks, filteredAlbums, filteredPlaylists, closeSearch, query } = useSearch();
+  const { currentTrack, play } = usePlayer();
+  const navigate = useNavigate();
+
+  const handlePlayTrack = (track: Track, list: Track[]) => {
+    play(track, list);
+    closeSearch();
+  };
+
+  return (
+    <div className="px-3">
+      {searchTab === "tidal" && (
+        <>
+          {tidalResults.length === 0 && !isSearching && (
+            <div className="text-center py-10">
+              <Search className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+              <p className="text-muted-foreground text-xs">Search for songs, artists...</p>
+            </div>
+          )}
+          {tidalResults.map((track) => (
+            <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, tidalResults)} />
+          ))}
+        </>
+      )}
+      {searchTab === "tracks" && (
+        <>
+          {filteredTracks.length === 0 && <p className="text-center text-muted-foreground text-xs py-10">No tracks found</p>}
+          {filteredTracks.map((track) => (
+            <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, filteredTracks)} />
+          ))}
+        </>
+      )}
+      {searchTab === "albums" && (
+        <>
+          {filteredAlbums.length === 0 && <p className="text-center text-muted-foreground text-xs py-10">No albums found</p>}
+          {filteredAlbums.map((album) => (
+            <button key={album.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/album/${album.id}`); closeSearch(); }}>
+              <img src={album.coverUrl} alt={album.title} className="w-9 h-9 rounded object-cover shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold truncate">{album.title}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{album.artist}</p>
+              </div>
+            </button>
+          ))}
+        </>
+      )}
+      {searchTab === "playlists" && (
+        <>
+          {filteredPlaylists.length === 0 && <p className="text-center text-muted-foreground text-xs py-10">No playlists found</p>}
+          {filteredPlaylists.map((pl) => (
+            <button key={pl.id} className="flex items-center gap-3 w-full px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/playlist/${pl.id}`); closeSearch(); }}>
+              <img src={pl.coverUrl} alt={pl.title} className="w-9 h-9 rounded object-cover shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold truncate">{pl.title}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{pl.description}</p>
+              </div>
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function SidebarTrackRow({ track, isCurrent, onClick }: { track: Track; isCurrent: boolean; onClick: () => void }) {
+  return (
+    <button
+      className={`flex items-center gap-3 w-full px-2 py-1.5 rounded-md transition-colors text-left group ${isCurrent ? "bg-white/10" : "hover:bg-white/5"}`}
+      onClick={onClick}
+    >
+      <img src={track.coverUrl} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className={`text-xs truncate ${isCurrent ? "font-semibold" : ""}`} style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
+          {track.title}
+        </p>
+        <p className="text-[10px] text-muted-foreground truncate">{track.artist} · {track.album}</p>
+      </div>
+      <span className="text-[10px] text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
+    </button>
   );
 }
