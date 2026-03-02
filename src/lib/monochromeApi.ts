@@ -146,6 +146,43 @@ export async function getRecommendations(trackId: number): Promise<TidalTrack[]>
   return result?.data?.items?.map((item: any) => item.track).filter(Boolean) || [];
 }
 
+export interface TidalLyricLine {
+  time: number;
+  text: string;
+}
+
+export async function getLyrics(trackId: number): Promise<TidalLyricLine[]> {
+  try {
+    const result = await proxyRequest("lyrics", { id: String(trackId) });
+    // Try to parse different possible response formats
+    if (result?.data?.subtitles) {
+      // Tidal subtitles format
+      const parsed = typeof result.data.subtitles === "string" 
+        ? JSON.parse(result.data.subtitles) 
+        : result.data.subtitles;
+      return parsed.map((s: any) => ({
+        time: (s.startTimeMs || s.time || 0) / 1000,
+        text: s.content || s.text || "",
+      })).filter((l: TidalLyricLine) => l.text.trim());
+    }
+    if (result?.data?.lyrics?.lines) {
+      return result.data.lyrics.lines.map((l: any) => ({
+        time: (l.startTimeMs || l.time || 0) / 1000,
+        text: l.words || l.text || "",
+      })).filter((l: TidalLyricLine) => l.text.trim());
+    }
+    if (Array.isArray(result?.data)) {
+      return result.data.map((l: any) => ({
+        time: (l.startTimeMs || l.time || 0) / 1000,
+        text: l.content || l.text || l.words || "",
+      })).filter((l: TidalLyricLine) => l.text.trim());
+    }
+  } catch (e) {
+    console.warn("Lyrics not available:", e);
+  }
+  return [];
+}
+
 export function getTidalImageUrl(coverId: string, size = "750x750"): string {
   if (!coverId) return "/placeholder.svg";
   return `${TIDAL_IMAGE_BASE}/${coverId.replace(/-/g, "/")}/${size}.jpg`;

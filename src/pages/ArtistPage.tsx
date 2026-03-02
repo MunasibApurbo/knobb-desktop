@@ -33,13 +33,29 @@ export default function ArtistPage() {
 
       // Search for the artist by ID or name
       const artists = await searchArtists(id);
-      const found = artists.find((a) => a.id === artistId) || artists[0];
+      let found = artists.find((a) => a.id === artistId) || artists[0];
+      
+      if (!found) {
+        // Try searching tracks to find the artist name
+        const trackResults = await searchTracks(id, 5);
+        if (trackResults.length > 0) {
+          const firstArtist = trackResults[0].artist;
+          found = { id: artistId, name: firstArtist.name, picture: firstArtist.picture, popularity: 0, url: "" };
+        }
+      }
+
       if (found) {
         setArtist(found);
         
         // Search for tracks by artist name
         const tracks = await searchTracks(found.name, 20);
-        setTopTracks(tracks.map(tidalTrackToAppTrack));
+        const appTracks = tracks.map(tidalTrackToAppTrack);
+        setTopTracks(appTracks);
+        
+        // If artist has no picture, use first track's cover as fallback
+        if (!found.picture && appTracks.length > 0) {
+          setArtist(prev => prev ? { ...prev, picture: `fallback:${appTracks[0].coverUrl}` } : prev);
+        }
       }
     } catch (e) {
       console.error("Failed to load artist:", e);
@@ -82,7 +98,13 @@ export default function ArtistPage() {
           className="w-56 h-56 rounded-full overflow-hidden shadow-2xl shrink-0"
         >
           <img
-            src={artist.picture ? getTidalImageUrl(artist.picture, "750x750") : "/placeholder.svg"}
+            src={
+              artist.picture?.startsWith("fallback:")
+                ? artist.picture.replace("fallback:", "")
+                : artist.picture
+                  ? getTidalImageUrl(artist.picture, "750x750")
+                  : topTracks[0]?.coverUrl || "/placeholder.svg"
+            }
             alt={artist.name}
             className="w-full h-full object-cover"
           />

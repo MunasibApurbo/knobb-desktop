@@ -1,11 +1,12 @@
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { mockLyrics, formatDuration } from "@/data/mockData";
+import { getLyrics, TidalLyricLine } from "@/lib/monochromeApi";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { X, Music2, Mic2, ListMusic, Heart, Play, GripVertical } from "lucide-react";
+import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 
 type TabType = "lyrics" | "queue";
 
@@ -14,9 +15,39 @@ export function RightPanel() {
   const { isLiked, toggleLike } = useLikedSongs();
   const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
   const [tab, setTab] = useState<TabType>("lyrics");
+  const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const lastLyricsTrackRef = useRef<string | null>(null);
 
-  const activeLyricIdx = currentTrack
-    ? mockLyrics.reduce((acc, l, i) => (currentTime >= l.time ? i : acc), 0)
+  // Fetch lyrics when track changes
+  const fetchLyrics = useCallback(async () => {
+    if (!currentTrack) return;
+    if (lastLyricsTrackRef.current === currentTrack.id) return;
+    lastLyricsTrackRef.current = currentTrack.id;
+    
+    setLyricsLoading(true);
+    setLyrics([]);
+    
+    if (currentTrack.tidalId) {
+      const fetched = await getLyrics(currentTrack.tidalId);
+      if (fetched.length > 0) {
+        setLyrics(fetched);
+        setLyricsLoading(false);
+        return;
+      }
+    }
+    
+    // Fallback to mock lyrics
+    setLyrics(mockLyrics);
+    setLyricsLoading(false);
+  }, [currentTrack]);
+
+  useEffect(() => {
+    fetchLyrics();
+  }, [fetchLyrics]);
+
+  const activeLyricIdx = currentTrack && lyrics.length > 0
+    ? lyrics.reduce((acc, l, i) => (currentTime >= l.time ? i : acc), 0)
     : 0;
 
   // Auto-scroll to active lyric
@@ -115,30 +146,41 @@ export function RightPanel() {
           {/* Tab Content */}
           {tab === "lyrics" ? (
             <ScrollArea className="flex-1 px-5 pb-6">
-              <div className="space-y-6 py-6">
-                {mockLyrics.map((line, i) => {
-                  const isActive = i === activeLyricIdx;
-                  const isPast = i < activeLyricIdx;
-                  const distance = Math.abs(i - activeLyricIdx);
-                  return (
-                    <motion.p
-                      key={i}
-                      ref={(el) => { lyricRefs.current[i] = el; }}
-                      animate={{
-                        scale: isActive ? 1.08 : 1,
-                        opacity: isActive ? 1 : isPast ? 0.2 : Math.max(0.15, 0.5 - distance * 0.08),
-                        y: isActive ? -2 : 0,
-                      }}
-                      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                      className={`text-lg leading-relaxed origin-left cursor-default select-none font-medium transition-colors duration-500 ${
-                        isActive ? "text-foreground font-bold lyric-active" : "text-muted-foreground"
-                      }`}
-                    >
-                      {line.text}
-                    </motion.p>
-                  );
-                })}
-              </div>
+              {lyricsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : lyrics.length === 0 ? (
+                <div className="text-center py-12">
+                  <Mic2 className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No lyrics available</p>
+                </div>
+              ) : (
+                <div className="space-y-6 py-6">
+                  {lyrics.map((line, i) => {
+                    const isActive = i === activeLyricIdx;
+                    const isPast = i < activeLyricIdx;
+                    const distance = Math.abs(i - activeLyricIdx);
+                    return (
+                      <motion.p
+                        key={i}
+                        ref={(el) => { lyricRefs.current[i] = el; }}
+                        animate={{
+                          scale: isActive ? 1.08 : 1,
+                          opacity: isActive ? 1 : isPast ? 0.2 : Math.max(0.15, 0.5 - distance * 0.08),
+                          y: isActive ? -2 : 0,
+                        }}
+                        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                        className={`text-lg leading-relaxed origin-left cursor-default select-none font-medium transition-colors duration-500 ${
+                          isActive ? "text-foreground font-bold lyric-active" : "text-muted-foreground"
+                        }`}
+                      >
+                        {line.text}
+                      </motion.p>
+                    );
+                  })}
+                </div>
+              )}
             </ScrollArea>
           ) : (
             <ScrollArea className="flex-1 px-3 pb-6">
