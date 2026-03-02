@@ -56,9 +56,8 @@ export function BeautifulLyrics({
     if (activeIdx < 0) return {};
     const dist = Math.abs(i - activeIdx);
     if (dist === 0) return { '--line-opacity': '1', '--text-blur': '0px', fontWeight: 800 } as React.CSSProperties;
-    // Heavy blur for nearby lines, caps quickly for distant ones
-    const blur = dist <= 2 ? dist * 4 : Math.min(8 + dist * 0.5, 10);
-    const opacity = dist <= 2 ? Math.max(1 - dist * 0.35, 0.3) : Math.max(0.2 - (dist - 2) * 0.03, 0.1);
+    const blur = dist <= 2 ? dist * 2.5 : Math.min(5 + dist * 0.5, 7);
+    const opacity = dist <= 2 ? Math.max(1 - dist * 0.3, 0.4) : Math.max(0.25 - (dist - 2) * 0.03, 0.12);
     return { '--line-opacity': `${opacity}`, '--text-blur': `${blur}px` } as React.CSSProperties;
   };
 
