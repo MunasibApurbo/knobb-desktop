@@ -1,15 +1,14 @@
-import { Radio, Settings2, Disc3, Timer, TimerOff, ChevronDown, ChevronUp, PictureInPicture2 } from "lucide-react";
+import { Radio, Settings2, Disc3, Timer, TimerOff, ChevronRight, PictureInPicture2, Waves, Moon } from "lucide-react";
 import { usePlayer, AudioQuality } from "@/contexts/PlayerContext";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Slider } from "@/components/ui/slider";
+import { VolumeBar } from "@/components/VolumeBar";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -28,11 +27,11 @@ const SLEEP_OPTIONS = [
   { label: "1 hour", value: 60 },
 ];
 
-// Collapsible section with hover-reveal indicator
+// Collapsible section with icon + hover-reveal chevron on the right
 function CollapsibleSection({ 
-  label, expanded, onToggle, badge, children 
+  icon, label, expanded, onToggle, badge, children 
 }: { 
-  label: string; expanded: boolean; onToggle: () => void; badge?: React.ReactNode; children: React.ReactNode 
+  icon: React.ReactNode; label: string; expanded: boolean; onToggle: () => void; badge?: React.ReactNode; children: React.ReactNode 
 }) {
   return (
     <>
@@ -41,11 +40,12 @@ function CollapsibleSection({
         className="group flex items-center justify-between w-full px-2 py-1.5 text-xs text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
       >
         <span className="flex items-center gap-1.5">
+          {icon}
           {label}
           {badge}
         </span>
-        <span className={`transition-all duration-200 ${expanded ? "opacity-100" : "opacity-0 group-hover:opacity-100"} ${expanded ? "" : "translate-x-1 group-hover:translate-x-0"}`}>
-          {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        <span className={`transition-all duration-200 ease-out ${expanded ? "opacity-100 rotate-90" : "opacity-0 group-hover:opacity-100 translate-x-1 group-hover:translate-x-0"}`}>
+          <ChevronRight className="w-3 h-3" />
         </span>
       </button>
       <div
@@ -108,6 +108,12 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
+  // Crossfade as 0-1 for VolumeBar
+  const crossfadeNorm = crossfadeDuration / 12;
+  const handleCrossfadeChange = useCallback((v: number) => {
+    setCrossfadeDuration(Math.round(v * 12));
+  }, [setCrossfadeDuration]);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -121,6 +127,7 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
       <DropdownMenuContent align="end" className="w-56 bg-background/95 backdrop-blur-xl border-border/30">
         {/* Collapsible Audio Quality */}
         <CollapsibleSection
+          icon={<Disc3 className="w-3.5 h-3.5" />}
           label="Audio Quality"
           expanded={qualityExpanded}
           onToggle={() => setQualityExpanded(!qualityExpanded)}
@@ -178,6 +185,7 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
 
         {/* Collapsible Crossfade */}
         <CollapsibleSection
+          icon={<Waves className="w-3.5 h-3.5" />}
           label="Crossfade"
           expanded={crossfadeExpanded}
           onToggle={() => setCrossfadeExpanded(!crossfadeExpanded)}
@@ -188,19 +196,16 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
           }
         >
           <div className="px-3 py-2 space-y-2">
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-xs mb-1">
               <span className="text-muted-foreground">Duration</span>
               <span style={{ color: crossfadeDuration > 0 ? `hsl(var(--dynamic-accent))` : undefined }}>
                 {crossfadeDuration === 0 ? "Off" : `${crossfadeDuration}s`}
               </span>
             </div>
-            <Slider
-              value={[crossfadeDuration]}
-              onValueChange={([v]) => setCrossfadeDuration(v)}
-              min={0}
-              max={12}
-              step={1}
-              className="w-full [&_[data-radix-slider-track]]:h-1 [&_[data-radix-slider-range]]:bg-[hsl(var(--dynamic-accent))] [&_[data-radix-slider-thumb]]:w-3 [&_[data-radix-slider-thumb]]:h-3 [&_[data-radix-slider-thumb]]:border-[hsl(var(--dynamic-accent))]"
+            <VolumeBar
+              volume={crossfadeNorm}
+              onChange={handleCrossfadeChange}
+              className="w-full"
             />
           </div>
         </CollapsibleSection>
@@ -209,6 +214,7 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
 
         {/* Collapsible Sleep Timer */}
         <CollapsibleSection
+          icon={<Moon className="w-3.5 h-3.5" />}
           label="Sleep Timer"
           expanded={sleepExpanded}
           onToggle={() => setSleepExpanded(!sleepExpanded)}
