@@ -7,6 +7,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { allTracks, albums, playlists, formatDuration, Track } from "@/data/mockData";
 import { searchTracks, tidalTrackToAppTrack } from "@/lib/monochromeApi";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { FilterPill } from "@/components/ui/filter-pill";
 import { motion, AnimatePresence } from "framer-motion";
 
 type TabType = "tidal" | "tracks" | "albums" | "playlists";
@@ -148,19 +149,12 @@ export function TopBar() {
               transition={{ duration: 0.15 }}
               className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden z-50"
             >
-              {/* Tabs */}
-              <div className="flex gap-2 p-3 pb-2 border-b border-border/50">
-                {tabs.map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => { setTab(t.key); if (t.key === "tidal" && query) handleSearch(query); }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                      tab === t.key ? "bg-foreground text-background" : "bg-accent text-muted-foreground hover:bg-accent/80"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+              <div className="p-3 pb-2 border-b border-border/50">
+                <FilterPill<TabType>
+                  options={tabs.map(t => ({ key: t.key, label: t.label }))}
+                  value={tab}
+                  onChange={(v) => { setTab(v); if (v === "tidal" && query) handleSearch(query); }}
+                />
               </div>
 
               <ScrollArea className="max-h-[60vh]">

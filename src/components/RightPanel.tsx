@@ -4,6 +4,7 @@ import { mockLyrics, formatDuration } from "@/data/mockData";
 import { getLyrics, TidalLyricLine } from "@/lib/monochromeApi";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2, GripVertical, Trash2 } from "lucide-react";
+import { FilterPill } from "@/components/ui/filter-pill";
 import { Button } from "@/components/ui/button";
 import { ArtistLink } from "@/components/ArtistLink";
 import { AddToPlaylistMenu } from "@/components/AddToPlaylistMenu";
@@ -122,25 +123,15 @@ export function RightPanel() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-1 px-5 pb-2">
-            <button
-              onClick={() => setTab("lyrics")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                tab === "lyrics" ? "bg-foreground text-background" : "bg-accent text-muted-foreground hover:bg-accent/80"
-              }`}
-            >
-              <Mic2 className="w-3 h-3" />
-              Lyrics
-            </button>
-            <button
-              onClick={() => setTab("queue")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                tab === "queue" ? "bg-foreground text-background" : "bg-accent text-muted-foreground hover:bg-accent/80"
-              }`}
-            >
-              <ListMusic className="w-3 h-3" />
-              Queue ({upNext.length})
-            </button>
+          <div className="px-5 pb-2">
+            <FilterPill<TabType>
+              options={[
+                { key: "lyrics" as TabType, label: "Lyrics", icon: <Mic2 className="w-3 h-3" /> },
+                { key: "queue" as TabType, label: `Queue (${upNext.length})`, icon: <ListMusic className="w-3 h-3" /> },
+              ]}
+              value={tab}
+              onChange={(v) => setTab(v)}
+            />
           </div>
 
           {/* Tab Content */}

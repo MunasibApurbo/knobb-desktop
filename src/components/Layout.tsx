@@ -10,7 +10,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
@@ -19,6 +19,13 @@ export function Layout({ children }: React.PropsWithChildren) {
   usePlayHistoryRecorder();
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [miniPlayerVisible, setMiniPlayerVisible] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top on route change
+  useEffect(() => {
+    const viewport = scrollRef.current?.querySelector("[data-radix-scroll-area-viewport]");
+    if (viewport) viewport.scrollTop = 0;
+  }, [location.pathname]);
 
   const openFullScreen = useCallback(() => {
     setMiniPlayerVisible(false);
@@ -73,8 +80,8 @@ export function Layout({ children }: React.PropsWithChildren) {
           <div className="flex-1 flex min-h-0">
             <div className="flex-1 bg-card/40 rounded-t-lg flex flex-col min-w-0 overflow-hidden">
               <TopBar />
-              <ScrollArea className="flex-1">
-              <main className="px-6 pb-8">
+              <ScrollArea className="flex-1" ref={scrollRef}>
+                <main className="px-6 pb-8">
                   {children}
                 </main>
               </ScrollArea>
