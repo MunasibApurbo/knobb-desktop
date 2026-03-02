@@ -185,11 +185,15 @@
     font-weight: 800;
   }
 
-  /* Sung: dimmed, sharp */
+  /* Sung: bright white, bold, sharp */
   .beautiful-lyrics-line[data-state="sung"] {
-    --line-opacity: 0.35;
+    --line-opacity: 0.85;
     --line-scale: 1;
     --text-blur: 0px;
+  }
+
+  .beautiful-lyrics-line[data-state="sung"] .beautiful-lyrics-text {
+    font-weight: 800;
   }
 
   /* Idle/upcoming: dimmed + blurred */
