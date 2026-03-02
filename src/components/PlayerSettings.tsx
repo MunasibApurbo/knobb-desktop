@@ -37,7 +37,7 @@ function CollapsibleSection({
     <>
       <button
         onClick={onToggle}
-        className="group flex items-center justify-between w-full px-2 py-1.5 text-xs text-foreground uppercase tracking-wider transition-colors"
+        className="group flex items-center justify-between w-full px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground uppercase tracking-wider transition-colors"
       >
         <span className="flex items-center gap-1.5">
           {icon}
@@ -155,7 +155,7 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
         <DropdownMenuSeparator />
 
         {/* Radio mode */}
-        <DropdownMenuItem onClick={toggleRadioMode} className="flex justify-between">
+        <DropdownMenuItem onClick={toggleRadioMode} className="flex justify-between text-muted-foreground hover:text-foreground">
           <span className="flex items-center gap-2">
             <Radio className={`w-3.5 h-3.5 ${radioMode ? "text-[hsl(var(--dynamic-accent))]" : ""}`} />
             Radio Mode
@@ -170,7 +170,7 @@ export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { mini
         {/* Mini Player toggle */}
         {onToggleMiniPlayer && (
           <>
-            <DropdownMenuItem onClick={onToggleMiniPlayer} className="flex justify-between">
+            <DropdownMenuItem onClick={onToggleMiniPlayer} className="flex justify-between text-muted-foreground hover:text-foreground">
               <span className="flex items-center gap-2">
                 <PictureInPicture2 className={`w-3.5 h-3.5 ${miniPlayerEnabled ? "text-[hsl(var(--dynamic-accent))]" : ""}`} />
                 Mini Player
