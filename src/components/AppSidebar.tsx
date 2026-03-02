@@ -1,4 +1,5 @@
 import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell, Play, AlignJustify, BarChart3, Settings } from "lucide-react";
+import { useSidebarCollapsed } from "@/components/Layout";
 import { NavLink } from "@/components/NavLink";
 import { playlists, albums } from "@/data/mockData";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -41,6 +42,7 @@ export function AppSidebar() {
   const { likedSongs } = useLikedSongs();
   const { playlists: userPlaylists, createPlaylist } = usePlaylists();
   const { searchOpen, setSearchOpen, query, onQueryChange, isSearching, closeSearch, handleSearch, searchTab, setSearchTab } = useSearch();
+  const { collapsed } = useSidebarCollapsed();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -66,6 +68,40 @@ export function AppSidebar() {
     setNewName("");
     setShowCreate(false);
   }, [newName, createPlaylist, navigate]);
+
+  // Collapsed sidebar - Spotify style icon strip
+  if (collapsed) {
+    return (
+      <div className="w-full h-full flex flex-col gap-1.5">
+        <div className="rounded-lg glass-heavy py-3 flex flex-col items-center gap-2">
+          <button onClick={() => navigate("/")} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors" title="Home">
+            <Home className="w-4 h-4 text-foreground" />
+          </button>
+          <button onClick={() => setSearchOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors" title="Search">
+            <Search className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+        <div className="flex-1 rounded-lg glass-heavy py-3 flex flex-col items-center gap-1 min-h-0 overflow-hidden">
+          <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors mb-1" title="Your Library">
+            <Library className="w-4 h-4 text-muted-foreground" />
+          </button>
+          <ScrollArea className="flex-1 w-full">
+            <div className="flex flex-col items-center gap-1 px-1">
+              <button onClick={() => navigate("/liked")} className="w-9 h-9 rounded-md shrink-0 flex items-center justify-center hover:brightness-110 transition" title="Liked Songs"
+                style={{ background: "linear-gradient(135deg, hsl(250 80% 60%), hsl(200 80% 50%))" }}>
+                <Heart className="w-3.5 h-3.5 text-white fill-white" />
+              </button>
+              {playlists.map((pl) => (
+                <button key={pl.id} onClick={() => navigate(`/playlist/${pl.id}`)} title={pl.title} className="shrink-0">
+                  <img src={pl.coverUrl} alt={pl.title} className="w-9 h-9 rounded-md object-cover hover:brightness-110 transition" />
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full flex flex-col gap-1.5">
