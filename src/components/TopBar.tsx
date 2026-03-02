@@ -1,8 +1,10 @@
-import { ChevronLeft, ChevronRight, User, Bell, Search, Loader2, Play, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Search, Loader2, Play, X, Settings } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { allTracks, albums, playlists, formatDuration, Track } from "@/data/mockData";
 import { searchTracks, tidalTrackToAppTrack } from "@/lib/monochromeApi";
@@ -15,6 +17,8 @@ type TabType = "tidal" | "tracks" | "albums" | "playlists";
 export function TopBar() {
   const navigate = useNavigate();
   const { currentTrack, play } = usePlayer();
+  const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<TabType>("tidal");
@@ -26,7 +30,6 @@ export function TopBar() {
 
   const q = query.toLowerCase();
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -80,42 +83,44 @@ export function TopBar() {
 
   return (
     <header
-      className="h-16 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20 transition-colors duration-500"
+      className="h-14 md:h-16 flex items-center justify-between px-3 md:px-6 shrink-0 sticky top-0 z-20 transition-colors duration-500"
       style={{
         background: currentTrack
           ? `linear-gradient(180deg, hsl(${currentTrack.canvasColor} / 0.35) 0%, transparent 100%)`
           : "transparent",
       }}
     >
-      {/* Navigation */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost" size="icon"
-          className="w-8 h-8 rounded-full bg-background/60 hover:bg-background/80 transition-colors"
-          onClick={() => navigate(-1)}
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </Button>
-        <Button
-          variant="ghost" size="icon"
-          className="w-8 h-8 rounded-full bg-background/60 hover:bg-background/80 transition-colors"
-          onClick={() => navigate(1)}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </Button>
-      </div>
+      {/* Navigation - hidden on mobile */}
+      {!isMobile && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost" size="icon"
+            className="w-8 h-8 rounded-full bg-background/60 hover:bg-background/80 transition-colors"
+            onClick={() => navigate(-1)}
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <Button
+            variant="ghost" size="icon"
+            className="w-8 h-8 rounded-full bg-background/60 hover:bg-background/80 transition-colors"
+            onClick={() => navigate(1)}
+          >
+            <ChevronRight className="w-5 h-5" />
+          </Button>
+        </div>
+      )}
 
       {/* Center: Search */}
-      <div className="relative flex-1 max-w-lg mx-4" ref={searchRef}>
+      <div className="relative flex-1 max-w-lg mx-2 md:mx-4" ref={searchRef}>
         <div
-          className={`flex items-center gap-3 px-4 py-2 rounded-full cursor-text transition-all ${
+          className={`flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-full cursor-text transition-all ${
             searchOpen
               ? "bg-foreground/10 border border-foreground/20"
               : "bg-background/60 hover:bg-background/80"
           }`}
           onClick={() => setSearchOpen(true)}
         >
-          <Search className="w-5 h-5 text-muted-foreground shrink-0" />
+          <Search className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground shrink-0" />
           {searchOpen ? (
             <>
               <Input
@@ -159,13 +164,12 @@ export function TopBar() {
 
               <ScrollArea className="max-h-[60vh]">
                 <div className="p-2">
-                  {/* Tidal */}
                   {tab === "tidal" && (
                     <>
                       {tidalResults.length === 0 && !isSearching && (
                         <div className="text-center py-8">
                           <Search className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                          <p className="text-muted-foreground text-sm">Search Tidal for songs</p>
+                          <p className="text-muted-foreground text-sm">Search for songs</p>
                         </div>
                       )}
                       {tidalResults.map((track) => (
@@ -173,15 +177,25 @@ export function TopBar() {
                       ))}
                     </>
                   )}
-
-                  {/* Library */}
-                  {tab === "tracks" && filteredTracks.map((track) => (
-                    <TrackRow key={track.id} track={track} currentTrack={currentTrack} onClick={() => handlePlayTrack(track, filteredTracks)} />
-                  ))}
-
-                  {/* Albums */}
+                  {tab === "tracks" && (
+                    <>
+                      {filteredTracks.length === 0 && (
+                        <div className="text-center py-8">
+                          <p className="text-muted-foreground text-sm">No tracks found</p>
+                        </div>
+                      )}
+                      {filteredTracks.map((track) => (
+                        <TrackRow key={track.id} track={track} currentTrack={currentTrack} onClick={() => handlePlayTrack(track, filteredTracks)} />
+                      ))}
+                    </>
+                  )}
                   {tab === "albums" && (
                     <div className="grid grid-cols-3 gap-2">
+                      {filteredAlbums.length === 0 && (
+                        <div className="col-span-3 text-center py-8">
+                          <p className="text-muted-foreground text-sm">No albums found</p>
+                        </div>
+                      )}
                       {filteredAlbums.map((album) => (
                         <button
                           key={album.id}
@@ -195,10 +209,13 @@ export function TopBar() {
                       ))}
                     </div>
                   )}
-
-                  {/* Playlists */}
                   {tab === "playlists" && (
                     <div className="grid grid-cols-3 gap-2">
+                      {filteredPlaylists.length === 0 && (
+                        <div className="col-span-3 text-center py-8">
+                          <p className="text-muted-foreground text-sm">No playlists found</p>
+                        </div>
+                      )}
                       {filteredPlaylists.map((pl) => (
                         <button
                           key={pl.id}
@@ -220,18 +237,19 @@ export function TopBar() {
       </div>
 
       {/* Right actions */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost" size="icon"
-          className="w-8 h-8 rounded-full bg-background/60 hover:bg-background/80 transition-colors"
+      <div className="flex items-center gap-1 md:gap-2">
+        <button
+          className="flex items-center gap-2 rounded-full bg-background/60 hover:bg-background/80 transition-colors p-1 pr-2 md:pr-3"
+          onClick={() => user ? navigate("/history") : navigate("/auth")}
         >
-          <Bell className="w-4 h-4" />
-        </Button>
-        <button className="flex items-center gap-2 rounded-full bg-background/60 hover:bg-background/80 transition-colors p-1 pr-3">
           <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center">
             <User className="w-4 h-4 text-foreground" />
           </div>
-          <span className="text-sm font-semibold text-foreground">Profile</span>
+          {!isMobile && (
+            <span className="text-sm font-semibold text-foreground">
+              {user ? "Account" : "Sign in"}
+            </span>
+          )}
         </button>
       </div>
     </header>
@@ -255,7 +273,7 @@ function TrackRow({ track, currentTrack, onClick }: { track: Track; currentTrack
         </p>
         <p className="text-xs text-muted-foreground truncate">{track.artist} · {track.album}</p>
       </div>
-      <span className="text-xs text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
+      <span className="text-xs text-muted-foreground font-mono hidden sm:inline">{formatDuration(track.duration)}</span>
       <Play className="w-4 h-4 text-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
     </button>
   );

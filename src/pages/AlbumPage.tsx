@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { albums, getTotalDuration, Track } from "@/data/mockData";
 import { getAlbumTracks, getTidalImageUrl, tidalTrackToAppTrack } from "@/lib/monochromeApi";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { Play, Pause, Shuffle, Heart } from "lucide-react";
+import { Play, Pause, Shuffle, Heart, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArtistLink } from "@/components/ArtistLink";
 import { TrackListRow } from "@/components/TrackListRow";
@@ -27,19 +27,19 @@ export default function AlbumPage() {
     title: string; artist: string; artistId?: number; coverUrl: string; year: number; canvasColor: string;
   } | null>(null);
   const [loading, setLoading] = useState(!!isTidal);
+  const [error, setError] = useState(false);
   const fetchedRef = useRef<string>("");
 
-  useEffect(() => {
+  const loadAlbum = () => {
     if (!isTidal || !tidalAlbumId) return;
-    if (fetchedRef.current === id) return;
     fetchedRef.current = id!;
-    let cancelled = false;
+    setError(false);
+    setLoading(true);
 
     (async () => {
-      setLoading(true);
       try {
         const tracks = await getAlbumTracks(tidalAlbumId);
-        if (!cancelled && tracks.length > 0) {
+        if (tracks.length > 0) {
           const appTracks = tracks.map(tidalTrackToAppTrack);
           setTidalTracks(appTracks);
           setTidalAlbumInfo({
@@ -53,13 +53,16 @@ export default function AlbumPage() {
         }
       } catch (e) {
         console.error("Failed to load Tidal album:", e);
+        setError(true);
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     })();
+  };
 
-    return () => { cancelled = true; };
-  }, [id, isTidal, tidalAlbumId]);
+  useEffect(() => {
+    if (fetchedRef.current !== id) loadAlbum();
+  }, [id]);
 
   const albumTitle = tidalAlbumInfo?.title || localAlbum?.title;
   const albumArtist = tidalAlbumInfo?.artist || localAlbum?.artist;
@@ -70,6 +73,19 @@ export default function AlbumPage() {
   const trackList = tidalTracks.length > 0 ? tidalTracks : (localAlbum?.tracks || []);
 
   if (loading) return <LoadingSkeleton />;
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <AlertCircle className="w-12 h-12 text-muted-foreground" />
+        <p className="text-muted-foreground text-lg font-medium">Failed to load album</p>
+        <Button variant="outline" onClick={loadAlbum} className="gap-2">
+          <RefreshCw className="w-4 h-4" /> Try again
+        </Button>
+      </div>
+    );
+  }
+
   if (!albumTitle) return <div className="p-8 text-foreground">Album not found.</div>;
 
   const isCurrentAlbum = currentTrack && trackList.some((t) => t.id === currentTrack.id);
@@ -78,7 +94,7 @@ export default function AlbumPage() {
     <PageTransition>
       {/* Hero Header */}
       <div
-        className="flex gap-6 pb-8 -mx-6 -mt-16 px-6 pt-20"
+        className="flex flex-col md:flex-row gap-4 md:gap-6 pb-6 md:pb-8 -mx-4 md:-mx-6 -mt-14 md:-mt-16 px-4 md:px-6 pt-16 md:pt-20"
         style={{ background: `linear-gradient(180deg, hsl(${albumColor} / 0.5) 0%, transparent 100%)` }}
       >
         <motion.img
@@ -87,12 +103,12 @@ export default function AlbumPage() {
           transition={{ duration: 0.4 }}
           src={albumCover}
           alt={albumTitle}
-          className="w-56 h-56 object-cover rounded-md shadow-2xl shrink-0"
+          className="w-40 h-40 md:w-56 md:h-56 object-cover rounded-md shadow-2xl shrink-0 mx-auto md:mx-0"
         />
-        <div className="flex flex-col justify-end min-w-0">
+        <div className="flex flex-col justify-end min-w-0 text-center md:text-left">
           <p className="text-xs font-bold text-foreground/70 uppercase">Album</p>
-          <h1 className="text-5xl font-black text-foreground mt-2 mb-4 truncate tracking-tight">{albumTitle}</h1>
-          <div className="flex items-center gap-1 text-sm text-foreground/80">
+          <h1 className="text-3xl md:text-5xl font-black text-foreground mt-2 mb-4 truncate tracking-tight">{albumTitle}</h1>
+          <div className="flex items-center justify-center md:justify-start gap-1 text-sm text-foreground/80">
             <ArtistLink name={albumArtist || ""} artistId={albumArtistId} className="font-semibold text-foreground/80" />
             <span className="text-foreground/50">·</span>
             <span>{albumYear}</span>
@@ -103,9 +119,9 @@ export default function AlbumPage() {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-6 mb-6 mt-4">
+      <div className="flex items-center gap-4 md:gap-6 mb-6 mt-4 justify-center md:justify-start">
         <button
-          className="w-14 h-14 rounded-full flex items-center justify-center shadow-xl hover:scale-105 transition-transform active:scale-95"
+          className="w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-xl hover:scale-105 transition-transform active:scale-95"
           style={{ background: `hsl(var(--dynamic-accent))` }}
           onClick={() => {
             if (isCurrentAlbum) togglePlay();
