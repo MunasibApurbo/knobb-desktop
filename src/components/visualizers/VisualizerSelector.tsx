@@ -30,20 +30,6 @@ export function VisualizerSelector({ className = "" }: { className?: string }) {
         {type === "circular" && <CircularVisualizer />}
       </div>
 
-      {/* Visualizer picker */}
-      <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 hover:opacity-100 transition-opacity">
-        {VISUALIZERS.map(({ type: t, icon: Icon }) => (
-          <Button
-            key={t}
-            variant="ghost"
-            size="icon"
-            className={`w-6 h-6 ${type === t ? "text-foreground" : "text-muted-foreground"}`}
-            onClick={() => setType(t)}
-          >
-            <Icon className="w-3 h-3" />
-          </Button>
-        ))}
-      </div>
     </div>
   );
 }
