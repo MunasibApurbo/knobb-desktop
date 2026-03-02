@@ -1,5 +1,5 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { searchArtists, searchTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -24,49 +24,57 @@ export default function ArtistPage() {
   const [topTracks, setTopTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
-  const fetchedRef = useRef(false);
-
-  const loadArtist = useCallback(async () => {
-    if (fetchedRef.current || !id) return;
-    fetchedRef.current = true;
-    setLoading(true);
-
-    try {
-      const artistId = parseInt(id);
-      const searchQuery = artistName || id;
-
-      // Search for artist by name
-      const artists = await searchArtists(searchQuery);
-      let found = artists.find((a) => a.id === artistId) || artists[0] || null;
-
-      if (!found && artistName) {
-        // Fallback: extract artist info from track search
-        const trackResults = await searchTracks(artistName, 5);
-        if (trackResults.length > 0) {
-          const fa = trackResults[0].artist;
-          found = { id: fa.id, name: fa.name, picture: fa.picture, popularity: 0, url: "" };
-        }
-      }
-
-      if (found) {
-        setArtist(found);
-        // Get tracks by the resolved artist name
-        const tracks = await searchTracks(found.name, 20);
-        setTopTracks(tracks.map(tidalTrackToAppTrack));
-      }
-    } catch (e) {
-      console.error("Failed to load artist:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, artistName]);
+  const loadIdRef = useRef<string>("");
 
   useEffect(() => {
-    fetchedRef.current = false;
-    loadArtist();
-  }, [loadArtist]);
+    const key = `${id}-${artistName}`;
+    if (loadIdRef.current === key) return;
+    loadIdRef.current = key;
 
-  if (loading) {
+    // Show artist name immediately while loading
+    if (artistName) {
+      setArtist((prev) => prev?.name === artistName ? prev : { id: parseInt(id || "0"), name: artistName, picture: null, popularity: 0, url: "" });
+    }
+    setLoading(true);
+    setTopTracks([]);
+    setShowAllTracks(false);
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const artistId = parseInt(id || "0");
+        const searchQuery = artistName || id || "";
+
+        const artists = await searchArtists(searchQuery);
+        if (cancelled) return;
+        let found = artists.find((a) => a.id === artistId) || artists[0] || null;
+
+        if (!found && artistName) {
+          const trackResults = await searchTracks(artistName, 5);
+          if (cancelled) return;
+          if (trackResults.length > 0) {
+            const fa = trackResults[0].artist;
+            found = { id: fa.id, name: fa.name, picture: fa.picture, popularity: 0, url: "" };
+          }
+        }
+
+        if (found && !cancelled) {
+          setArtist(found);
+          const tracks = await searchTracks(found.name, 20);
+          if (!cancelled) setTopTracks(tracks.map(tidalTrackToAppTrack));
+        }
+      } catch (e) {
+        console.error("Failed to load artist:", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [id, artistName]);
+
+  if (!artist && loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -135,6 +143,12 @@ export default function ArtistPage() {
       </div>
 
       {/* Popular Tracks */}
+      {loading && topTracks.length === 0 && (
+        <div className="flex items-center gap-3 py-8">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Loading tracks…</span>
+        </div>
+      )}
       {topTracks.length > 0 && (
         <>
           <h2 className="text-xl font-bold text-foreground mb-4">Popular</h2>
