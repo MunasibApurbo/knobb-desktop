@@ -79,7 +79,7 @@ export function AppSidebar() {
             <Home className="w-4 h-4 text-foreground" />
           </button>
           <button
-            onClick={() => { expandPanel(); setTimeout(() => setSearchOpen(true), 150); }}
+            onClick={() => { setSearchOpen(true); expandPanel(); }}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
             title="Search"
           >
