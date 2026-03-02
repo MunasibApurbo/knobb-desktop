@@ -1,4 +1,4 @@
-import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell, Play } from "lucide-react";
+import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell, Play, AlignJustify, BarChart3, Settings } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { playlists, albums } from "@/data/mockData";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -87,20 +87,27 @@ export function AppSidebar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="w-7 h-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/10">
-                  <User className="w-4 h-4" />
+                  <AlignJustify className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-52">
                 {user ? (
                   <>
                     <DropdownMenuItem onClick={() => navigate("/history")}>
-                      <User className="w-4 h-4 mr-2" /> Profile
+                      <History className="w-4 h-4 mr-2" /> History
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => navigate("/history")}>
-                      <History className="w-4 h-4 mr-2" /> History
+                      <BarChart3 className="w-4 h-4 mr-2" /> Listening Stats
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => navigate("/liked")}>
                       <Bell className="w-4 h-4 mr-2" /> Notifications
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate("/history")}>
+                      <User className="w-4 h-4 mr-2" /> Profile
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/settings")}>
+                      <Settings className="w-4 h-4 mr-2" /> Settings
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => signOut()}>
