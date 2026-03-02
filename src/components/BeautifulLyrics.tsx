@@ -56,8 +56,8 @@ export function BeautifulLyrics({
     if (activeIdx < 0) return {};
     const dist = Math.abs(i - activeIdx);
     if (dist === 0) return { '--line-opacity': '1', '--text-blur': '0px', fontWeight: 800 } as React.CSSProperties;
-    const blur = Math.min(dist * 1.5, 6);
-    const opacity = Math.max(1 - dist * 0.15, 0.3);
+    const blur = Math.min(dist * 2.5, 10);
+    const opacity = Math.max(1 - dist * 0.25, 0.15);
     return { '--line-opacity': `${opacity}`, '--text-blur': `${blur}px` } as React.CSSProperties;
   };
 
