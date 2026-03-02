@@ -1,9 +1,8 @@
 import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell, Play, AlignJustify, BarChart3, Settings } from "lucide-react";
 import { useSidebarCollapsed } from "@/components/Layout";
 import { NavLink } from "@/components/NavLink";
-import { playlists, albums } from "@/data/mockData";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Track, formatDuration } from "@/data/mockData";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -141,13 +140,6 @@ export function AppSidebar() {
                 style={{ background: "linear-gradient(135deg, hsl(250 80% 60%), hsl(200 80% 50%))" }}
               >
                 <Heart className="w-3.5 h-3.5 text-white fill-white" />
-              </button>
-              <button
-                onClick={() => navigate("/settings")}
-                className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center bg-white/5 hover:bg-white/10 transition"
-                title="Settings"
-              >
-                <Settings className="w-4 h-4 text-muted-foreground" />
               </button>
               {userPlaylists.map((pl) => (
                 <button key={pl.id} onClick={() => navigate(`/my-playlist/${pl.id}`)} title={pl.name} className="shrink-0">
@@ -344,57 +336,15 @@ export function AppSidebar() {
                   </NavLink>
                 ))}
 
-                {/* Settings link */}
-                <NavLink
-                  to="/settings"
-                  className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
-                  activeClassName="bg-accent/60 text-foreground"
-                >
-                  <div className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center bg-white/5">
-                    <Settings className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-foreground truncate text-sm">Settings</p>
-                    <p className="text-xs text-muted-foreground truncate">Preferences & account</p>
-                  </div>
-                </NavLink>
               </>
             )}
 
-            {filter === "albums" && albums.map((album) => (
-              <NavLink
-                key={album.id}
-                to={`/album/${album.id}`}
-                className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
-                activeClassName="bg-accent/60 text-foreground"
-              >
-                <img src={album.coverUrl} alt={album.title} className="w-10 h-10 rounded-md object-cover shrink-0" />
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground truncate text-sm">{album.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">Album · {album.artist}</p>
-                </div>
-              </NavLink>
-            ))}
+            {filter === "albums" && (
+              <p className="text-xs text-muted-foreground px-2 py-4 text-center">Search to discover albums</p>
+            )}
 
             {filter === "artists" && (
-              <>
-                {[...new Set(albums.map((a) => a.artist))].map((artist) => {
-                  const album = albums.find((a) => a.artist === artist)!;
-                  return (
-                    <button
-                      key={artist}
-                      onClick={() => navigate(`/search?q=${encodeURIComponent(artist)}`)}
-                      className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group w-full text-left"
-                    >
-                      <img src={album.coverUrl} alt={artist} className="w-10 h-10 rounded-full object-cover shrink-0" />
-                      <div className="min-w-0">
-                        <p className="font-semibold text-foreground truncate text-sm">{artist}</p>
-                        <p className="text-xs text-muted-foreground truncate">Artist</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </>
+              <p className="text-xs text-muted-foreground px-2 py-4 text-center">Search to discover artists</p>
             )}
           </div>
         </ScrollArea>
