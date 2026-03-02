@@ -1,15 +1,20 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { Track, allTracks } from "@/data/mockData";
+import { getAudioEngine } from "@/lib/audioEngine";
+import { getStreamUrl } from "@/lib/monochromeApi";
+import { extractDominantColor } from "@/lib/colorExtractor";
 
 interface PlayerState {
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
+  duration: number;
   queue: Track[];
   shuffle: boolean;
   repeat: "off" | "one" | "all";
   volume: number;
   showRightPanel: boolean;
+  isLoading: boolean;
 }
 
 interface PlayerContextType extends PlayerState {
@@ -28,38 +33,81 @@ const PlayerContext = createContext<PlayerContextType | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<PlayerState>({
-    currentTrack: allTracks[0],
+    currentTrack: null,
     isPlaying: false,
-    currentTime: 42,
+    currentTime: 0,
+    duration: 0,
     queue: allTracks.slice(0, 15),
     shuffle: false,
     repeat: "off",
     volume: 0.75,
     showRightPanel: true,
+    isLoading: false,
   });
 
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const engineRef = useRef(getAudioEngine());
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  // Simulate playback timer
+  // Set up audio engine callbacks once
   useEffect(() => {
-    if (state.isPlaying) {
-      intervalRef.current = setInterval(() => {
-        setState((prev) => {
-          if (!prev.currentTrack) return prev;
-          const next = prev.currentTime + 1;
-          if (next >= prev.currentTrack.duration) {
-            return { ...prev, currentTime: 0, isPlaying: false };
-          }
-          return { ...prev, currentTime: next };
-        });
-      }, 1000);
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [state.isPlaying]);
+    const engine = engineRef.current;
+
+    engine.on("timeupdate", (currentTime: number, duration: number) => {
+      setState((prev) => ({
+        ...prev,
+        currentTime,
+        duration: duration || prev.currentTrack?.duration || 0,
+      }));
+    });
+
+    engine.on("ended", () => {
+      const s = stateRef.current;
+      if (s.repeat === "one") {
+        engine.seek(0);
+        engine.play();
+      } else if (s.queue.length > 0 && s.currentTrack) {
+        const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
+        if (idx < s.queue.length - 1 || s.repeat === "all") {
+          const nextIdx = (idx + 1) % s.queue.length;
+          const nextTrack = s.queue[nextIdx];
+          loadAndPlay(nextTrack);
+        } else {
+          setState((prev) => ({ ...prev, isPlaying: false }));
+        }
+      } else {
+        setState((prev) => ({ ...prev, isPlaying: false }));
+      }
+    });
+
+    engine.on("play", () => {
+      setState((prev) => ({ ...prev, isPlaying: true, isLoading: false }));
+    });
+
+    engine.on("pause", () => {
+      setState((prev) => ({ ...prev, isPlaying: false }));
+    });
+
+    engine.on("error", (error: string) => {
+      console.error("Audio engine error:", error);
+      setState((prev) => ({ ...prev, isPlaying: false, isLoading: false }));
+    });
+
+    engine.on("loadstart", () => {
+      setState((prev) => ({ ...prev, isLoading: true }));
+    });
+
+    engine.on("canplay", () => {
+      setState((prev) => ({ ...prev, isLoading: false }));
+    });
+
+    return () => engine.destroy();
+  }, []);
+
+  // Update volume on engine
+  useEffect(() => {
+    engineRef.current.setVolume(state.volume);
+  }, [state.volume]);
 
   // Update CSS accent variables when track changes
   useEffect(() => {
@@ -67,43 +115,107 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const root = document.documentElement;
       root.style.setProperty("--dynamic-accent", state.currentTrack.canvasColor);
       root.style.setProperty("--player-waveform", state.currentTrack.canvasColor);
-      root.style.setProperty("--dynamic-accent-glow", state.currentTrack.canvasColor.replace(/\)$/, "") + " / 0.3");
-    }
-  }, [state.currentTrack]);
+      root.style.setProperty(
+        "--dynamic-accent-glow",
+        state.currentTrack.canvasColor.replace(/\)$/, "") + " / 0.3"
+      );
 
-  const play = useCallback((track: Track, queue?: Track[]) => {
+      // Also try to extract color from the actual image
+      extractDominantColor(state.currentTrack.coverUrl).then((hsl) => {
+        root.style.setProperty("--dynamic-accent", hsl);
+        root.style.setProperty("--player-waveform", hsl);
+        root.style.setProperty("--dynamic-accent-glow", hsl + " / 0.3");
+      });
+    }
+  }, [state.currentTrack?.id]);
+
+  const loadAndPlay = useCallback(async (track: Track) => {
     setState((prev) => ({
       ...prev,
       currentTrack: track,
-      isPlaying: true,
       currentTime: 0,
-      queue: queue || prev.queue,
+      duration: track.duration,
+      isLoading: true,
+      isPlaying: false,
     }));
+
+    const engine = engineRef.current;
+
+    try {
+      let url = track.streamUrl;
+
+      // If track has a Tidal ID, fetch stream URL
+      if (track.tidalId && !url) {
+        url = await getStreamUrl(track.tidalId, "HIGH");
+        if (url) {
+          // Cache the stream URL on the track
+          track.streamUrl = url;
+        }
+      }
+
+      if (url) {
+        await engine.load(url, track.replayGain || 0, track.peak || 1);
+        await engine.play();
+      } else {
+        console.warn("No stream URL available for track:", track.title);
+        setState((prev) => ({ ...prev, isLoading: false }));
+      }
+    } catch (e) {
+      console.error("Failed to load track:", e);
+      setState((prev) => ({ ...prev, isLoading: false }));
+    }
   }, []);
 
+  const play = useCallback(
+    (track: Track, queue?: Track[]) => {
+      if (queue) {
+        setState((prev) => ({ ...prev, queue }));
+      }
+      loadAndPlay(track);
+    },
+    [loadAndPlay]
+  );
+
   const togglePlay = useCallback(() => {
-    setState((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+    const engine = engineRef.current;
+    if (engine.paused) {
+      engine.play();
+    } else {
+      engine.pause();
+    }
   }, []);
 
   const next = useCallback(() => {
-    setState((prev) => {
-      if (!prev.currentTrack || prev.queue.length === 0) return prev;
-      const idx = prev.queue.findIndex((t) => t.id === prev.currentTrack!.id);
-      const nextIdx = (idx + 1) % prev.queue.length;
-      return { ...prev, currentTrack: prev.queue[nextIdx], currentTime: 0, isPlaying: true };
-    });
-  }, []);
+    const s = stateRef.current;
+    if (!s.currentTrack || s.queue.length === 0) return;
+
+    let nextIdx: number;
+    if (s.shuffle) {
+      nextIdx = Math.floor(Math.random() * s.queue.length);
+    } else {
+      const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
+      nextIdx = (idx + 1) % s.queue.length;
+    }
+    loadAndPlay(s.queue[nextIdx]);
+  }, [loadAndPlay]);
 
   const previous = useCallback(() => {
-    setState((prev) => {
-      if (!prev.currentTrack || prev.queue.length === 0) return prev;
-      const idx = prev.queue.findIndex((t) => t.id === prev.currentTrack!.id);
-      const prevIdx = idx <= 0 ? prev.queue.length - 1 : idx - 1;
-      return { ...prev, currentTrack: prev.queue[prevIdx], currentTime: 0, isPlaying: true };
-    });
-  }, []);
+    const s = stateRef.current;
+    if (!s.currentTrack || s.queue.length === 0) return;
+
+    // If more than 3s into track, restart; otherwise go to previous
+    if (engineRef.current.currentTime > 3) {
+      engineRef.current.seek(0);
+      return;
+    }
+
+    const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
+    const prevIdx = idx <= 0 ? s.queue.length - 1 : idx - 1;
+    loadAndPlay(s.queue[prevIdx]);
+  }, [loadAndPlay]);
 
   const seek = useCallback((time: number) => {
+    engineRef.current.seek(time);
     setState((prev) => ({ ...prev, currentTime: time }));
   }, []);
 
@@ -128,7 +240,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <PlayerContext.Provider
-      value={{ ...state, play, togglePlay, next, previous, seek, toggleShuffle, toggleRepeat, setVolume, toggleRightPanel }}
+      value={{
+        ...state,
+        play,
+        togglePlay,
+        next,
+        previous,
+        seek,
+        toggleShuffle,
+        toggleRepeat,
+        setVolume,
+        toggleRightPanel,
+      }}
     >
       {children}
     </PlayerContext.Provider>

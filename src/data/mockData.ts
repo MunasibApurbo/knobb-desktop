@@ -1,5 +1,6 @@
 export interface Track {
   id: string;
+  tidalId?: number;
   title: string;
   artist: string;
   album: string;
@@ -7,6 +8,9 @@ export interface Track {
   year: number;
   coverUrl: string;
   canvasColor: string; // HSL dominant color e.g. "0 70% 55%"
+  replayGain?: number;
+  peak?: number;
+  streamUrl?: string; // cached stream URL
 }
 
 export interface Album {
