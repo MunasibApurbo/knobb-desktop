@@ -42,7 +42,7 @@ export function AppSidebar() {
   const { likedSongs } = useLikedSongs();
   const { playlists: userPlaylists, createPlaylist } = usePlaylists();
   const { searchOpen, setSearchOpen, query, onQueryChange, isSearching, closeSearch, handleSearch, searchTab, setSearchTab } = useSearch();
-  const { collapsed } = useSidebarCollapsed();
+  const { collapsed, expandPanel } = useSidebarCollapsed();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -69,31 +69,78 @@ export function AppSidebar() {
     setShowCreate(false);
   }, [newName, createPlaylist, navigate]);
 
-  // Collapsed sidebar - Spotify style icon strip
+  // Collapsed sidebar - Spotify style compact strip
   if (collapsed) {
     return (
       <div className="w-full h-full flex flex-col gap-1.5">
-        <div className="rounded-lg glass-heavy py-3 flex flex-col items-center gap-2">
-          <button onClick={() => navigate("/")} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors" title="Home">
-            <Home className="w-4 h-4 text-foreground" />
+        {/* Top: Brand + Search */}
+        <div className="rounded-lg glass-heavy px-3 py-3 flex flex-col gap-2">
+          <button onClick={() => navigate("/")} className="flex items-center gap-1">
+            <span className="text-base font-extrabold tracking-tight text-foreground truncate">Nobbb</span>
           </button>
-          <button onClick={() => setSearchOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors" title="Search">
-            <Search className="w-4 h-4 text-muted-foreground" />
-          </button>
+          <div
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-all"
+            onClick={() => { expandPanel(); setTimeout(() => setSearchOpen(true), 100); }}
+          >
+            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground truncate">Search</span>
+          </div>
         </div>
-        <div className="flex-1 rounded-lg glass-heavy py-3 flex flex-col items-center gap-1 min-h-0 overflow-hidden">
-          <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors mb-1" title="Your Library">
-            <Library className="w-4 h-4 text-muted-foreground" />
-          </button>
-          <ScrollArea className="flex-1 w-full">
-            <div className="flex flex-col items-center gap-1 px-1">
-              <button onClick={() => navigate("/liked")} className="w-9 h-9 rounded-md shrink-0 flex items-center justify-center hover:brightness-110 transition" title="Liked Songs"
-                style={{ background: "linear-gradient(135deg, hsl(250 80% 60%), hsl(200 80% 50%))" }}>
-                <Heart className="w-3.5 h-3.5 text-white fill-white" />
+
+        {/* Library */}
+        <div className="flex-1 rounded-lg glass-heavy flex flex-col min-h-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 px-3 pt-3 pb-1">
+            <Library className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="text-xs font-bold text-muted-foreground truncate">Your Library</span>
+          </div>
+          <div className="px-2 pb-1.5">
+            <FilterPill<FilterType>
+              options={filters}
+              value={filter}
+              onChange={(v) => setFilter(v)}
+            />
+          </div>
+          <ScrollArea className="flex-1 px-1">
+            <div className="flex flex-col gap-0.5 pb-3">
+              {/* Liked Songs */}
+              <button
+                onClick={() => navigate("/liked")}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/10 transition-colors w-full"
+                title="Liked Songs"
+              >
+                <div className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center"
+                  style={{ background: "linear-gradient(135deg, hsl(250 80% 60%), hsl(200 80% 50%))" }}>
+                  <Heart className="w-4 h-4 text-white fill-white" />
+                </div>
               </button>
+
+              {/* Playlists thumbnails */}
               {playlists.map((pl) => (
-                <button key={pl.id} onClick={() => navigate(`/playlist/${pl.id}`)} title={pl.title} className="shrink-0">
-                  <img src={pl.coverUrl} alt={pl.title} className="w-9 h-9 rounded-md object-cover hover:brightness-110 transition" />
+                <button
+                  key={pl.id}
+                  onClick={() => navigate(`/playlist/${pl.id}`)}
+                  title={pl.title}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/10 transition-colors w-full"
+                >
+                  <img src={pl.coverUrl} alt={pl.title} className="w-10 h-10 rounded-md object-cover shrink-0" />
+                </button>
+              ))}
+
+              {/* User playlists thumbnails */}
+              {userPlaylists.map((pl) => (
+                <button
+                  key={pl.id}
+                  onClick={() => navigate(`/my-playlist/${pl.id}`)}
+                  title={pl.name}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/10 transition-colors w-full"
+                >
+                  <div className="w-10 h-10 rounded-md shrink-0 overflow-hidden bg-accent flex items-center justify-center">
+                    {pl.cover_url ? (
+                      <img src={pl.cover_url} alt={pl.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Music className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
