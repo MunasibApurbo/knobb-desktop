@@ -8,7 +8,7 @@ import { formatDuration } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
-import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector";
+import { WaveformCanvas } from "@/components/WaveformCanvas";
 import { VolumeBar } from "@/components/VolumeBar";
 import { PlayerSettings } from "@/components/PlayerSettings";
 import { KeyboardShortcutsOverlay } from "@/components/KeyboardShortcutsOverlay";
@@ -158,7 +158,7 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
               seek(pct * trackDuration);
             }}
           >
-            <VisualizerSelector className="h-full" />
+            <WaveformCanvas />
           </div>
           <span className="text-[11px] font-mono text-muted-foreground w-10 tabular-nums">
             {formatDuration(Math.floor(trackDuration))}
