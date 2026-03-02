@@ -116,8 +116,8 @@ export function RightPanel() {
           <div className="px-5 pb-2">
             <FilterPill<TabType>
               options={[
-                { key: "lyrics" as TabType, label: "Lyrics", icon: <Mic2 className="w-3 h-3" /> },
-                { key: "queue" as TabType, label: "Queue", icon: <ListMusic className="w-3 h-3" /> },
+                { key: "lyrics" as TabType, label: "Lyrics" },
+                { key: "queue" as TabType, label: "Queue" },
               ]}
               value={tab}
               onChange={(v) => setTab(v)}
