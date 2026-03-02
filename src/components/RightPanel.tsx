@@ -67,7 +67,7 @@ export function RightPanel() {
           animate={{ width: 340, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-          className="shrink-0 h-full ml-2 bg-card rounded-t-lg flex flex-col overflow-hidden"
+          className="shrink-0 h-full ml-2 bg-card/80 backdrop-blur-md rounded-t-lg flex flex-col overflow-hidden border border-border/10"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-5 pb-2">
