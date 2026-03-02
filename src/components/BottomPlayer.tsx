@@ -1,6 +1,6 @@
 import {
   Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, Repeat1,
-  Volume2, VolumeX, Volume1, ListMusic, Heart, Mic2, Maximize2, Loader2
+  Volume2, VolumeX, Volume1, ListMusic, Heart, Mic2, Maximize2, Loader2, Radio
 } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -10,11 +10,11 @@ import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector";
 import { VolumeBar } from "@/components/VolumeBar";
+import { PlayerSettings } from "@/components/PlayerSettings";
 import { useNavigate } from "react-router-dom";
-
 export function BottomPlayer() {
   const {
-    currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading,
+    currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading, radioMode,
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
   } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
@@ -106,6 +106,12 @@ export function BottomPlayer() {
 
           {/* Right: Volume + Actions */}
           <div className="flex items-center gap-2 w-[280px] justify-end">
+            {radioMode && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full border" style={{ color: `hsl(var(--dynamic-accent))`, borderColor: `hsl(var(--dynamic-accent) / 0.3)` }}>
+                <Radio className="w-3 h-3 inline mr-0.5" />RADIO
+              </span>
+            )}
+            <PlayerSettings />
             <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={toggleRightPanel}>
               <Mic2 className="w-4 h-4" />
             </Button>

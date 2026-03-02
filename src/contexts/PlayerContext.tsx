@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { Track, allTracks } from "@/data/mockData";
 import { getAudioEngine } from "@/lib/audioEngine";
-import { getStreamUrl } from "@/lib/monochromeApi";
+import { getStreamUrl, getRecommendations, tidalTrackToAppTrack } from "@/lib/monochromeApi";
 import { extractDominantColor } from "@/lib/colorExtractor";
+
+export type AudioQuality = "LOW" | "HIGH" | "LOSSLESS";
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -15,6 +17,9 @@ interface PlayerState {
   volume: number;
   showRightPanel: boolean;
   isLoading: boolean;
+  quality: AudioQuality;
+  radioMode: boolean;
+  crossfadeDuration: number; // seconds, 0 = off
 }
 
 interface PlayerContextType extends PlayerState {
@@ -27,6 +32,9 @@ interface PlayerContextType extends PlayerState {
   toggleRepeat: () => void;
   setVolume: (v: number) => void;
   toggleRightPanel: () => void;
+  setQuality: (q: AudioQuality) => void;
+  toggleRadioMode: () => void;
+  setCrossfadeDuration: (s: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -43,11 +51,92 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     volume: 0.75,
     showRightPanel: true,
     isLoading: false,
+    quality: (localStorage.getItem("audio-quality") as AudioQuality) || "HIGH",
+    radioMode: localStorage.getItem("radio-mode") === "true",
+    crossfadeDuration: Number(localStorage.getItem("crossfade-duration") || "0"),
   });
 
   const engineRef = useRef(getAudioEngine());
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Sync crossfade duration to engine
+  useEffect(() => {
+    engineRef.current.setCrossfadeDuration(state.crossfadeDuration);
+  }, [state.crossfadeDuration]);
+
+  const loadAndPlay = useCallback(async (track: Track, useCrossfade = false) => {
+    setState((prev) => ({
+      ...prev,
+      currentTrack: track,
+      currentTime: 0,
+      duration: track.duration,
+      isLoading: true,
+      isPlaying: false,
+    }));
+
+    const engine = engineRef.current;
+    const quality = stateRef.current.quality;
+
+    try {
+      let url = track.streamUrl;
+
+      if (track.tidalId && !url) {
+        url = await getStreamUrl(track.tidalId, quality);
+        if (url) track.streamUrl = url;
+      }
+
+      if (url) {
+        if (useCrossfade && stateRef.current.crossfadeDuration > 0) {
+          await engine.crossfadeInto(url, track.replayGain || 0, track.peak || 1);
+        } else {
+          await engine.load(url, track.replayGain || 0, track.peak || 1);
+          await engine.play();
+        }
+      } else {
+        console.warn("No stream URL available for track:", track.title);
+        setState((prev) => ({ ...prev, isLoading: false }));
+      }
+    } catch (e) {
+      console.error("Failed to load track:", e);
+      setState((prev) => ({ ...prev, isLoading: false }));
+    }
+  }, []);
+
+  const advanceToNext = useCallback((useCrossfade = false) => {
+    const s = stateRef.current;
+    if (!s.currentTrack || s.queue.length === 0) return;
+
+    let nextIdx: number;
+    if (s.shuffle) {
+      nextIdx = Math.floor(Math.random() * s.queue.length);
+    } else {
+      const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
+      nextIdx = (idx + 1) % s.queue.length;
+    }
+    loadAndPlay(s.queue[nextIdx], useCrossfade);
+  }, [loadAndPlay]);
+
+  // Fetch radio recommendations when queue ends
+  const fetchRadioTracks = useCallback(async () => {
+    const s = stateRef.current;
+    if (!s.currentTrack?.tidalId) return;
+
+    try {
+      const recs = await getRecommendations(s.currentTrack.tidalId);
+      if (recs.length > 0) {
+        const newTracks = recs.map(tidalTrackToAppTrack);
+        setState((prev) => ({
+          ...prev,
+          queue: [...prev.queue, ...newTracks],
+        }));
+        // Play the first recommendation
+        loadAndPlay(newTracks[0], stateRef.current.crossfadeDuration > 0);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch radio recommendations:", e);
+    }
+  }, [loadAndPlay]);
 
   // Set up audio engine callbacks once
   useEffect(() => {
@@ -69,14 +158,30 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       } else if (s.queue.length > 0 && s.currentTrack) {
         const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
         if (idx < s.queue.length - 1 || s.repeat === "all") {
-          const nextIdx = (idx + 1) % s.queue.length;
-          const nextTrack = s.queue[nextIdx];
-          loadAndPlay(nextTrack);
+          advanceToNext();
+        } else if (s.radioMode) {
+          // Queue ended — fetch recommendations
+          fetchRadioTracks();
         } else {
           setState((prev) => ({ ...prev, isPlaying: false }));
         }
+      } else if (s.radioMode) {
+        fetchRadioTracks();
       } else {
         setState((prev) => ({ ...prev, isPlaying: false }));
+      }
+    });
+
+    engine.on("crossfade", () => {
+      // Crossfade point reached — advance to next track with crossfade
+      const s = stateRef.current;
+      if (s.queue.length > 0 && s.currentTrack) {
+        const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
+        if (idx < s.queue.length - 1 || s.repeat === "all") {
+          advanceToNext(true);
+        } else if (s.radioMode) {
+          fetchRadioTracks();
+        }
       }
     });
 
@@ -101,11 +206,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, isLoading: false }));
     });
 
-    // Don't destroy engine on unmount — it's a singleton and HMR will re-mount
     return () => {};
-  }, []);
+  }, [advanceToNext, fetchRadioTracks]);
 
-  // Update volume on engine
   useEffect(() => {
     engineRef.current.setVolume(state.volume);
   }, [state.volume]);
@@ -116,12 +219,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const root = document.documentElement;
       root.style.setProperty("--dynamic-accent", state.currentTrack.canvasColor);
       root.style.setProperty("--player-waveform", state.currentTrack.canvasColor);
-      root.style.setProperty(
-        "--dynamic-accent-glow",
-        state.currentTrack.canvasColor.replace(/\)$/, "") + " / 0.3"
-      );
+      root.style.setProperty("--dynamic-accent-glow", state.currentTrack.canvasColor.replace(/\)$/, "") + " / 0.3");
 
-      // Also try to extract color from the actual image
       extractDominantColor(state.currentTrack.coverUrl).then((hsl) => {
         root.style.setProperty("--dynamic-accent", hsl);
         root.style.setProperty("--player-waveform", hsl);
@@ -130,48 +229,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.currentTrack?.id]);
 
-  const loadAndPlay = useCallback(async (track: Track) => {
-    setState((prev) => ({
-      ...prev,
-      currentTrack: track,
-      currentTime: 0,
-      duration: track.duration,
-      isLoading: true,
-      isPlaying: false,
-    }));
-
-    const engine = engineRef.current;
-
-    try {
-      let url = track.streamUrl;
-
-      // If track has a Tidal ID, fetch stream URL
-      if (track.tidalId && !url) {
-        url = await getStreamUrl(track.tidalId, "HIGH");
-        if (url) {
-          // Cache the stream URL on the track
-          track.streamUrl = url;
-        }
-      }
-
-      if (url) {
-        await engine.load(url, track.replayGain || 0, track.peak || 1);
-        await engine.play();
-      } else {
-        console.warn("No stream URL available for track:", track.title);
-        setState((prev) => ({ ...prev, isLoading: false }));
-      }
-    } catch (e) {
-      console.error("Failed to load track:", e);
-      setState((prev) => ({ ...prev, isLoading: false }));
-    }
-  }, []);
-
   const play = useCallback(
     (track: Track, queue?: Track[]) => {
-      if (queue) {
-        setState((prev) => ({ ...prev, queue }));
-      }
+      if (queue) setState((prev) => ({ ...prev, queue }));
       loadAndPlay(track);
     },
     [loadAndPlay]
@@ -179,37 +239,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const togglePlay = useCallback(() => {
     const engine = engineRef.current;
-    if (engine.paused) {
-      engine.play();
-    } else {
-      engine.pause();
-    }
+    if (engine.paused) engine.play();
+    else engine.pause();
   }, []);
 
-  const next = useCallback(() => {
-    const s = stateRef.current;
-    if (!s.currentTrack || s.queue.length === 0) return;
-
-    let nextIdx: number;
-    if (s.shuffle) {
-      nextIdx = Math.floor(Math.random() * s.queue.length);
-    } else {
-      const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
-      nextIdx = (idx + 1) % s.queue.length;
-    }
-    loadAndPlay(s.queue[nextIdx]);
-  }, [loadAndPlay]);
+  const next = useCallback(() => advanceToNext(), [advanceToNext]);
 
   const previous = useCallback(() => {
     const s = stateRef.current;
     if (!s.currentTrack || s.queue.length === 0) return;
-
-    // If more than 3s into track, restart; otherwise go to previous
     if (engineRef.current.currentTime > 3) {
       engineRef.current.seek(0);
       return;
     }
-
     const idx = s.queue.findIndex((t) => t.id === s.currentTrack!.id);
     const prevIdx = idx <= 0 ? s.queue.length - 1 : idx - 1;
     loadAndPlay(s.queue[prevIdx]);
@@ -239,19 +281,31 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, showRightPanel: !prev.showRightPanel }));
   }, []);
 
+  const setQuality = useCallback((q: AudioQuality) => {
+    localStorage.setItem("audio-quality", q);
+    setState((prev) => ({ ...prev, quality: q }));
+  }, []);
+
+  const toggleRadioMode = useCallback(() => {
+    setState((prev) => {
+      const next = !prev.radioMode;
+      localStorage.setItem("radio-mode", String(next));
+      return { ...prev, radioMode: next };
+    });
+  }, []);
+
+  const setCrossfadeDuration = useCallback((s: number) => {
+    localStorage.setItem("crossfade-duration", String(s));
+    setState((prev) => ({ ...prev, crossfadeDuration: s }));
+  }, []);
+
   return (
     <PlayerContext.Provider
       value={{
         ...state,
-        play,
-        togglePlay,
-        next,
-        previous,
-        seek,
-        toggleShuffle,
-        toggleRepeat,
-        setVolume,
-        toggleRightPanel,
+        play, togglePlay, next, previous, seek,
+        toggleShuffle, toggleRepeat, setVolume, toggleRightPanel,
+        setQuality, toggleRadioMode, setCrossfadeDuration,
       }}
     >
       {children}
