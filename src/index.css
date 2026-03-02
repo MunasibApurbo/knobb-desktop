@@ -72,6 +72,22 @@
 }
 
 @layer utilities {
+  /* Consistent interactive states */
+  .interactive-row {
+    @apply rounded-md transition-all duration-200 cursor-pointer;
+  }
+  .interactive-row:hover {
+    background: hsl(var(--accent) / 0.15);
+  }
+  .interactive-row[data-active="true"] {
+    background: hsl(var(--accent) / 0.3);
+  }
+
+  /* Smooth image loading */
+  .img-smooth {
+    @apply transition-opacity duration-300;
+  }
+
   /* Dribbblish-style glass panels */
   .glass {
     background: hsl(0 0% 10% / 0.85);
