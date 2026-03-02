@@ -35,6 +35,7 @@ export function Layout({ children }: React.PropsWithChildren) {
   usePlayHistoryRecorder();
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [miniPlayerVisible, setMiniPlayerVisible] = useState(false);
+  const [miniPlayerEnabled, setMiniPlayerEnabled] = useState(() => localStorage.getItem("mini-player-enabled") !== "false");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -56,7 +57,17 @@ export function Layout({ children }: React.PropsWithChildren) {
 
   const closeFullScreen = useCallback(() => {
     setFullScreenOpen(false);
-    setMiniPlayerVisible(true);
+    // Only show mini player if enabled in settings
+    if (miniPlayerEnabled) setMiniPlayerVisible(true);
+  }, [miniPlayerEnabled]);
+
+  const toggleMiniPlayerEnabled = useCallback(() => {
+    setMiniPlayerEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem("mini-player-enabled", String(next));
+      if (!next) setMiniPlayerVisible(false);
+      return next;
+    });
   }, []);
 
   const closeMiniPlayer = useCallback(() => {
@@ -143,7 +154,7 @@ export function Layout({ children }: React.PropsWithChildren) {
       </div>
 
       {/* Bottom Player - hidden on mobile */}
-      {!isMobile && <BottomPlayer onOpenFullScreen={openFullScreen} />}
+      {!isMobile && <BottomPlayer onOpenFullScreen={openFullScreen} miniPlayerEnabled={miniPlayerEnabled} onToggleMiniPlayer={toggleMiniPlayerEnabled} />}
 
       {/* Mobile bottom nav */}
       {isMobile && <MobileNav />}
