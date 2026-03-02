@@ -2,19 +2,9 @@ import { useSearch } from "@/contexts/SearchContext";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useNavigate } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FilterPill } from "@/components/ui/filter-pill";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Play, Loader2 } from "lucide-react";
+import { Search, Play } from "lucide-react";
 import { Track, formatDuration } from "@/data/mockData";
-
-type SearchTab = "tidal" | "tracks" | "albums" | "playlists";
-
-const searchTabs: { key: SearchTab; label: string }[] = [
-  { key: "tidal", label: "Tidal" },
-  { key: "tracks", label: "Library" },
-  { key: "albums", label: "Albums" },
-  { key: "playlists", label: "Playlists" },
-];
 
 export function SearchOverlay() {
   const {
@@ -42,18 +32,6 @@ export function SearchOverlay() {
           className="absolute inset-0 z-40 flex flex-col rounded-lg overflow-hidden"
           style={{ background: "hsl(0 0% 8% / 0.92)", backdropFilter: "blur(30px) saturate(150%)" }}
         >
-          {/* Tab pills */}
-          <div className="px-5 pt-5 pb-3 border-b border-white/8">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-bold text-foreground">Search</h2>
-              {isSearching && <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />}
-            </div>
-            <FilterPill<SearchTab>
-              options={searchTabs.map(t => ({ key: t.key, label: t.label }))}
-              value={searchTab}
-              onChange={(v) => { setSearchTab(v); if (v === "tidal" && query) handleSearch(query); }}
-            />
-          </div>
 
           <ScrollArea className="flex-1">
             <div className="p-4">

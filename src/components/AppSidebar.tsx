@@ -23,6 +23,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type FilterType = "playlists" | "albums" | "artists";
+type SearchTab = "tidal" | "tracks" | "albums" | "playlists";
+
+const searchTabs: { key: SearchTab; label: string }[] = [
+  { key: "tidal", label: "Tidal" },
+  { key: "tracks", label: "Library" },
+  { key: "albums", label: "Albums" },
+  { key: "playlists", label: "Playlists" },
+];
 
 export function AppSidebar() {
   const [filter, setFilter] = useState<FilterType>("playlists");
@@ -30,7 +38,7 @@ export function AppSidebar() {
   const { user, signOut } = useAuth();
   const { likedSongs } = useLikedSongs();
   const { playlists: userPlaylists, createPlaylist } = usePlaylists();
-  const { searchOpen, setSearchOpen, query, onQueryChange, isSearching, closeSearch, handleSearch, searchTab } = useSearch();
+  const { searchOpen, setSearchOpen, query, onQueryChange, isSearching, closeSearch, handleSearch, searchTab, setSearchTab } = useSearch();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -60,7 +68,7 @@ export function AppSidebar() {
   return (
     <div className="w-full h-full flex flex-col gap-1.5">
       {/* Top section: Brand + Nav + Menu */}
-      <div className="rounded-lg glass-heavy px-3 py-3 flex flex-col gap-3">
+      <div className="rounded-lg glass-heavy px-3 py-3 flex flex-col gap-3 relative" style={{ overflow: searchOpen ? 'visible' : 'hidden' }}>
         {/* Brand row with nav and menu */}
         <div className="flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-1">
@@ -108,42 +116,59 @@ export function AppSidebar() {
           </div>
         </div>
 
-        {/* Search bar - just the input, results show in SearchOverlay */}
-        <div
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-text transition-all ${
-            searchOpen
-              ? "bg-white/10 border border-white/15 ring-1 ring-white/10"
-              : "bg-white/5 hover:bg-white/10"
-          }`}
-          onClick={() => setSearchOpen(true)}
-        >
-          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-          {searchOpen ? (
-            <>
-              <Input
-                ref={inputRef}
-                placeholder="Search..."
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && searchTab === "tidal") handleSearch(query);
-                  if (e.key === "Escape") closeSearch();
-                }}
-                className="border-0 bg-transparent p-0 h-auto text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
-              />
-              {isSearching && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />}
-              <Button variant="ghost" size="icon" className="w-5 h-5 shrink-0 rounded-full" onClick={(e) => { e.stopPropagation(); closeSearch(); }}>
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground flex-1">Search</span>
-          )}
+        {/* Search bar — expands rightward when open */}
+        <div className="relative" style={{ zIndex: searchOpen ? 50 : 'auto' }}>
+          <div
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-text transition-all ${
+              searchOpen
+                ? "bg-white/10 border border-white/15"
+                : "bg-white/5 hover:bg-white/10"
+            }`}
+            onClick={() => setSearchOpen(true)}
+            style={searchOpen ? { 
+              position: 'absolute',
+              left: 0,
+              right: '-120%',
+              top: 0,
+              zIndex: 50,
+              background: 'hsl(0 0% 10% / 0.95)',
+              backdropFilter: 'blur(20px)',
+            } : {}}
+          >
+            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+            {searchOpen ? (
+              <>
+                <Input
+                  ref={inputRef}
+                  placeholder="Search..."
+                  value={query}
+                  onChange={(e) => onQueryChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && searchTab === "tidal") handleSearch(query);
+                    if (e.key === "Escape") closeSearch();
+                  }}
+                  className="border-0 bg-transparent p-0 h-auto text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 min-w-0"
+                />
+                {isSearching && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />}
+                <Button variant="ghost" size="icon" className="w-5 h-5 shrink-0 rounded-full" onClick={(e) => { e.stopPropagation(); closeSearch(); }}>
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+                <div className="h-4 w-px bg-white/15 shrink-0 mx-1" />
+                <FilterPill<SearchTab>
+                  options={searchTabs.map(t => ({ key: t.key, label: t.label }))}
+                  value={searchTab}
+                  onChange={(v) => { setSearchTab(v); if (v === "tidal" && query) handleSearch(query); }}
+                />
+              </>
+            ) : (
+              <span className="text-sm text-muted-foreground flex-1">Search</span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Library Card */}
-      <div className="flex-1 rounded-lg flex flex-col min-h-0 glass-heavy">
+      <div className={`flex-1 rounded-lg flex flex-col min-h-0 glass-heavy transition-all duration-300 ${searchOpen ? "blur-md opacity-40 pointer-events-none" : ""}`}>
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <button
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
