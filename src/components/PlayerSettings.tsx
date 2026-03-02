@@ -1,4 +1,4 @@
-import { Radio, Settings2, Disc3 } from "lucide-react";
+import { Radio, Settings2, Disc3, Timer, TimerOff } from "lucide-react";
 import { usePlayer, AudioQuality } from "@/contexts/PlayerContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { toast } from "sonner";
 
 const QUALITY_LABELS: Record<AudioQuality, { label: string; desc: string }> = {
   LOW: { label: "Low", desc: "96 kbps" },
@@ -17,14 +19,67 @@ const QUALITY_LABELS: Record<AudioQuality, { label: string; desc: string }> = {
   LOSSLESS: { label: "Lossless", desc: "FLAC 16-bit" },
 };
 
+const SLEEP_OPTIONS = [
+  { label: "5 minutes", value: 5 },
+  { label: "15 minutes", value: 15 },
+  { label: "30 minutes", value: 30 },
+  { label: "45 minutes", value: 45 },
+  { label: "1 hour", value: 60 },
+];
+
 export function PlayerSettings() {
-  const { quality, setQuality, radioMode, toggleRadioMode, crossfadeDuration, setCrossfadeDuration } = usePlayer();
+  const { quality, setQuality, radioMode, toggleRadioMode, crossfadeDuration, setCrossfadeDuration, togglePlay, isPlaying } = usePlayer();
+  const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
+  const [remaining, setRemaining] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const endTimeRef = useRef<number | null>(null);
+
+  const clearSleepTimer = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    endTimeRef.current = null;
+    setSleepMinutes(null);
+    setRemaining(0);
+  }, []);
+
+  const startSleepTimer = useCallback((minutes: number) => {
+    clearSleepTimer();
+    const endTime = Date.now() + minutes * 60 * 1000;
+    endTimeRef.current = endTime;
+    setSleepMinutes(minutes);
+    setRemaining(minutes * 60);
+    toast.success(`Sleep timer set for ${minutes} minutes`);
+
+    timerRef.current = setInterval(() => {
+      const left = Math.max(0, Math.round((endTimeRef.current! - Date.now()) / 1000));
+      setRemaining(left);
+      if (left <= 0) {
+        clearSleepTimer();
+        // Pause playback
+        if (isPlaying) togglePlay();
+        toast.info("Sleep timer ended — playback paused");
+      }
+    }, 1000);
+  }, [clearSleepTimer, isPlaying, togglePlay]);
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  const formatRemaining = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground relative">
           <Settings2 className="w-4 h-4" />
+          {sleepMinutes !== null && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: `hsl(var(--dynamic-accent))` }} />
+          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 bg-background/95 backdrop-blur-xl border-border/30">
@@ -81,6 +136,36 @@ export function PlayerSettings() {
             className="w-full"
           />
         </div>
+
+        <DropdownMenuSeparator />
+
+        {/* Sleep Timer */}
+        <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
+          Sleep Timer
+        </DropdownMenuLabel>
+        {sleepMinutes !== null ? (
+          <div className="px-3 py-2 space-y-2">
+            <div className="flex justify-between items-center text-xs">
+              <span className="flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5" style={{ color: `hsl(var(--dynamic-accent))` }} />
+                <span style={{ color: `hsl(var(--dynamic-accent))` }}>{formatRemaining(remaining)}</span>
+              </span>
+              <button
+                onClick={clearSleepTimer}
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors text-xs"
+              >
+                <TimerOff className="w-3 h-3" /> Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          SLEEP_OPTIONS.map((opt) => (
+            <DropdownMenuItem key={opt.value} onClick={() => startSleepTimer(opt.value)}>
+              <Timer className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+              {opt.label}
+            </DropdownMenuItem>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
