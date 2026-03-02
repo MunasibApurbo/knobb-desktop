@@ -1,5 +1,5 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { searchArtists, searchTracks, searchAlbums, getRecommendations, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist, TidalAlbum } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -22,18 +22,14 @@ export default function ArtistPage() {
   const [relatedArtists, setRelatedArtists] = useState<{ id: number; name: string; picture: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
-  const loadIdRef = useRef<string>("");
+  
 
   useEffect(() => {
-    const key = `${id}-${artistName}`;
-    if (loadIdRef.current === key) return;
-    loadIdRef.current = key;
-
-    if (artistName) {
-      setArtist((prev) => prev?.name === artistName ? prev : { id: parseInt(id || "0"), name: artistName, picture: null, popularity: 0, url: "" });
-    }
     setLoading(true);
     setShowAllTracks(false);
+    setTopTracks([]);
+    setDiscography([]);
+    setRelatedArtists([]);
 
     let cancelled = false;
 
