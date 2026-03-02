@@ -12,7 +12,7 @@ export function TopBar() {
         <Button
           variant="ghost"
           size="icon"
-          className="w-8 h-8 rounded-full bg-secondary/50 hover:bg-secondary"
+          className="w-8 h-8 bg-secondary/50 hover:bg-secondary transition-colors"
           onClick={() => navigate(-1)}
         >
           <ChevronLeft className="w-4 h-4" />
@@ -20,16 +20,16 @@ export function TopBar() {
         <Button
           variant="ghost"
           size="icon"
-          className="w-8 h-8 rounded-full bg-secondary/50 hover:bg-secondary"
+          className="w-8 h-8 bg-secondary/50 hover:bg-secondary transition-colors"
           onClick={() => navigate(1)}
         >
           <ChevronRight className="w-4 h-4" />
         </Button>
       </div>
 
-      {/* Search (visible on non-search pages as quick access) */}
+      {/* Search */}
       <div
-        className="flex items-center gap-2 glass rounded-full px-4 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors max-w-xs"
+        className="flex items-center gap-2 glass px-4 py-1.5 cursor-pointer hover:bg-accent/50 transition-all duration-200 max-w-xs hover:border-foreground/20"
         onClick={() => navigate("/search")}
       >
         <Search className="w-4 h-4 text-muted-foreground" />
@@ -37,7 +37,7 @@ export function TopBar() {
       </div>
 
       {/* User */}
-      <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full bg-secondary/50 hover:bg-secondary">
+      <Button variant="ghost" size="icon" className="w-8 h-8 bg-secondary/50 hover:bg-secondary transition-colors">
         <User className="w-4 h-4" />
       </Button>
     </header>
