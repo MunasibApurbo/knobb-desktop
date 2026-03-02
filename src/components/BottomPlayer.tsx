@@ -1,20 +1,22 @@
 import {
   Shuffle, SkipBack, Play, Pause, SkipForward, Repeat, Repeat1,
-  Download, Volume2, ListMusic, Heart, Disc3
+  Download, Volume2, ListMusic, Heart, Disc3, Loader2
 } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { formatDuration } from "@/data/mockData";
-import { WaveformCanvas } from "@/components/WaveformCanvas";
+import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 
 export function BottomPlayer() {
   const {
-    currentTrack, isPlaying, currentTime, shuffle, repeat, volume,
+    currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading,
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
   } = usePlayer();
 
   if (!currentTrack) return null;
+
+  const trackDuration = duration || currentTrack.duration;
 
   return (
     <div className="h-24 shrink-0 glass-heavy mx-2 mb-2 rounded-xl flex items-center px-4 gap-4">
@@ -34,8 +36,15 @@ export function BottomPlayer() {
           variant="ghost" size="icon"
           className="w-10 h-10 rounded-full bg-foreground text-background hover:bg-foreground/90"
           onClick={togglePlay}
+          disabled={isLoading && !isPlaying}
         >
-          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+          {isLoading && !isPlaying ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : isPlaying ? (
+            <Pause className="w-5 h-5" />
+          ) : (
+            <Play className="w-5 h-5 ml-0.5" />
+          )}
         </Button>
         <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground" onClick={next}>
           <SkipForward className="w-4 h-4" />
@@ -67,18 +76,21 @@ export function BottomPlayer() {
         </Button>
       </div>
 
-      {/* Center: Waveform */}
+      {/* Center: Visualizer + Waveform */}
       <div className="flex-1 flex flex-col items-center gap-1 min-w-0">
-        <div className="w-full h-10 cursor-pointer" onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = (e.clientX - rect.left) / rect.width;
-          seek(Math.floor(pct * currentTrack.duration));
-        }}>
-          <WaveformCanvas />
+        <div
+          className="w-full h-10 cursor-pointer"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            seek(Math.floor(pct * trackDuration));
+          }}
+        >
+          <VisualizerSelector />
         </div>
         <div className="flex justify-between w-full text-xs text-muted-foreground px-0.5">
-          <span>{formatDuration(currentTime)}</span>
-          <span>{formatDuration(currentTrack.duration)}</span>
+          <span>{formatDuration(Math.floor(currentTime))}</span>
+          <span>{formatDuration(Math.floor(trackDuration))}</span>
         </div>
       </div>
 
