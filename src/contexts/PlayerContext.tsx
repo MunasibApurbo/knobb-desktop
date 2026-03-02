@@ -4,7 +4,7 @@ import { getAudioEngine } from "@/lib/audioEngine";
 import { getStreamUrl, getRecommendations, tidalTrackToAppTrack } from "@/lib/monochromeApi";
 import { extractDominantColor } from "@/lib/colorExtractor";
 
-export type AudioQuality = "LOW" | "HIGH" | "LOSSLESS";
+export type AudioQuality = "LOW" | "MEDIUM" | "HIGH" | "LOSSLESS";
 export type RightPanelTab = "lyrics" | "queue";
 
 interface PlayerState {

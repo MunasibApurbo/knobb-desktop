@@ -17,9 +17,11 @@ import { useNavigate } from "react-router-dom";
 
 interface BottomPlayerProps {
   onOpenFullScreen?: () => void;
+  miniPlayerEnabled?: boolean;
+  onToggleMiniPlayer?: () => void;
 }
 
-export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
+export function BottomPlayer({ onOpenFullScreen, miniPlayerEnabled, onToggleMiniPlayer }: BottomPlayerProps) {
   const {
     currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading, radioMode,
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, openRightPanel,
@@ -119,7 +121,7 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
                 <Radio className="w-3 h-3 inline mr-0.5" />RADIO
               </span>
             )}
-            <PlayerSettings />
+            <PlayerSettings miniPlayerEnabled={miniPlayerEnabled} onToggleMiniPlayer={onToggleMiniPlayer} />
             <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openRightPanel("queue")}>
               <ListMusic className="w-4 h-4" />
             </Button>

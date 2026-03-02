@@ -1,4 +1,4 @@
-import { Radio, Settings2, Disc3, Timer, TimerOff, Gauge } from "lucide-react";
+import { Radio, Settings2, Disc3, Timer, TimerOff, ChevronDown, ChevronUp, PictureInPicture2 } from "lucide-react";
 import { usePlayer, AudioQuality } from "@/contexts/PlayerContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 const QUALITY_LABELS: Record<AudioQuality, { label: string; desc: string }> = {
   LOW: { label: "Low", desc: "96 kbps" },
+  MEDIUM: { label: "Medium", desc: "160 kbps" },
   HIGH: { label: "High", desc: "320 kbps" },
   LOSSLESS: { label: "Lossless", desc: "FLAC 16-bit" },
 };
@@ -27,10 +28,11 @@ const SLEEP_OPTIONS = [
   { label: "1 hour", value: 60 },
 ];
 
-export function PlayerSettings() {
-  const { quality, setQuality, radioMode, toggleRadioMode, crossfadeDuration, setCrossfadeDuration, togglePlay, isPlaying, playbackSpeed, setPlaybackSpeed } = usePlayer();
+export function PlayerSettings({ miniPlayerEnabled, onToggleMiniPlayer }: { miniPlayerEnabled?: boolean; onToggleMiniPlayer?: () => void }) {
+  const { quality, setQuality, radioMode, toggleRadioMode, crossfadeDuration, setCrossfadeDuration, togglePlay, isPlaying } = usePlayer();
   const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
+  const [sleepExpanded, setSleepExpanded] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const endTimeRef = useRef<number | null>(null);
 
@@ -55,7 +57,6 @@ export function PlayerSettings() {
       setRemaining(left);
       if (left <= 0) {
         clearSleepTimer();
-        // Pause playback
         if (isPlaying) togglePlay();
         toast.info("Sleep timer ended — playback paused");
       }
@@ -116,6 +117,22 @@ export function PlayerSettings() {
 
         <DropdownMenuSeparator />
 
+        {/* Mini Player toggle */}
+        {onToggleMiniPlayer && (
+          <>
+            <DropdownMenuItem onClick={onToggleMiniPlayer} className="flex justify-between">
+              <span className="flex items-center gap-2">
+                <PictureInPicture2 className={`w-3.5 h-3.5 ${miniPlayerEnabled ? "text-[hsl(var(--dynamic-accent))]" : ""}`} />
+                Mini Player
+              </span>
+              <span className={`text-xs ${miniPlayerEnabled ? "text-[hsl(var(--dynamic-accent))]" : "text-muted-foreground"}`}>
+                {miniPlayerEnabled ? "ON" : "OFF"}
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+
         {/* Crossfade */}
         <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
           Crossfade
@@ -133,59 +150,53 @@ export function PlayerSettings() {
             min={0}
             max={12}
             step={1}
-            className="w-full"
+            className="w-full [&_[data-radix-slider-track]]:h-1 [&_[data-radix-slider-range]]:bg-[hsl(var(--dynamic-accent))] [&_[data-radix-slider-thumb]]:w-3 [&_[data-radix-slider-thumb]]:h-3 [&_[data-radix-slider-thumb]]:border-[hsl(var(--dynamic-accent))]"
           />
         </div>
 
         <DropdownMenuSeparator />
 
-        {/* Playback Speed */}
-        <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
-          Playback Speed
-        </DropdownMenuLabel>
-        <div className="px-3 py-2 space-y-2">
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground flex items-center gap-1"><Gauge className="w-3 h-3" /> Speed</span>
-            <span style={{ color: playbackSpeed !== 1 ? `hsl(var(--dynamic-accent))` : undefined }}>
-              {playbackSpeed}x
-            </span>
-          </div>
-          <Slider
-            value={[playbackSpeed * 100]}
-            onValueChange={([v]) => setPlaybackSpeed(v / 100)}
-            min={50}
-            max={200}
-            step={25}
-            className="w-full"
-          />
-        </div>
-
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
-          Sleep Timer
-        </DropdownMenuLabel>
-        {sleepMinutes !== null ? (
-          <div className="px-3 py-2 space-y-2">
-            <div className="flex justify-between items-center text-xs">
-              <span className="flex items-center gap-1.5">
-                <Timer className="w-3.5 h-3.5" style={{ color: `hsl(var(--dynamic-accent))` }} />
-                <span style={{ color: `hsl(var(--dynamic-accent))` }}>{formatRemaining(remaining)}</span>
+        {/* Collapsible Sleep Timer */}
+        <button
+          onClick={() => setSleepExpanded(!sleepExpanded)}
+          className="flex items-center justify-between w-full px-2 py-1.5 text-xs text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            Sleep Timer
+            {sleepMinutes !== null && (
+              <span className="text-[10px] normal-case" style={{ color: `hsl(var(--dynamic-accent))` }}>
+                {formatRemaining(remaining)}
               </span>
-              <button
-                onClick={clearSleepTimer}
-                className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors text-xs"
-              >
-                <TimerOff className="w-3 h-3" /> Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          SLEEP_OPTIONS.map((opt) => (
-            <DropdownMenuItem key={opt.value} onClick={() => startSleepTimer(opt.value)}>
-              <Timer className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-              {opt.label}
-            </DropdownMenuItem>
-          ))
+            )}
+          </span>
+          {sleepExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {sleepExpanded && (
+          <>
+            {sleepMinutes !== null ? (
+              <div className="px-3 py-2 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <Timer className="w-3.5 h-3.5" style={{ color: `hsl(var(--dynamic-accent))` }} />
+                    <span style={{ color: `hsl(var(--dynamic-accent))` }}>{formatRemaining(remaining)}</span>
+                  </span>
+                  <button
+                    onClick={clearSleepTimer}
+                    className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors text-xs"
+                  >
+                    <TimerOff className="w-3 h-3" /> Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              SLEEP_OPTIONS.map((opt) => (
+                <DropdownMenuItem key={opt.value} onClick={() => startSleepTimer(opt.value)}>
+                  <Timer className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                  {opt.label}
+                </DropdownMenuItem>
+              ))
+            )}
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
