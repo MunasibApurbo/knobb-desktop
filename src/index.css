@@ -174,32 +174,15 @@
     color: hsl(var(--foreground));
   }
 
-  /* Active: solid white, large, no blur */
-  .beautiful-lyrics-line[data-state="active"] {
-    --line-opacity: 1;
-    --line-scale: 1;
-    --text-blur: 0px;
-  }
-
+  /* Active: solid white, large, no blur — inline styles handle opacity/blur */
   .beautiful-lyrics-line[data-state="active"] .beautiful-lyrics-text {
     font-weight: 800;
   }
 
-  /* Sung: bright white, bold, sharp */
-  .beautiful-lyrics-line[data-state="sung"] {
-    --line-opacity: 0.85;
-    --line-scale: 1;
-    --text-blur: 0px;
-  }
-
-  .beautiful-lyrics-line[data-state="sung"] .beautiful-lyrics-text {
-    font-weight: 800;
-  }
-
-  /* Idle/upcoming: dimmed + blurred */
-  .beautiful-lyrics-line[data-state="idle"] {
-    --line-opacity: 0.35;
-    --text-blur: 2.5px;
+  /* Hover: remove blur, brighten */
+  .beautiful-lyrics-line:hover {
+    --line-opacity: 0.9 !important;
+    --text-blur: 0px !important;
   }
 
   /* Hover: remove blur, brighten */
