@@ -58,17 +58,10 @@ export function RightPanel() {
   const currentIdx = queue.findIndex((t) => t.id === currentTrack.id);
   const upNext = currentIdx >= 0 ? queue.slice(currentIdx + 1) : queue;
 
+  if (!showRightPanel) return null;
+
   return (
-    <AnimatePresence mode="wait">
-      {showRightPanel && (
-        <motion.aside
-          key="right-panel"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 280, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-          className="shrink-0 h-full ml-2 rounded-t-lg flex flex-col overflow-hidden glass-heavy"
-        >
+    <div className="h-full flex flex-col overflow-hidden rounded-lg glass-heavy">
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-5 pb-2">
             <div className="flex items-center gap-2">
@@ -223,8 +216,6 @@ export function RightPanel() {
               )}
             </ScrollArea>
           )}
-        </motion.aside>
-      )}
-    </AnimatePresence>
+    </div>
   );
 }

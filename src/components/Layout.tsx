@@ -7,6 +7,7 @@ import { MiniPlayer } from "@/components/MiniPlayer";
 import { MobileNav } from "@/components/MobileNav";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -77,23 +78,49 @@ export function Layout({ children }: React.PropsWithChildren) {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 min-h-0 relative z-10">
-        {/* Sidebar - hidden on mobile */}
-        {!isMobile && <AppSidebar />}
+      <div className="flex-1 min-h-0 relative z-10">
+        {!isMobile ? (
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            {/* Left Sidebar */}
+            <ResizablePanel defaultSize={18} minSize={12} maxSize={30} className="py-2 pl-2">
+              <AppSidebar />
+            </ResizablePanel>
+            <ResizableHandle className="w-1 bg-transparent hover:bg-white/10 transition-colors" />
 
-        <div className="flex-1 flex flex-col min-w-0 md:pr-2 md:pt-2">
-          <div className="flex-1 flex min-h-0">
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              <TopBar />
-              <ScrollArea className="flex-1" ref={scrollRef}>
-                <main className="px-4 md:px-6 pb-8">
-                  {children}
-                </main>
-              </ScrollArea>
-            </div>
-            {!isMobile && <RightPanel />}
+            {/* Center Content */}
+            <ResizablePanel defaultSize={showRightPanel ? 64 : 82} minSize={40} className="pt-2 pr-2">
+              <div className="flex h-full min-h-0">
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                  <TopBar />
+                  <ScrollArea className="flex-1" ref={scrollRef}>
+                    <main className="px-4 md:px-6 pb-8">
+                      {children}
+                    </main>
+                  </ScrollArea>
+                </div>
+              </div>
+            </ResizablePanel>
+
+            {/* Right Panel */}
+            {showRightPanel && (
+              <>
+                <ResizableHandle className="w-1 bg-transparent hover:bg-white/10 transition-colors" />
+                <ResizablePanel defaultSize={18} minSize={12} maxSize={30} className="py-2 pr-2">
+                  <RightPanel />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
+        ) : (
+          <div className="flex flex-col flex-1 min-h-0">
+            <TopBar />
+            <ScrollArea className="flex-1" ref={scrollRef}>
+              <main className="px-4 pb-8">
+                {children}
+              </main>
+            </ScrollArea>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Bottom Player - hidden on mobile */}
