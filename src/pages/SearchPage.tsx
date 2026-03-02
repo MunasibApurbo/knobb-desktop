@@ -5,8 +5,19 @@ import { allTracks, albums, playlists, formatDuration, Track } from "@/data/mock
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useNavigate } from "react-router-dom";
 import { searchTracks, tidalTrackToAppTrack } from "@/lib/monochromeApi";
+import { motion } from "framer-motion";
 
 type TabType = "tidal" | "tracks" | "albums" | "playlists";
+
+const stagger = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.04 } },
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.3 } },
+};
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
@@ -33,7 +44,6 @@ export default function SearchPage() {
     }
   }, []);
 
-  // Debounced search
   const searchTimeoutRef = useState<ReturnType<typeof setTimeout> | null>(null);
   const onQueryChange = useCallback((value: string) => {
     setQuery(value);
@@ -56,30 +66,30 @@ export default function SearchPage() {
     [q]
   );
 
-  const tabs: { key: TabType; label: string; count?: number }[] = [
-    { key: "tidal", label: "Tidal", count: tidalResults.length },
-    { key: "tracks", label: "Library", count: filteredTracks.length },
-    { key: "albums", label: "Albums", count: filteredAlbums.length },
-    { key: "playlists", label: "Playlists", count: filteredPlaylists.length },
+  const tabs: { key: TabType; label: string }[] = [
+    { key: "tidal", label: "Tidal" },
+    { key: "tracks", label: "Library" },
+    { key: "albums", label: "Albums" },
+    { key: "playlists", label: "Playlists" },
   ];
 
   return (
     <div>
-      {/* Search input */}
-      <div className="relative mb-6 max-w-lg">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+      {/* Search input — Dribbblish style */}
+      <div className="relative mb-6 max-w-md">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <Input
-          placeholder="Search Tidal for songs, artists..."
+          placeholder="What do you want to listen to?"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && tab === "tidal") handleSearch(query);
           }}
-          className="pl-10 glass border-glass-border rounded-xl h-12 text-base"
+          className="pl-12 bg-foreground text-background placeholder:text-background/50 border-0 rounded-full h-12 text-sm font-medium"
           autoFocus
         />
         {isSearching && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground animate-spin" />
+          <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-background/50 animate-spin" />
         )}
       </div>
 
@@ -92,112 +102,115 @@ export default function SearchPage() {
               setTab(t.key);
               if (t.key === "tidal" && query) handleSearch(query);
             }}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              tab === t.key ? "bg-foreground text-background" : "glass text-muted-foreground hover:text-foreground"
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
+              tab === t.key ? "bg-foreground text-background" : "bg-accent text-foreground hover:bg-accent/80"
             }`}
           >
-            {t.label} {t.count !== undefined ? `(${t.count})` : ""}
+            {t.label}
           </button>
         ))}
       </div>
 
       {/* Tidal Results */}
       {tab === "tidal" && (
-        <div className="glass rounded-xl overflow-hidden">
+        <motion.div variants={stagger} initial="hidden" animate="show">
           {tidalResults.length === 0 && !isSearching && (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              Search Tidal to find and stream music
+            <div className="text-center py-16">
+              <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground text-lg font-medium">Search Tidal for songs and artists</p>
+              <p className="text-muted-foreground/60 text-sm mt-1">Start typing to discover music</p>
             </div>
           )}
           {tidalResults.map((track, i) => {
             const isCurrent = currentTrack?.id === track.id;
             return (
-              <div
+              <motion.div
                 key={track.id}
-                className={`flex items-center gap-4 px-4 py-3 cursor-pointer transition-colors group
-                  ${isCurrent ? "bg-accent/40" : "hover:bg-accent/20"}
-                  ${i < tidalResults.length - 1 ? "border-b border-border/10" : ""}`}
+                variants={fadeUp}
+                className={`flex items-center gap-4 px-4 py-2.5 cursor-pointer rounded-md transition-colors group
+                  ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
                 onClick={() => play(track, tidalResults)}
               >
                 <img src={track.coverUrl} alt="" className="w-10 h-10 rounded object-cover" />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${isCurrent ? "font-semibold text-foreground" : "text-foreground/90"}`}>{track.title}</p>
+                  <p className={`text-sm truncate ${isCurrent ? "font-semibold" : ""}`}
+                    style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
+                    {track.title}
+                  </p>
                   <p className="text-xs text-muted-foreground truncate">{track.artist} · {track.album}</p>
                 </div>
-                <span className="text-sm text-muted-foreground">{formatDuration(track.duration)}</span>
+                <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
                 <Play className="w-4 h-4 text-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
       )}
 
       {/* Library tracks */}
       {tab === "tracks" && (
-        <div className="glass rounded-xl overflow-hidden">
-          {filteredTracks.map((track, i) => {
+        <motion.div variants={stagger} initial="hidden" animate="show">
+          {filteredTracks.map((track) => {
             const isCurrent = currentTrack?.id === track.id;
             return (
-              <div
+              <motion.div
                 key={track.id}
-                className={`flex items-center gap-4 px-4 py-3 cursor-pointer transition-colors group
-                  ${isCurrent ? "bg-accent/40" : "hover:bg-accent/20"}
-                  ${i < filteredTracks.length - 1 ? "border-b border-border/10" : ""}`}
+                variants={fadeUp}
+                className={`flex items-center gap-4 px-4 py-2.5 cursor-pointer rounded-md transition-colors group
+                  ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
                 onClick={() => play(track, filteredTracks)}
               >
                 <img src={track.coverUrl} alt="" className="w-10 h-10 rounded object-cover" />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${isCurrent ? "font-semibold text-foreground" : "text-foreground/90"}`}>{track.title}</p>
+                  <p className={`text-sm truncate ${isCurrent ? "font-semibold" : ""}`}
+                    style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
+                    {track.title}
+                  </p>
                   <p className="text-xs text-muted-foreground truncate">{track.artist} · {track.album}</p>
                 </div>
-                <span className="text-sm text-muted-foreground">{formatDuration(track.duration)}</span>
-                <Play className="w-4 h-4 text-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
+                <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
       )}
 
       {tab === "albums" && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
           {filteredAlbums.map((album) => (
-            <div
+            <motion.div
               key={album.id}
-              className="glass-card p-3 cursor-pointer group"
+              variants={fadeUp}
+              className="glass-card rounded-md p-4 cursor-pointer group"
               onClick={() => navigate(`/album/${album.id}`)}
             >
-              <div className="relative rounded-lg overflow-hidden mb-3 aspect-square">
-                <img src={album.coverUrl} alt={album.title} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-background/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Play className="w-8 h-8 text-foreground" />
-                </div>
+              <div className="relative rounded-md overflow-hidden mb-3 aspect-square shadow-lg">
+                <img src={album.coverUrl} alt={album.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
               </div>
-              <p className="text-sm font-semibold text-foreground truncate">{album.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{album.artist}</p>
-            </div>
+              <p className="text-sm font-bold text-foreground truncate">{album.title}</p>
+              <p className="text-xs text-muted-foreground truncate mt-1">{album.artist}</p>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       {tab === "playlists" && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
           {filteredPlaylists.map((pl) => (
-            <div
+            <motion.div
               key={pl.id}
-              className="glass-card p-3 cursor-pointer group"
+              variants={fadeUp}
+              className="glass-card rounded-md p-4 cursor-pointer group"
               onClick={() => navigate(`/playlist/${pl.id}`)}
             >
-              <div className="relative rounded-lg overflow-hidden mb-3 aspect-square">
-                <img src={pl.coverUrl} alt={pl.title} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-background/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Play className="w-8 h-8 text-foreground" />
-                </div>
+              <div className="relative rounded-md overflow-hidden mb-3 aspect-square shadow-lg">
+                <img src={pl.coverUrl} alt={pl.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
               </div>
-              <p className="text-sm font-semibold text-foreground truncate">{pl.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{pl.description}</p>
-            </div>
+              <p className="text-sm font-bold text-foreground truncate">{pl.title}</p>
+              <p className="text-xs text-muted-foreground truncate mt-1">{pl.description}</p>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
     </div>
   );
