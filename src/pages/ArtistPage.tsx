@@ -27,6 +27,7 @@ export default function ArtistPage() {
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const loadIdRef = useRef<string>("");
+  const hasMounted = useRef(false);
 
   useEffect(() => {
     const key = `${id}-${artistName}`;
@@ -142,7 +143,7 @@ export default function ArtistPage() {
   const displayedTracks = showAllTracks ? topTracks : topTracks.slice(0, 5);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+    <motion.div initial={!hasMounted.current ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} onAnimationComplete={() => { hasMounted.current = true; }}>
       {/* Hero */}
       <div className="flex items-end gap-6 pb-8 -mx-6 -mt-16 px-6 pt-20"
         style={{
