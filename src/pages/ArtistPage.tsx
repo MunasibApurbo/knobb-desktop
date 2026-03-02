@@ -6,13 +6,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { Play, Pause, Shuffle, Heart, Loader2, Mic2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ArtistLink } from "@/components/ArtistLink";
-import { motion } from "framer-motion";
 
-const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.03 } } };
-const staggerNone = { hidden: { opacity: 1 }, show: { opacity: 1 } };
-const fadeUp = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
-const fadeNone = { hidden: { opacity: 1, y: 0 }, show: { opacity: 1, y: 0 } };
 
 export default function ArtistPage() {
   const { id } = useParams();
@@ -29,7 +23,6 @@ export default function ArtistPage() {
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const loadIdRef = useRef<string>("");
-  const isFirstLoad = useRef(true);
 
   useEffect(() => {
     const key = `${id}-${artistName}`;
@@ -122,10 +115,7 @@ export default function ArtistPage() {
       } catch (e) {
         console.error("Failed to load artist:", e);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-          isFirstLoad.current = false;
-        }
+        if (!cancelled) setLoading(false);
       }
     })();
 
@@ -155,11 +145,7 @@ export default function ArtistPage() {
           background: "linear-gradient(180deg, hsl(var(--dynamic-accent) / 0.4) 0%, transparent 100%)",
         }}
       >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-56 h-56 rounded-full overflow-hidden shadow-2xl shrink-0"
-        >
+        <div className="w-56 h-56 rounded-full overflow-hidden shadow-2xl shrink-0">
           <img
             src={
               artist.picture
@@ -169,7 +155,7 @@ export default function ArtistPage() {
             alt={artist.name}
             className="w-full h-full object-cover"
           />
-        </motion.div>
+        </div>
         <div className="flex flex-col justify-end min-w-0">
           <p className="text-xs font-bold text-foreground/70 uppercase">Artist</p>
           <h1 className="text-5xl font-black text-foreground mt-2 mb-3 truncate tracking-tight">{artist.name}</h1>
@@ -210,13 +196,12 @@ export default function ArtistPage() {
       {topTracks.length > 0 && (
         <>
           <h2 className="text-xl font-bold text-foreground mb-4">Popular</h2>
-          <motion.div variants={isFirstLoad.current ? stagger : staggerNone} initial="hidden" animate="show" className="mb-2">
+          <div className="mb-2">
             {displayedTracks.map((track, i) => {
               const isCurrent = currentTrack?.id === track.id;
               return (
-                <motion.div
+                <div
                   key={track.id}
-                  variants={isFirstLoad.current ? fadeUp : fadeNone}
                   className={`grid grid-cols-[40px_1fr_1fr_40px_60px] gap-4 px-4 py-2.5 items-center cursor-pointer rounded-md transition-all group
                     ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
                   onClick={() => play(track, topTracks)}
@@ -244,10 +229,10 @@ export default function ArtistPage() {
                     <Heart className={`w-4 h-4 transition-colors ${isLiked(track.id) ? "text-[hsl(var(--dynamic-accent))] fill-current" : "text-muted-foreground hover:text-foreground"}`} />
                   </button>
                   <span className="text-sm text-muted-foreground text-right font-mono">{formatDuration(track.duration)}</span>
-                </motion.div>
+                </div>
               );
             })}
-          </motion.div>
+          </div>
           {topTracks.length > 5 && (
             <button
               className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors mb-8 px-4"
@@ -263,11 +248,10 @@ export default function ArtistPage() {
       {discography.length > 0 && (
         <div className="mt-8">
           <h2 className="text-xl font-bold text-foreground mb-4">Discography</h2>
-          <motion.div variants={isFirstLoad.current ? stagger : staggerNone} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
             {discography.map((album) => (
-              <motion.div
+              <div
                 key={album.id}
-                variants={isFirstLoad.current ? fadeUp : fadeNone}
                 className="glass-card rounded-lg p-3.5 cursor-pointer group"
                 onClick={() => navigate(`/album/tidal-${album.id}`)}
               >
@@ -289,9 +273,9 @@ export default function ArtistPage() {
                   {album.releaseDate ? new Date(album.releaseDate).getFullYear() : "Album"}
                   {album.numberOfTracks ? ` · ${album.numberOfTracks} tracks` : ""}
                 </p>
-              </motion.div>
+              </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       )}
 
@@ -299,11 +283,10 @@ export default function ArtistPage() {
       {relatedArtists.length > 0 && (
         <div className="mt-4">
           <h2 className="text-xl font-bold text-foreground mb-4">Related Artists</h2>
-          <motion.div variants={isFirstLoad.current ? stagger : staggerNone} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
             {relatedArtists.map((ra) => (
-              <motion.div
+              <div
                 key={ra.id}
-                variants={isFirstLoad.current ? fadeUp : fadeNone}
                 className="glass-card rounded-lg p-3.5 cursor-pointer group"
                 onClick={() => navigate(`/artist/${ra.id}?name=${encodeURIComponent(ra.name)}`)}
               >
@@ -319,9 +302,9 @@ export default function ArtistPage() {
                   <Mic2 className="w-3 h-3 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground">Artist</p>
                 </div>
-              </motion.div>
+              </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       )}
     </div>
