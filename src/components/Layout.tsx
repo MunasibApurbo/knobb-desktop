@@ -2,16 +2,36 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { TopBar } from "@/components/TopBar";
 import { BottomPlayer } from "@/components/BottomPlayer";
 import { RightPanel } from "@/components/RightPanel";
+import { FullScreenPlayer } from "@/components/FullScreenPlayer";
+import { MiniPlayer } from "@/components/MiniPlayer";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useState, useCallback } from "react";
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
   const location = useLocation();
   useKeyboardShortcuts();
+
+  const [fullScreenOpen, setFullScreenOpen] = useState(false);
+  const [miniPlayerVisible, setMiniPlayerVisible] = useState(false);
+
+  const openFullScreen = useCallback(() => {
+    setMiniPlayerVisible(false);
+    setFullScreenOpen(true);
+  }, []);
+
+  const closeFullScreen = useCallback(() => {
+    setFullScreenOpen(false);
+    setMiniPlayerVisible(true);
+  }, []);
+
+  const closeMiniPlayer = useCallback(() => {
+    setMiniPlayerVisible(false);
+  }, []);
 
   return (
     <div className="h-screen w-screen flex flex-col relative overflow-hidden bg-background">
@@ -63,7 +83,13 @@ export function Layout({ children }: React.PropsWithChildren) {
         </div>
       </div>
 
-      <BottomPlayer />
+      <BottomPlayer onOpenFullScreen={openFullScreen} />
+
+      {/* Full-screen cinematic player */}
+      <FullScreenPlayer open={fullScreenOpen} onClose={closeFullScreen} />
+
+      {/* Mini player (PiP) */}
+      <MiniPlayer visible={miniPlayerVisible} onExpand={openFullScreen} onClose={closeMiniPlayer} />
     </div>
   );
 }
