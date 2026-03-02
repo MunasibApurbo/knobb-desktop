@@ -90,12 +90,7 @@ export function TopBar() {
 
   return (
     <header
-      className="h-14 md:h-16 flex items-center justify-between px-3 md:px-6 shrink-0 sticky top-0 z-20 transition-colors duration-500"
-      style={{
-        background: currentTrack
-          ? `linear-gradient(180deg, hsl(${currentTrack.canvasColor} / 0.35) 0%, transparent 100%)`
-          : "transparent",
-      }}
+      className="h-14 md:h-16 flex items-center justify-between px-3 md:px-6 shrink-0 sticky top-0 z-20"
     >
       {/* Navigation - hidden on mobile */}
       {!isMobile && (

@@ -83,7 +83,7 @@ export function Layout({ children }: React.PropsWithChildren) {
 
         <div className="flex-1 flex flex-col min-w-0 md:pr-2 md:pt-2">
           <div className="flex-1 flex min-h-0">
-            <div className="flex-1 md:rounded-t-lg flex flex-col min-w-0 overflow-hidden glass">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
               <TopBar />
               <ScrollArea className="flex-1" ref={scrollRef}>
                 <main className="px-4 md:px-6 pb-8">
