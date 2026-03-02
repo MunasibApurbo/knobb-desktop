@@ -45,9 +45,9 @@ export function Layout({ children }: React.PropsWithChildren) {
   }, []);
 
   return (
-    <div className="h-screen w-screen flex flex-col relative overflow-hidden bg-background">
-      {/* Dynamic blurred background */}
-      <div className="fixed inset-0 -z-10">
+    <div className="h-screen w-screen flex flex-col relative overflow-hidden">
+      {/* Dynamic blurred background from current track artwork */}
+      <div className="fixed inset-0 z-0 bg-background">
         <AnimatePresence mode="wait">
           {currentTrack && (
             <motion.div
@@ -61,23 +61,23 @@ export function Layout({ children }: React.PropsWithChildren) {
               <img
                 src={currentTrack.coverUrl}
                 alt=""
-                className="absolute inset-0 w-full h-full object-cover scale-125 blur-[100px] opacity-40"
+                className="absolute inset-0 w-full h-full object-cover scale-150 blur-[80px] opacity-50"
               />
               <div
                 className="absolute inset-0"
                 style={{
-                  background: `radial-gradient(ellipse at 20% 20%, hsl(${currentTrack.canvasColor} / 0.2), transparent 50%),
-                               radial-gradient(ellipse at 80% 80%, hsl(${currentTrack.canvasColor} / 0.1), transparent 50%)`,
+                  background: `radial-gradient(ellipse at 20% 20%, hsl(${currentTrack.canvasColor} / 0.3), transparent 50%),
+                               radial-gradient(ellipse at 80% 80%, hsl(${currentTrack.canvasColor} / 0.15), transparent 50%)`,
                 }}
               />
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="absolute inset-0 bg-background/60" />
+        <div className="absolute inset-0 bg-black/50" />
       </div>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative z-10">
         {/* Sidebar - hidden on mobile */}
         {!isMobile && <AppSidebar />}
 
