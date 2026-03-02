@@ -53,15 +53,9 @@ export function Layout({ children }: React.PropsWithChildren) {
             <div className="flex-1 bg-card/40 rounded-t-lg flex flex-col min-w-0 overflow-hidden">
               <TopBar />
               <ScrollArea className="flex-1">
-                <motion.main
-                  key={location.pathname}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.2 }}
-                  className="px-6 pb-8"
-                >
+              <main className="px-6 pb-8">
                   {children}
-                </motion.main>
+                </main>
               </ScrollArea>
             </div>
             <RightPanel />
