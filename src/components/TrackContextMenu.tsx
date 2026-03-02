@@ -1,7 +1,7 @@
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { Track } from "@/data/mockData";
-import { Heart, Play, ListPlus, UserRound } from "lucide-react";
+import { Heart, Play, UserRound, Share2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -24,6 +24,16 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
   const navigate = useNavigate();
   const liked = isLiked(track.id);
 
+  const handleShare = () => {
+    const text = `${track.title} — ${track.artist}`;
+    if (navigator.share) {
+      navigator.share({ title: track.title, text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard");
+    }
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
@@ -44,6 +54,9 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
         >
           <Heart className={`w-4 h-4 ${liked ? "fill-current text-[hsl(var(--dynamic-accent))]" : ""}`} />
           {liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
+        </ContextMenuItem>
+        <ContextMenuItem className="gap-2 text-sm" onClick={handleShare}>
+          <Share2 className="w-4 h-4" /> Share
         </ContextMenuItem>
         {track.artistId && (
           <>

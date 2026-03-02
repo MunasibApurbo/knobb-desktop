@@ -97,7 +97,7 @@ export function AppSidebar() {
                   className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
                   activeClassName="bg-accent/60 text-foreground"
                 >
-                  <div className="w-12 h-12 rounded-md shrink-0 flex items-center justify-center"
+                  <div className="w-12 h-12 rounded-md shrink-0 flex items-center justify-center relative"
                     style={{ background: "linear-gradient(135deg, hsl(250 80% 60%), hsl(200 80% 50%))" }}>
                     <Heart className="w-5 h-5 text-white fill-white" />
                   </div>
@@ -130,20 +130,31 @@ export function AppSidebar() {
                 ))}
 
                 {/* Mock playlists */}
-                {playlists.map((pl) => (
-                  <NavLink
-                    key={pl.id}
-                    to={`/playlist/${pl.id}`}
-                    className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
-                    activeClassName="bg-accent/60 text-foreground"
-                  >
-                    <img src={pl.coverUrl} alt={pl.title} className="w-12 h-12 rounded-md object-cover shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-foreground truncate text-sm">{pl.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">Playlist · {pl.tracks.length} songs</p>
-                    </div>
-                  </NavLink>
-                ))}
+                {playlists.map((pl) => {
+                  const isNowPlaying = currentTrack && pl.tracks.some((t) => t.id === currentTrack.id);
+                  return (
+                    <NavLink
+                      key={pl.id}
+                      to={`/playlist/${pl.id}`}
+                      className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
+                      activeClassName="bg-accent/60 text-foreground"
+                    >
+                      <div className="relative shrink-0">
+                        <img src={pl.coverUrl} alt={pl.title} className="w-12 h-12 rounded-md object-cover" />
+                        {isNowPlaying && (
+                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card" style={{ background: `hsl(var(--dynamic-accent))` }} />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`font-semibold truncate text-sm ${isNowPlaying ? "" : "text-foreground"}`}
+                          style={isNowPlaying ? { color: `hsl(var(--dynamic-accent))` } : {}}>
+                          {pl.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">Playlist · {pl.tracks.length} songs</p>
+                      </div>
+                    </NavLink>
+                  );
+                })}
               </>
             )}
 

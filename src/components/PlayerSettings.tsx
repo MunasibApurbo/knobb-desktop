@@ -1,4 +1,4 @@
-import { Radio, Settings2, Disc3, Timer, TimerOff } from "lucide-react";
+import { Radio, Settings2, Disc3, Timer, TimerOff, Gauge } from "lucide-react";
 import { usePlayer, AudioQuality } from "@/contexts/PlayerContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +28,7 @@ const SLEEP_OPTIONS = [
 ];
 
 export function PlayerSettings() {
-  const { quality, setQuality, radioMode, toggleRadioMode, crossfadeDuration, setCrossfadeDuration, togglePlay, isPlaying } = usePlayer();
+  const { quality, setQuality, radioMode, toggleRadioMode, crossfadeDuration, setCrossfadeDuration, togglePlay, isPlaying, playbackSpeed, setPlaybackSpeed } = usePlayer();
   const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -139,7 +139,28 @@ export function PlayerSettings() {
 
         <DropdownMenuSeparator />
 
-        {/* Sleep Timer */}
+        {/* Playback Speed */}
+        <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
+          Playback Speed
+        </DropdownMenuLabel>
+        <div className="px-3 py-2 space-y-2">
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground flex items-center gap-1"><Gauge className="w-3 h-3" /> Speed</span>
+            <span style={{ color: playbackSpeed !== 1 ? `hsl(var(--dynamic-accent))` : undefined }}>
+              {playbackSpeed}x
+            </span>
+          </div>
+          <Slider
+            value={[playbackSpeed * 100]}
+            onValueChange={([v]) => setPlaybackSpeed(v / 100)}
+            min={50}
+            max={200}
+            step={25}
+            className="w-full"
+          />
+        </div>
+
+        <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs text-muted-foreground uppercase tracking-wider">
           Sleep Timer
         </DropdownMenuLabel>
