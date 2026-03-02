@@ -110,9 +110,6 @@ export function RightPanel() {
                 {currentTrack.artist}
               </motion.p>
             </div>
-            <button onClick={() => toggleLike(currentTrack)}>
-              <Heart className={`w-5 h-5 transition-colors ${isLiked(currentTrack.id) ? "text-[hsl(var(--dynamic-accent))] fill-current" : "text-muted-foreground hover:text-foreground"}`} />
-            </button>
           </div>
 
           {/* Tabs */}
@@ -120,7 +117,7 @@ export function RightPanel() {
             <FilterPill<TabType>
               options={[
                 { key: "lyrics" as TabType, label: "Lyrics", icon: <Mic2 className="w-3 h-3" /> },
-                { key: "queue" as TabType, label: `Queue (${upNext.length})`, icon: <ListMusic className="w-3 h-3" /> },
+                { key: "queue" as TabType, label: "Queue", icon: <ListMusic className="w-3 h-3" /> },
               ]}
               value={tab}
               onChange={(v) => setTab(v)}
