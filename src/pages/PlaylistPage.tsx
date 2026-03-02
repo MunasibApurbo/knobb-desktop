@@ -26,7 +26,7 @@ export default function PlaylistPage() {
     <PageTransition>
       {/* Hero Header */}
       <div
-        className="flex gap-6 pb-8 -mx-6 -mt-16 px-6 pt-20"
+        className="flex flex-col md:flex-row gap-4 md:gap-6 pb-6 md:pb-8 -mx-4 md:-mx-6 -mt-14 md:-mt-16 px-4 md:px-6 pt-16 md:pt-20"
         style={{
           background: `linear-gradient(180deg, hsl(${playlist.canvasColor} / 0.5) 0%, transparent 100%)`,
         }}
@@ -37,20 +37,20 @@ export default function PlaylistPage() {
           transition={{ duration: 0.4 }}
           src={playlist.coverUrl}
           alt={playlist.title}
-          className="w-56 h-56 object-cover rounded-md shadow-2xl shrink-0"
+          className="w-40 h-40 md:w-56 md:h-56 object-cover rounded-md shadow-2xl shrink-0 mx-auto md:mx-0"
         />
-        <div className="flex flex-col justify-end min-w-0">
+        <div className="flex flex-col justify-end min-w-0 text-center md:text-left">
           <p className="text-xs font-bold text-foreground/70 uppercase">Playlist</p>
-          <h1 className="text-5xl font-black text-foreground mt-2 mb-3 truncate tracking-tight">{playlist.title}</h1>
+          <h1 className="text-3xl md:text-5xl font-black text-foreground mt-2 mb-3 truncate tracking-tight">{playlist.title}</h1>
           <p className="text-sm text-foreground/60 mb-2">{playlist.description}</p>
           <p className="text-sm text-foreground/70">{playlist.tracks.length} songs · {getTotalDuration(playlist.tracks)}</p>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-6 mb-6 mt-4">
+      <div className="flex items-center gap-4 md:gap-6 mb-6 mt-4 justify-center md:justify-start">
         <button
-          className="w-14 h-14 rounded-full flex items-center justify-center shadow-xl hover:scale-105 transition-transform active:scale-95"
+          className="w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-xl hover:scale-105 transition-transform active:scale-95"
           style={{ background: `hsl(var(--dynamic-accent))` }}
           onClick={() => {
             if (isCurrentPlaylist) togglePlay();

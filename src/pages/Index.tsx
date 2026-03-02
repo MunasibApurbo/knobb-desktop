@@ -1,12 +1,16 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { Play, Mic2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePlayHistory } from "@/hooks/usePlayHistory";
+import { Play, Mic2, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import { searchTracks, searchArtists, tidalTrackToAppTrack, getTidalImageUrl } from "@/lib/monochromeApi";
 import { Track, albums, playlists } from "@/data/mockData";
 import { motion } from "framer-motion";
 import { PageTransition } from "@/components/PageTransition";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { Button } from "@/components/ui/button";
 
 const FEATURED_QUERIES = ["trending 2025", "pop hits", "electronic", "hip hop new"];
 const ARTIST_QUERIES = ["drake", "the weeknd", "taylor swift", "billie eilish", "dua lipa", "kendrick lamar"];
@@ -21,15 +25,22 @@ const fadeUp = {
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: "easeOut" as const } },
 };
 
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title, onSeeAll }: { title: string; onSeeAll?: () => void }) {
   return (
     <div className="flex items-center justify-between mb-5">
-      <h2 className="text-2xl font-bold text-foreground">{title}</h2>
+      <h2 className="text-xl md:text-2xl font-bold text-foreground">{title}</h2>
+      {onSeeAll && (
+        <button
+          onClick={onSeeAll}
+          className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Show all <ChevronRight className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 }
 
-/* ── Unified Card Shell ── */
 function CardShell({
   children,
   onClick,
@@ -42,7 +53,7 @@ function CardShell({
   return (
     <motion.div
       variants={fadeUp}
-      className={`glass-card rounded-lg p-3.5 cursor-pointer group relative transition-colors hover:bg-accent/15 ${className}`}
+      className={`glass-card rounded-lg p-3 md:p-3.5 cursor-pointer group relative transition-colors hover:bg-accent/15 ${className}`}
       onClick={onClick}
     >
       {children}
@@ -50,50 +61,52 @@ function CardShell({
   );
 }
 
-/* ── Track Card ── */
 function TrackCard({ track, tracks }: { track: Track; tracks: Track[] }) {
   const { play, currentTrack, isPlaying } = usePlayer();
   const navigate = useNavigate();
   const isCurrent = currentTrack?.id === track.id;
 
   return (
-    <CardShell onClick={() => play(track, tracks)}>
-      <div className="relative mb-3 rounded-md overflow-hidden aspect-square shadow-lg">
-        <img
-          src={track.coverUrl}
-          alt={track.title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-        />
-        <div
-          className="absolute bottom-2 right-2 w-11 h-11 rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
-          style={{ background: `hsl(var(--dynamic-accent))` }}
-        >
-          {isCurrent && isPlaying ? (
-            <div className="playing-bars flex items-end gap-[2px]">
-              <span /><span /><span />
-            </div>
-          ) : (
-            <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
-          )}
+    <TrackContextMenu track={track} tracks={tracks}>
+      <CardShell onClick={() => play(track, tracks)}>
+        <div className="relative mb-3 rounded-md overflow-hidden aspect-square shadow-lg">
+          <img
+            src={track.coverUrl}
+            alt={track.title}
+            loading="lazy"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
+          />
+          <div
+            className="absolute bottom-2 right-2 w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+            style={{ background: `hsl(var(--dynamic-accent))` }}
+          >
+            {isCurrent && isPlaying ? (
+              <div className="playing-bars flex items-end gap-[2px]">
+                <span /><span /><span />
+              </div>
+            ) : (
+              <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
+            )}
+          </div>
         </div>
-      </div>
-      <p className="text-sm font-bold text-foreground truncate">{track.title}</p>
-      <p
-        className="text-xs text-muted-foreground truncate mt-0.5 hover:underline"
-        onClick={(e) => {
-          if (track.artistId) {
-            e.stopPropagation();
-            navigate(`/artist/${track.artistId}?name=${encodeURIComponent(track.artist)}`);
-          }
-        }}
-      >
-        {track.artist}
-      </p>
-    </CardShell>
+        <p className="text-sm font-bold text-foreground truncate">{track.title}</p>
+        <p
+          className="text-xs text-muted-foreground truncate mt-0.5 hover:underline"
+          onClick={(e) => {
+            if (track.artistId) {
+              e.stopPropagation();
+              navigate(`/artist/${track.artistId}?name=${encodeURIComponent(track.artist)}`);
+            }
+          }}
+        >
+          {track.artist}
+        </p>
+      </CardShell>
+    </TrackContextMenu>
   );
 }
 
-/* ── Artist Card (same shape as TrackCard) ── */
 function ArtistCard({ id, name, picture, onClick }: { id: number; name: string; picture: string; onClick: () => void }) {
   return (
     <CardShell onClick={onClick}>
@@ -101,10 +114,12 @@ function ArtistCard({ id, name, picture, onClick }: { id: number; name: string; 
         <img
           src={picture || "/placeholder.svg"}
           alt={name}
+          loading="lazy"
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
         />
         <div
-          className="absolute bottom-2 right-2 w-11 h-11 rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+          className="absolute bottom-2 right-2 w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
           style={{ background: `hsl(var(--dynamic-accent))` }}
         >
           <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
@@ -119,7 +134,6 @@ function ArtistCard({ id, name, picture, onClick }: { id: number; name: string; 
   );
 }
 
-// Greeting based on time
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -127,26 +141,38 @@ function getGreeting() {
   return "Good evening";
 }
 
-const CARD_GRID = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-10";
+const CARD_GRID = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4 mb-10";
 
 const Index = () => {
   const { play } = usePlayer();
+  const { user } = useAuth();
+  const { getHistory } = usePlayHistory();
   const navigate = useNavigate();
   const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
   const [popTracks, setPopTracks] = useState<Track[]>([]);
   const [electronicTracks, setElectronicTracks] = useState<Track[]>([]);
   const [hipHopTracks, setHipHopTracks] = useState<Track[]>([]);
   const [artists, setArtists] = useState<{ id: number; name: string; picture: string }[]>([]);
+  const [recentTracks, setRecentTracks] = useState<Track[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const fetchedRef = useRef(false);
 
-  const loadContent = useCallback(async () => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  };
 
+  const loadContent = useCallback(async () => {
+    setError(false);
     try {
       const [trending, pop, electronic, hiphop] = await Promise.all(
-        FEATURED_QUERIES.map((q) => searchTracks(q, 10))
+        FEATURED_QUERIES.map((q) => searchTracks(q, 12))
       );
 
       setTrendingTracks(trending.map(tidalTrackToAppTrack));
@@ -169,20 +195,51 @@ const Index = () => {
       setLoaded(true);
     } catch (e) {
       console.error("Failed to load home content:", e);
+      setError(true);
       setLoaded(true);
     }
   }, []);
 
+  // Load recent tracks
   useEffect(() => {
-    loadContent();
+    if (user) {
+      getHistory(10).then((h) => setRecentTracks(h));
+    }
+  }, [user, getHistory]);
+
+  useEffect(() => {
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      loadContent();
+    }
   }, [loadContent]);
 
   if (!loaded) return <LoadingSkeleton />;
 
+  if (error && trendingTracks.length === 0) {
+    return (
+      <PageTransition>
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <AlertCircle className="w-12 h-12 text-muted-foreground" />
+          <p className="text-muted-foreground text-lg font-medium">Failed to load content</p>
+          <Button
+            variant="outline"
+            onClick={() => { fetchedRef.current = false; loadContent(); }}
+            className="gap-2"
+          >
+            <RefreshCw className="w-4 h-4" /> Try again
+          </Button>
+        </div>
+      </PageTransition>
+    );
+  }
+
+  const getSectionTracks = (tracks: Track[], section: string) =>
+    expandedSections.has(section) ? tracks : tracks.slice(0, 6);
+
   return (
     <PageTransition>
-      {/* Greeting */}
-      <h1 className="text-3xl font-bold text-foreground mb-6">{getGreeting()}</h1>
+      <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-6">{getGreeting()}</h1>
 
       {/* Quick Access Grid */}
       <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-10">
@@ -193,15 +250,27 @@ const Index = () => {
             className="flex items-center bg-secondary/50 hover:bg-secondary/80 rounded-md overflow-hidden cursor-pointer group transition-colors"
             onClick={() => navigate(`/${item.id.startsWith("playlist") ? "playlist" : "album"}/${item.id}`)}
           >
-            <img src={item.coverUrl} alt={item.title} className="w-12 h-12 object-cover shadow-md" />
-            <span className="px-3 text-sm font-bold text-foreground truncate flex-1">{item.title}</span>
-            <div className="w-10 h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 mr-2 shadow-lg"
+            <img src={item.coverUrl} alt={item.title} className="w-10 h-10 md:w-12 md:h-12 object-cover shadow-md" />
+            <span className="px-2 md:px-3 text-xs md:text-sm font-bold text-foreground truncate flex-1">{item.title}</span>
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 mr-2 shadow-lg"
               style={{ background: `hsl(var(--dynamic-accent))` }}>
-              <Play className="w-4 h-4 text-foreground fill-current ml-0.5" />
+              <Play className="w-3 h-3 md:w-4 md:h-4 text-foreground fill-current ml-0.5" />
             </div>
           </motion.div>
         ))}
       </motion.div>
+
+      {/* Recently Played */}
+      {recentTracks.length > 0 && (
+        <>
+          <SectionHeader title="Recently Played" onSeeAll={() => navigate("/history")} />
+          <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
+            {recentTracks.slice(0, 6).map((track, i) => (
+              <TrackCard key={`recent-${track.id}-${i}`} track={track} tracks={recentTracks} />
+            ))}
+          </motion.div>
+        </>
+      )}
 
       {/* Popular Artists */}
       <SectionHeader title="Popular Artists" />
@@ -218,33 +287,33 @@ const Index = () => {
       </motion.div>
 
       {/* Trending */}
-      <SectionHeader title="Trending Now" />
+      <SectionHeader title="Trending Now" onSeeAll={() => toggleSection("trending")} />
       <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-        {trendingTracks.slice(0, 6).map((track) => (
+        {getSectionTracks(trendingTracks, "trending").map((track) => (
           <TrackCard key={track.id} track={track} tracks={trendingTracks} />
         ))}
       </motion.div>
 
       {/* Pop Hits */}
-      <SectionHeader title="Pop Hits" />
+      <SectionHeader title="Pop Hits" onSeeAll={() => toggleSection("pop")} />
       <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-        {popTracks.slice(0, 6).map((track) => (
+        {getSectionTracks(popTracks, "pop").map((track) => (
           <TrackCard key={track.id} track={track} tracks={popTracks} />
         ))}
       </motion.div>
 
       {/* Electronic */}
-      <SectionHeader title="Electronic" />
+      <SectionHeader title="Electronic" onSeeAll={() => toggleSection("electronic")} />
       <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-        {electronicTracks.slice(0, 6).map((track) => (
+        {getSectionTracks(electronicTracks, "electronic").map((track) => (
           <TrackCard key={track.id} track={track} tracks={electronicTracks} />
         ))}
       </motion.div>
 
       {/* Hip Hop */}
-      <SectionHeader title="Hip Hop" />
+      <SectionHeader title="Hip Hop" onSeeAll={() => toggleSection("hiphop")} />
       <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-        {hipHopTracks.slice(0, 6).map((track) => (
+        {getSectionTracks(hipHopTracks, "hiphop").map((track) => (
           <TrackCard key={track.id} track={track} tracks={hipHopTracks} />
         ))}
       </motion.div>

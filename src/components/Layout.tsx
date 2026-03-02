@@ -4,17 +4,20 @@ import { BottomPlayer } from "@/components/BottomPlayer";
 import { RightPanel } from "@/components/RightPanel";
 import { FullScreenPlayer } from "@/components/FullScreenPlayer";
 import { MiniPlayer } from "@/components/MiniPlayer";
+import { MobileNav } from "@/components/MobileNav";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useState, useCallback, useEffect, useRef } from "react";
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
   const location = useLocation();
+  const isMobile = useIsMobile();
   useKeyboardShortcuts();
   usePlayHistoryRecorder();
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
@@ -75,29 +78,35 @@ export function Layout({ children }: React.PropsWithChildren) {
 
       {/* Main Content Area */}
       <div className="flex flex-1 min-h-0">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0 pr-2 pt-2">
+        {/* Sidebar - hidden on mobile */}
+        {!isMobile && <AppSidebar />}
+
+        <div className="flex-1 flex flex-col min-w-0 md:pr-2 md:pt-2">
           <div className="flex-1 flex min-h-0">
-            <div className="flex-1 bg-card/40 rounded-t-lg flex flex-col min-w-0 overflow-hidden">
+            <div className="flex-1 bg-card/40 md:rounded-t-lg flex flex-col min-w-0 overflow-hidden">
               <TopBar />
               <ScrollArea className="flex-1" ref={scrollRef}>
-                <main className="px-6 pb-8">
+                <main className="px-4 md:px-6 pb-8">
                   {children}
                 </main>
               </ScrollArea>
             </div>
-            <RightPanel />
+            {!isMobile && <RightPanel />}
           </div>
         </div>
       </div>
 
-      <BottomPlayer onOpenFullScreen={openFullScreen} />
+      {/* Bottom Player - hidden on mobile */}
+      {!isMobile && <BottomPlayer onOpenFullScreen={openFullScreen} />}
+
+      {/* Mobile bottom nav */}
+      {isMobile && <MobileNav />}
 
       {/* Full-screen cinematic player */}
       <FullScreenPlayer open={fullScreenOpen} onClose={closeFullScreen} />
 
-      {/* Mini player (PiP) */}
-      <MiniPlayer visible={miniPlayerVisible} onExpand={openFullScreen} onClose={closeMiniPlayer} />
+      {/* Mini player (PiP) - desktop only */}
+      {!isMobile && <MiniPlayer visible={miniPlayerVisible} onExpand={openFullScreen} onClose={closeMiniPlayer} />}
     </div>
   );
 }
