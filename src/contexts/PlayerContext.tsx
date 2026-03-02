@@ -35,6 +35,8 @@ interface PlayerContextType extends PlayerState {
   setQuality: (q: AudioQuality) => void;
   toggleRadioMode: () => void;
   setCrossfadeDuration: (s: number) => void;
+  reorderQueue: (from: number, to: number) => void;
+  removeFromQueue: (index: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -299,6 +301,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, crossfadeDuration: s }));
   }, []);
 
+  const reorderQueue = useCallback((from: number, to: number) => {
+    setState((prev) => {
+      const newQueue = [...prev.queue];
+      const [moved] = newQueue.splice(from, 1);
+      newQueue.splice(to, 0, moved);
+      return { ...prev, queue: newQueue };
+    });
+  }, []);
+
+  const removeFromQueue = useCallback((index: number) => {
+    setState((prev) => {
+      const newQueue = prev.queue.filter((_, i) => i !== index);
+      return { ...prev, queue: newQueue };
+    });
+  }, []);
+
   return (
     <PlayerContext.Provider
       value={{
@@ -306,6 +324,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         play, togglePlay, next, previous, seek,
         toggleShuffle, toggleRepeat, setVolume, toggleRightPanel,
         setQuality, toggleRadioMode, setCrossfadeDuration,
+        reorderQueue, removeFromQueue,
       }}
     >
       {children}

@@ -1,31 +1,53 @@
-import { Home, Library, Heart, Plus, Music, Compass } from "lucide-react";
+import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { playlists, albums } from "@/data/mockData";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
+import { usePlaylists } from "@/hooks/usePlaylists";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 type FilterType = "playlists" | "albums" | "artists";
 
 const mainNav = [
   { title: "Home", url: "/", icon: Home },
   { title: "Browse", url: "/genre", icon: Compass },
+  { title: "History", url: "/history", icon: Clock },
 ];
 
 export function AppSidebar() {
   const [filter, setFilter] = useState<FilterType>("playlists");
   const { currentTrack } = usePlayer();
+  const { user, signOut } = useAuth();
   const { likedSongs } = useLikedSongs();
+  const { playlists: userPlaylists, createPlaylist } = usePlaylists();
   const navigate = useNavigate();
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
 
   const filters: { key: FilterType; label: string }[] = [
     { key: "playlists", label: "Playlists" },
     { key: "albums", label: "Albums" },
     { key: "artists", label: "Artists" },
   ];
+
+  const handleCreate = useCallback(async () => {
+    if (!newName.trim()) return;
+    const id = await createPlaylist(newName.trim());
+    if (id) {
+      toast.success(`Created "${newName.trim()}"`);
+      navigate(`/my-playlist/${id}`);
+    }
+    setNewName("");
+    setShowCreate(false);
+  }, [newName, createPlaylist, navigate]);
 
   return (
     <div className="w-[280px] shrink-0 h-full flex flex-col gap-2 py-2 pl-2">
@@ -57,9 +79,14 @@ export function AppSidebar() {
             <Library className="w-6 h-6" />
             <span className="text-sm font-bold">Your Library</span>
           </button>
-          <button className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
-            <Plus className="w-5 h-5" />
-          </button>
+          {user && (
+            <button
+              className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+              onClick={() => setShowCreate(true)}
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Filter Pills */}
@@ -98,6 +125,30 @@ export function AppSidebar() {
                     <p className="text-xs text-muted-foreground truncate">Playlist · {likedSongs.length} songs</p>
                   </div>
                 </NavLink>
+
+                {/* User playlists */}
+                {userPlaylists.map((pl) => (
+                  <NavLink
+                    key={pl.id}
+                    to={`/my-playlist/${pl.id}`}
+                    className="flex items-center gap-3 px-2 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all group"
+                    activeClassName="bg-accent/60 text-foreground"
+                  >
+                    <div className="w-12 h-12 rounded-md shrink-0 overflow-hidden bg-accent flex items-center justify-center">
+                      {pl.cover_url ? (
+                        <img src={pl.cover_url} alt={pl.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Music className="w-5 h-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground truncate text-sm">{pl.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">Playlist · {pl.tracks.length} songs</p>
+                    </div>
+                  </NavLink>
+                ))}
+
+                {/* Mock playlists */}
                 {playlists.map((pl) => (
                   <NavLink
                     key={pl.id}
@@ -153,28 +204,72 @@ export function AppSidebar() {
           </div>
         </ScrollArea>
 
-        {/* Now Playing Mini */}
-        <AnimatePresence>
-          {currentTrack && (
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 20, opacity: 0 }}
-              className="relative mx-2 mb-2 rounded-lg overflow-hidden"
+        {/* Auth + Now Playing */}
+        <div className="px-2 pb-2 space-y-2">
+          {/* Auth button */}
+          {user ? (
+            <button
+              onClick={() => signOut()}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all"
             >
-              <img src={currentTrack.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-50" />
-              <div className="absolute inset-0 bg-background/60" />
-              <div className="relative flex items-center gap-3 p-3">
-                <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-10 h-10 rounded object-cover" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-foreground truncate">{currentTrack.title}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{currentTrack.artist}</p>
-                </div>
-              </div>
-            </motion.div>
+              <User className="w-5 h-5" />
+              <span className="truncate flex-1 text-left text-xs">{user.email}</span>
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate("/auth")}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 transition-all"
+            >
+              <LogIn className="w-5 h-5" />
+              <span className="text-xs font-semibold">Sign in</span>
+            </button>
           )}
-        </AnimatePresence>
+
+          {/* Now Playing Mini */}
+          <AnimatePresence>
+            {currentTrack && (
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 20, opacity: 0 }}
+                className="relative rounded-lg overflow-hidden"
+              >
+                <img src={currentTrack.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-50" />
+                <div className="absolute inset-0 bg-background/60" />
+                <div className="relative flex items-center gap-3 p-3">
+                  <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-10 h-10 rounded object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-foreground truncate">{currentTrack.title}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{currentTrack.artist}</p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
+
+      {/* Create Playlist Dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="bg-card/95 backdrop-blur-xl border-border/30 max-w-xs">
+          <DialogHeader>
+            <DialogTitle>New Playlist</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-4">
+            <Input
+              placeholder="Playlist name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              autoFocus
+              className="bg-background border-border/30"
+            />
+            <Button type="submit" className="w-full" disabled={!newName.trim()}>
+              Create
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

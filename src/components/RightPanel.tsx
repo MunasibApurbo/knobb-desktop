@@ -3,9 +3,10 @@ import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { mockLyrics, formatDuration } from "@/data/mockData";
 import { getLyrics, TidalLyricLine } from "@/lib/monochromeApi";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2 } from "lucide-react";
+import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2, GripVertical, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArtistLink } from "@/components/ArtistLink";
+import { AddToPlaylistMenu } from "@/components/AddToPlaylistMenu";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -13,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 type TabType = "lyrics" | "queue";
 
 export function RightPanel() {
-  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play } = usePlayer();
+  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play, reorderQueue, removeFromQueue } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
   const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
@@ -213,20 +214,43 @@ export function RightPanel() {
                   <div className="px-2 pt-4 pb-1">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Next Up</span>
                   </div>
-                  {upNext.map((track, i) => (
-                    <button
-                      key={`${track.id}-${i}`}
-                      className="flex items-center gap-3 w-full px-2 py-2 rounded-md hover:bg-accent/15 transition-colors text-left group"
-                      onClick={() => play(track, queue)}
-                    >
-                      <img src={track.coverUrl} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm truncate text-foreground">{track.title}</p>
-                        <p className="text-xs text-muted-foreground truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-xs" /></p>
+                  {upNext.map((track, i) => {
+                    const queueIdx = currentIdx + 1 + i;
+                    return (
+                      <div
+                        key={`${track.id}-${i}`}
+                        className="flex items-center gap-2 w-full px-2 py-2 rounded-md hover:bg-accent/15 transition-colors text-left group"
+                        draggable
+                        onDragStart={(e) => e.dataTransfer.setData("queue-idx", String(queueIdx))}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const from = parseInt(e.dataTransfer.getData("queue-idx"));
+                          if (!isNaN(from) && from !== queueIdx) reorderQueue(from, queueIdx);
+                        }}
+                      >
+                        <GripVertical className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-60 cursor-grab shrink-0" />
+                        <img src={track.coverUrl} alt="" className="w-10 h-10 rounded object-cover shrink-0 cursor-pointer" onClick={() => play(track, queue)} />
+                        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => play(track, queue)}>
+                          <p className="text-sm truncate text-foreground">{track.title}</p>
+                          <p className="text-xs text-muted-foreground truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-xs" /></p>
+                        </div>
+                        <AddToPlaylistMenu track={track}>
+                          <Button variant="ghost" size="icon" className="w-7 h-7 opacity-0 group-hover:opacity-100 text-muted-foreground">
+                            <ListMusic className="w-3.5 h-3.5" />
+                          </Button>
+                        </AddToPlaylistMenu>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="w-7 h-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeFromQueue(queueIdx)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <span className="text-xs text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
-                    </button>
-                  ))}
+                    );
+                  })}
                 </>
               )}
               {upNext.length === 0 && (

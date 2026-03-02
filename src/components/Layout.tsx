@@ -9,13 +9,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
 import { useState, useCallback } from "react";
 
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
   const location = useLocation();
   useKeyboardShortcuts();
-
+  usePlayHistoryRecorder();
   const [fullScreenOpen, setFullScreenOpen] = useState(false);
   const [miniPlayerVisible, setMiniPlayerVisible] = useState(false);
 
