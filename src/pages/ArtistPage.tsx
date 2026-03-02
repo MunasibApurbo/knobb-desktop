@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { searchArtists, searchTracks, getArtistTopTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
+import { searchArtists, searchTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -32,30 +32,26 @@ export default function ArtistPage() {
 
     try {
       const artistId = parseInt(id);
+      const searchQuery = artistName || id;
 
-      // 1. Try fetching top tracks by artist ID (Tidal-native endpoint)
-      const tidalTracks = await getArtistTopTracks(artistId, 20);
-      
-      if (tidalTracks.length > 0) {
-        const firstTrack = tidalTracks[0];
-        const artistInfo: TidalArtist = {
-          id: artistId,
-          name: firstTrack.artist?.name || artistName || "Unknown",
-          picture: firstTrack.artist?.picture || null,
-          popularity: 0,
-          url: "",
-        };
-        setArtist(artistInfo);
-        setTopTracks(tidalTracks.map(tidalTrackToAppTrack));
-      } else if (artistName) {
-        // 2. Fallback: search by artist name
-        const artists = await searchArtists(artistName);
-        const found = artists.find((a) => a.id === artistId) || artists[0];
-        if (found) {
-          setArtist(found);
-          const tracks = await searchTracks(found.name, 20);
-          setTopTracks(tracks.map(tidalTrackToAppTrack));
+      // Search for artist by name
+      const artists = await searchArtists(searchQuery);
+      let found = artists.find((a) => a.id === artistId) || artists[0] || null;
+
+      if (!found && artistName) {
+        // Fallback: extract artist info from track search
+        const trackResults = await searchTracks(artistName, 5);
+        if (trackResults.length > 0) {
+          const fa = trackResults[0].artist;
+          found = { id: fa.id, name: fa.name, picture: fa.picture, popularity: 0, url: "" };
         }
+      }
+
+      if (found) {
+        setArtist(found);
+        // Get tracks by the resolved artist name
+        const tracks = await searchTracks(found.name, 20);
+        setTopTracks(tracks.map(tidalTrackToAppTrack));
       }
     } catch (e) {
       console.error("Failed to load artist:", e);
