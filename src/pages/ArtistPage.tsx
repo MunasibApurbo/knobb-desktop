@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { searchArtists, getArtistTopTracks, getArtistAlbums, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist, TidalAlbum } from "@/lib/monochromeApi";
+import { searchArtists, searchTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -19,7 +19,6 @@ export default function ArtistPage() {
 
   const [artist, setArtist] = useState<TidalArtist | null>(null);
   const [topTracks, setTopTracks] = useState<Track[]>([]);
-  const [artistAlbums, setArtistAlbums] = useState<TidalAlbum[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const fetchedRef = useRef(false);
@@ -32,19 +31,16 @@ export default function ArtistPage() {
     try {
       const artistId = parseInt(id);
 
-      // Get artist info by searching
+      // Search for the artist by ID or name
       const artists = await searchArtists(id);
       const found = artists.find((a) => a.id === artistId) || artists[0];
-      if (found) setArtist(found);
-
-      // Get top tracks and albums in parallel
-      const [tracks, albums] = await Promise.all([
-        getArtistTopTracks(artistId, 20),
-        getArtistAlbums(artistId),
-      ]);
-
-      setTopTracks(tracks.map(tidalTrackToAppTrack));
-      setArtistAlbums(albums.slice(0, 12));
+      if (found) {
+        setArtist(found);
+        
+        // Search for tracks by artist name
+        const tracks = await searchTracks(found.name, 20);
+        setTopTracks(tracks.map(tidalTrackToAppTrack));
+      }
     } catch (e) {
       console.error("Failed to load artist:", e);
     } finally {
@@ -174,34 +170,6 @@ export default function ArtistPage() {
         </>
       )}
 
-      {/* Albums */}
-      {artistAlbums.length > 0 && (
-        <>
-          <h2 className="text-xl font-bold text-foreground mb-4 mt-6">Discography</h2>
-          <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5 mb-10">
-            {artistAlbums.map((album) => (
-              <motion.div
-                key={album.id}
-                variants={fadeUp}
-                className="glass-card rounded-md p-4 cursor-pointer group"
-                onClick={() => navigate(`/tidal-album/${album.id}`)}
-              >
-                <div className="relative rounded-md overflow-hidden mb-3 aspect-square shadow-lg">
-                  <img
-                    src={getTidalImageUrl(album.cover || "", "480x480")}
-                    alt={album.title}
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                </div>
-                <p className="text-sm font-bold text-foreground truncate">{album.title}</p>
-                <p className="text-xs text-muted-foreground truncate mt-1">
-                  {album.releaseDate?.slice(0, 4) || ""} · Album
-                </p>
-              </motion.div>
-            ))}
-          </motion.div>
-        </>
-      )}
     </motion.div>
   );
 }
