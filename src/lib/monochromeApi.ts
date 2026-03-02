@@ -100,7 +100,7 @@ export async function searchTracks(query: string, limit = 25): Promise<TidalTrac
 
 export async function searchArtists(query: string): Promise<TidalArtist[]> {
   const result = await proxyRequest("search", { a: query });
-  return result?.data?.items || [];
+  return result?.data?.artists?.items || result?.data?.items || [];
 }
 
 export async function getArtistTopTracks(artistId: number, limit = 20): Promise<TidalTrack[]> {
