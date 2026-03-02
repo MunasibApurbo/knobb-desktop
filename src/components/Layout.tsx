@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, showRightPanel } = usePlayer();
   const location = useLocation();
   useKeyboardShortcuts();
