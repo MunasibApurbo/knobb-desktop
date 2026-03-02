@@ -1,10 +1,10 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
-import { searchArtists, searchTracks, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist } from "@/lib/monochromeApi";
+import { searchArtists, searchTracks, searchAlbums, getRecommendations, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist, TidalAlbum } from "@/lib/monochromeApi";
 import { Track, formatDuration } from "@/data/mockData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { Play, Pause, Shuffle, Heart, Clock, Loader2 } from "lucide-react";
+import { Play, Pause, Shuffle, Heart, Loader2, Mic2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArtistLink } from "@/components/ArtistLink";
 import { motion } from "framer-motion";
@@ -22,6 +22,8 @@ export default function ArtistPage() {
 
   const [artist, setArtist] = useState<TidalArtist | null>(null);
   const [topTracks, setTopTracks] = useState<Track[]>([]);
+  const [discography, setDiscography] = useState<TidalAlbum[]>([]);
+  const [relatedArtists, setRelatedArtists] = useState<{ id: number; name: string; picture: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const loadIdRef = useRef<string>("");
@@ -31,12 +33,13 @@ export default function ArtistPage() {
     if (loadIdRef.current === key) return;
     loadIdRef.current = key;
 
-    // Show artist name immediately while loading
     if (artistName) {
       setArtist((prev) => prev?.name === artistName ? prev : { id: parseInt(id || "0"), name: artistName, picture: null, popularity: 0, url: "" });
     }
     setLoading(true);
     setTopTracks([]);
+    setDiscography([]);
+    setRelatedArtists([]);
     setShowAllTracks(false);
 
     let cancelled = false;
@@ -61,8 +64,60 @@ export default function ArtistPage() {
 
         if (found && !cancelled) {
           setArtist(found);
-          const tracks = await searchTracks(found.name, 20);
-          if (!cancelled) setTopTracks(tracks.map(tidalTrackToAppTrack));
+
+          // Fetch tracks, albums, and related artists in parallel
+          const [tracks, albums] = await Promise.all([
+            searchTracks(found.name, 20),
+            searchAlbums(found.name, 20),
+          ]);
+
+          if (!cancelled) {
+            const appTracks = tracks.map(tidalTrackToAppTrack);
+            setTopTracks(appTracks);
+
+            // Filter albums to only those by this artist
+            const artistAlbums = albums.filter((a) =>
+              a.artist?.name?.toLowerCase() === found!.name.toLowerCase() ||
+              a.artists?.some((ar) => ar.name.toLowerCase() === found!.name.toLowerCase())
+            );
+            setDiscography(artistAlbums);
+
+            // Extract related artists from track results (different artists featured)
+            const relatedMap = new Map<number, { id: number; name: string; picture: string }>();
+            for (const t of tracks) {
+              if (t.artists) {
+                for (const a of t.artists) {
+                  if (a.id !== found!.id && !relatedMap.has(a.id) && a.name !== found!.name) {
+                    relatedMap.set(a.id, {
+                      id: a.id,
+                      name: a.name,
+                      picture: (a as any).picture ? getTidalImageUrl((a as any).picture, "320x320") : "",
+                    });
+                  }
+                }
+              }
+            }
+
+            // Also try to get related from recommendations
+            if (appTracks.length > 0 && appTracks[0].tidalId) {
+              try {
+                const recs = await getRecommendations(appTracks[0].tidalId);
+                if (!cancelled) {
+                  for (const r of recs) {
+                    if (r.artist && r.artist.id !== found!.id && !relatedMap.has(r.artist.id)) {
+                      relatedMap.set(r.artist.id, {
+                        id: r.artist.id,
+                        name: r.artist.name,
+                        picture: r.artist.picture ? getTidalImageUrl(r.artist.picture, "320x320") : "",
+                      });
+                    }
+                  }
+                }
+              } catch { }
+            }
+
+            if (!cancelled) setRelatedArtists(Array.from(relatedMap.values()).slice(0, 8));
+          }
         }
       } catch (e) {
         console.error("Failed to load artist:", e);
@@ -201,6 +256,71 @@ export default function ArtistPage() {
         </>
       )}
 
+      {/* Discography */}
+      {discography.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xl font-bold text-foreground mb-4">Discography</h2>
+          <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
+            {discography.map((album) => (
+              <motion.div
+                key={album.id}
+                variants={fadeUp}
+                className="glass-card rounded-lg p-3.5 cursor-pointer group"
+                onClick={() => navigate(`/album/tidal-${album.id}`)}
+              >
+                <div className="relative mb-3 rounded-md overflow-hidden aspect-square shadow-lg">
+                  <img
+                    src={getTidalImageUrl(album.cover, "480x480")}
+                    alt={album.title}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                  <div
+                    className="absolute bottom-2 right-2 w-11 h-11 rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+                    style={{ background: `hsl(var(--dynamic-accent))` }}
+                  >
+                    <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
+                  </div>
+                </div>
+                <p className="text-sm font-bold text-foreground truncate">{album.title}</p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {album.releaseDate ? new Date(album.releaseDate).getFullYear() : "Album"}
+                  {album.numberOfTracks ? ` · ${album.numberOfTracks} tracks` : ""}
+                </p>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      )}
+
+      {/* Related Artists */}
+      {relatedArtists.length > 0 && (
+        <div className="mt-4">
+          <h2 className="text-xl font-bold text-foreground mb-4">Related Artists</h2>
+          <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
+            {relatedArtists.map((ra) => (
+              <motion.div
+                key={ra.id}
+                variants={fadeUp}
+                className="glass-card rounded-lg p-3.5 cursor-pointer group"
+                onClick={() => navigate(`/artist/${ra.id}?name=${encodeURIComponent(ra.name)}`)}
+              >
+                <div className="relative mb-3 rounded-full overflow-hidden aspect-square shadow-lg mx-auto">
+                  <img
+                    src={ra.picture || "/placeholder.svg"}
+                    alt={ra.name}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  />
+                </div>
+                <p className="text-sm font-bold text-foreground truncate text-center">{ra.name}</p>
+                <div className="flex items-center justify-center gap-1 mt-0.5">
+                  <Mic2 className="w-3 h-3 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Artist</p>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }

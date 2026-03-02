@@ -103,14 +103,57 @@ export async function searchArtists(query: string): Promise<TidalArtist[]> {
   return result?.data?.artists?.items || result?.data?.items || [];
 }
 
+export async function searchAlbums(query: string, limit = 20): Promise<TidalAlbum[]> {
+  const result = await proxyRequest("search", { s: query, limit: String(limit) });
+  // Extract unique albums from track results
+  const albumMap = new Map<number, TidalAlbum>();
+  const items = result?.data?.items || [];
+  for (const track of items) {
+    if (track.album && !albumMap.has(track.album.id)) {
+      albumMap.set(track.album.id, {
+        id: track.album.id,
+        title: track.album.title,
+        cover: track.album.cover,
+        vibrantColor: track.album.vibrantColor,
+        artist: track.artist,
+        artists: track.artists?.map((a: any) => ({ id: a.id, name: a.name })),
+      });
+    }
+  }
+  return Array.from(albumMap.values()).slice(0, limit);
+}
+
 export async function getArtistTopTracks(artistId: number, limit = 20): Promise<TidalTrack[]> {
   const result = await proxyRequest("artist/top", { id: String(artistId), limit: String(limit) });
   return result?.data?.items || [];
 }
 
 export async function getArtistAlbums(artistId: number): Promise<TidalAlbum[]> {
-  const result = await proxyRequest("artist/albums", { id: String(artistId) });
-  return result?.data?.items || [];
+  try {
+    const result = await proxyRequest("artist/albums", { id: String(artistId) });
+    return result?.data?.items || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getAlbumTracks(albumId: number): Promise<TidalTrack[]> {
+  try {
+    const result = await proxyRequest("album/tracks", { id: String(albumId) });
+    return result?.data?.items || [];
+  } catch {
+    // Fallback: search by album name
+    return [];
+  }
+}
+
+export async function getAlbumInfo(albumId: number): Promise<TidalAlbum | null> {
+  try {
+    const result = await proxyRequest("album", { id: String(albumId) });
+    return result?.data || result || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getTrackInfo(trackId: number): Promise<TidalTrack | null> {
