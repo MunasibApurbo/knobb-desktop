@@ -37,9 +37,6 @@ export default function ArtistPage() {
       setArtist((prev) => prev?.name === artistName ? prev : { id: parseInt(id || "0"), name: artistName, picture: null, popularity: 0, url: "" });
     }
     setLoading(true);
-    setTopTracks([]);
-    setDiscography([]);
-    setRelatedArtists([]);
     setShowAllTracks(false);
 
     let cancelled = false;
