@@ -12,7 +12,12 @@ import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector"
 import { VolumeBar } from "@/components/VolumeBar";
 import { PlayerSettings } from "@/components/PlayerSettings";
 import { useNavigate } from "react-router-dom";
-export function BottomPlayer() {
+
+interface BottomPlayerProps {
+  onOpenFullScreen?: () => void;
+}
+
+export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
   const {
     currentTrack, isPlaying, currentTime, duration, shuffle, repeat, volume, isLoading, radioMode,
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
@@ -45,7 +50,8 @@ export function BottomPlayer() {
                 transition={{ duration: 0.25 }}
                 src={currentTrack.coverUrl}
                 alt={currentTrack.title}
-                className="w-12 h-12 rounded-md object-cover shadow-lg"
+                className="w-12 h-12 rounded-md object-cover shadow-lg cursor-pointer hover:brightness-110 transition"
+                onClick={onOpenFullScreen}
               />
             </AnimatePresence>
             <div className="min-w-0 flex-1">
