@@ -85,7 +85,7 @@ export function Layout({ children }: React.PropsWithChildren) {
         {!isMobile ? (
           <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Left Sidebar */}
-            <ResizablePanel defaultSize={18} minSize={12} maxSize={30} className="py-2 pl-2">
+            <ResizablePanel defaultSize={18} minSize={4} maxSize={30} collapsible collapsedSize={0} className="py-2 pl-2">
               <AppSidebar />
             </ResizablePanel>
             <ResizableHandle className="w-1 bg-transparent hover:bg-white/10 transition-colors" />
