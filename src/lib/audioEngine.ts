@@ -268,6 +268,13 @@ export class AudioEngine {
     }
   }
 
+  setPlaybackRate(rate: number) {
+    this.audio.playbackRate = rate;
+    if (this.crossfadeAudio) {
+      this.crossfadeAudio.playbackRate = rate;
+    }
+  }
+
   get currentTime() {
     return this.audio.currentTime;
   }

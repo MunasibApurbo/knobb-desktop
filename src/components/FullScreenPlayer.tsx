@@ -1,6 +1,6 @@
 import {
-  X, Play, Pause, SkipBack, SkipForward, Heart, Shuffle, Repeat, Repeat1,
-  Loader2, ChevronDown, Volume2, VolumeX, Volume1
+  Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
+  Loader2, ChevronDown, Volume2, VolumeX, Volume1, Share2
 } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
@@ -10,9 +10,11 @@ import { Button } from "@/components/ui/button";
 import { VolumeBar } from "@/components/VolumeBar";
 import { CircularVisualizer } from "@/components/visualizers/CircularVisualizer";
 import { BeautifulLyrics } from "@/components/BeautifulLyrics";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Slider } from "@/components/ui/slider";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { toast } from "sonner";
 
 interface FullScreenPlayerProps {
   open: boolean;
@@ -27,6 +29,7 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
   const { isLiked, toggleLike } = useLikedSongs();
   const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
   const lastTrackRef = useRef<string | null>(null);
+  const isMobile = useIsMobile();
 
   const fetchLyrics = useCallback(async () => {
     if (!currentTrack) return;
@@ -44,6 +47,16 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
   const trackDuration = duration || currentTrack?.duration || 0;
   const progress = trackDuration > 0 ? currentTime / trackDuration : 0;
 
+  // Swipe gestures for mobile
+  const x = useMotionValue(0);
+  const bgOpacity = useTransform(x, [-200, 0, 200], [0.3, 1, 0.3]);
+
+  const handleDragEnd = (_: any, info: PanInfo) => {
+    if (Math.abs(info.offset.x) > 80) {
+      if (info.offset.x > 0) previous();
+      else next();
+    }
+  };
 
   // Close on Escape
   useEffect(() => {
@@ -53,27 +66,37 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  const handleShare = useCallback(() => {
+    const text = `${currentTrack?.title} — ${currentTrack?.artist}`;
+    if (navigator.share) {
+      navigator.share({ title: currentTrack?.title, text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard");
+    }
+  }, [currentTrack]);
+
   if (!currentTrack) return null;
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.4 }}
+          initial={{ y: "100%", opacity: 0.5 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: "100%", opacity: 0 }}
+          transition={{ type: "spring", damping: 30, stiffness: 300 }}
           className="fixed inset-0 z-[100] flex bg-background overflow-hidden"
         >
           {/* Background blur with album art */}
-          <div className="absolute inset-0">
+          <motion.div className="absolute inset-0" style={{ opacity: bgOpacity }}>
             <img
               src={currentTrack.coverUrl}
               alt=""
               className="w-full h-full object-cover blur-[80px] scale-125 opacity-30"
             />
             <div className="absolute inset-0 bg-background/70" />
-          </div>
+          </motion.div>
 
           {/* Close button */}
           <Button
@@ -84,29 +107,44 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
             <ChevronDown className="w-5 h-5" />
           </Button>
 
+          {/* Share button */}
+          <Button
+            variant="ghost" size="icon"
+            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full text-muted-foreground hover:text-foreground bg-background/30 backdrop-blur-md"
+            onClick={handleShare}
+          >
+            <Share2 className="w-5 h-5" />
+          </Button>
+
           {/* Main content */}
-          <div className="relative flex flex-1 items-center justify-center gap-12 px-12 py-8">
+          <div className={`relative flex flex-1 items-center justify-center ${isMobile ? "flex-col px-6 py-16" : "gap-12 px-12 py-8"}`}>
             {/* Left: Album art + controls */}
-            <div className="flex flex-col items-center gap-6 w-[420px] shrink-0">
+            <motion.div
+              className={`flex flex-col items-center gap-4 ${isMobile ? "w-full" : "gap-6 w-[420px]"} shrink-0`}
+              drag={isMobile ? "x" : false}
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.3}
+              onDragEnd={handleDragEnd}
+              style={{ x }}
+            >
               <motion.div
                 key={currentTrack.id}
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                className="relative w-[380px] h-[380px] rounded-2xl overflow-hidden shadow-2xl"
+                className={`relative ${isMobile ? "w-[280px] h-[280px]" : "w-[380px] h-[380px]"} rounded-2xl overflow-hidden shadow-2xl`}
               >
                 <img
                   src={currentTrack.coverUrl}
                   alt={currentTrack.title}
                   className={`w-full h-full object-cover transition-transform duration-[5000ms] ${isPlaying ? "scale-110" : "scale-100"}`}
                 />
-                {/* Subtle overlay for depth */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
               </motion.div>
 
               {/* Track info */}
               <div className="text-center w-full px-4">
-                <h2 className="text-2xl font-bold text-foreground truncate">{currentTrack.title}</h2>
+                <h2 className={`${isMobile ? "text-xl" : "text-2xl"} font-bold text-foreground truncate`}>{currentTrack.title}</h2>
                 <p className="text-base text-muted-foreground mt-1">{currentTrack.artist}</p>
               </div>
 
@@ -165,32 +203,36 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
                 </Button>
               </div>
 
-              {/* Volume */}
-              <div className="flex items-center gap-3 w-full px-6 justify-end">
-                <Button variant="ghost" size="icon" className="w-8 h-8 shrink-0 text-muted-foreground"
-                  onClick={() => setVolume(volume > 0 ? 0 : 0.75)}
-                >
-                  {volume === 0 ? <VolumeX className="w-4 h-4" /> : volume < 0.5 ? <Volume1 className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </Button>
-                <VolumeBar volume={volume} onChange={setVolume} className="w-28" />
-              </div>
-            </div>
-
-            {/* Right: Lyrics */}
-            <div className="flex-1 h-[70vh] max-w-[520px]">
-              {lyrics.length > 0 ? (
-                <BeautifulLyrics
-                  lyrics={lyrics}
-                  currentTime={currentTime}
-                  onSeek={seek}
-                  isPlaying={isPlaying}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <CircularVisualizer className="w-[300px] h-[300px]" />
+              {/* Volume - desktop only */}
+              {!isMobile && (
+                <div className="flex items-center gap-3 w-full px-6 justify-end">
+                  <Button variant="ghost" size="icon" className="w-8 h-8 shrink-0 text-muted-foreground"
+                    onClick={() => setVolume(volume > 0 ? 0 : 0.75)}
+                  >
+                    {volume === 0 ? <VolumeX className="w-4 h-4" /> : volume < 0.5 ? <Volume1 className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </Button>
+                  <VolumeBar volume={volume} onChange={setVolume} className="w-28" />
                 </div>
               )}
-            </div>
+            </motion.div>
+
+            {/* Right: Lyrics - desktop only */}
+            {!isMobile && (
+              <div className="flex-1 h-[70vh] max-w-[520px]">
+                {lyrics.length > 0 ? (
+                  <BeautifulLyrics
+                    lyrics={lyrics}
+                    currentTime={currentTime}
+                    onSeek={seek}
+                    isPlaying={isPlaying}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <CircularVisualizer className="w-[300px] h-[300px]" />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Bottom visualizer strip */}

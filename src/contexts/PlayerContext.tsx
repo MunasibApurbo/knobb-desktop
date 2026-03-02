@@ -19,7 +19,8 @@ interface PlayerState {
   isLoading: boolean;
   quality: AudioQuality;
   radioMode: boolean;
-  crossfadeDuration: number; // seconds, 0 = off
+  crossfadeDuration: number;
+  playbackSpeed: number;
 }
 
 interface PlayerContextType extends PlayerState {
@@ -35,6 +36,8 @@ interface PlayerContextType extends PlayerState {
   setQuality: (q: AudioQuality) => void;
   toggleRadioMode: () => void;
   setCrossfadeDuration: (s: number) => void;
+  playbackSpeed: number;
+  setPlaybackSpeed: (s: number) => void;
   reorderQueue: (from: number, to: number) => void;
   removeFromQueue: (index: number) => void;
 }
@@ -56,6 +59,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     quality: (localStorage.getItem("audio-quality") as AudioQuality) || "HIGH",
     radioMode: localStorage.getItem("radio-mode") === "true",
     crossfadeDuration: Number(localStorage.getItem("crossfade-duration") || "0"),
+    playbackSpeed: Number(localStorage.getItem("playback-speed") || "1"),
   });
 
   const engineRef = useRef(getAudioEngine());
@@ -301,6 +305,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, crossfadeDuration: s }));
   }, []);
 
+  const setPlaybackSpeed = useCallback((s: number) => {
+    localStorage.setItem("playback-speed", String(s));
+    setState((prev) => ({ ...prev, playbackSpeed: s }));
+    engineRef.current.setPlaybackRate(s);
+  }, []);
+
   const reorderQueue = useCallback((from: number, to: number) => {
     setState((prev) => {
       const newQueue = [...prev.queue];
@@ -323,7 +333,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         ...state,
         play, togglePlay, next, previous, seek,
         toggleShuffle, toggleRepeat, setVolume, toggleRightPanel,
-        setQuality, toggleRadioMode, setCrossfadeDuration,
+        setQuality, toggleRadioMode, setCrossfadeDuration, setPlaybackSpeed,
         reorderQueue, removeFromQueue,
       }}
     >
