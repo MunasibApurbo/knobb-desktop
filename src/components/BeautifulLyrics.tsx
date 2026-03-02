@@ -51,6 +51,16 @@ export function BeautifulLyrics({
     []
   );
 
+  // Compute distance-based blur and opacity
+  const getLineStyle = (i: number) => {
+    if (activeIdx < 0) return {};
+    const dist = Math.abs(i - activeIdx);
+    if (dist === 0) return { '--line-opacity': '1', '--text-blur': '0px', fontWeight: 800 } as React.CSSProperties;
+    const blur = Math.min(dist * 1.5, 6);
+    const opacity = Math.max(1 - dist * 0.15, 0.3);
+    return { '--line-opacity': `${opacity}`, '--text-blur': `${blur}px` } as React.CSSProperties;
+  };
+
   return (
     <div className="beautiful-lyrics-container h-full overflow-y-auto scrollbar-thin">
       <div className="beautiful-lyrics-content py-[35vh] px-1">
@@ -64,6 +74,7 @@ export function BeautifulLyrics({
                 ref={setRef(i)}
                 data-state={state}
                 className="beautiful-lyrics-line"
+                style={getLineStyle(i)}
                 onClick={() => onSeek(line.time)}
               >
                 <span className="beautiful-lyrics-text">{line.text}</span>
