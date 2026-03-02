@@ -64,7 +64,7 @@ export function RightPanel() {
         <motion.aside
           key="right-panel"
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 340, opacity: 1 }}
+          animate={{ width: 280, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
           className="shrink-0 h-full ml-2 rounded-t-lg flex flex-col overflow-hidden glass-heavy"
