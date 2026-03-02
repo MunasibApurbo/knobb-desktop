@@ -195,7 +195,14 @@ export class AudioEngine {
     this.source?.disconnect();
     this.gainNode?.disconnect();
     this.analyser?.disconnect();
-    this.audioContext?.close();
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      this.audioContext.close().catch(() => {});
+    }
+    this.audioContext = null;
+    this.analyser = null;
+    this.gainNode = null;
+    this.source = null;
+    this.connected = false;
   }
 }
 
