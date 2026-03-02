@@ -61,7 +61,7 @@ export function Layout({ children }: React.PropsWithChildren) {
               <img
                 src={currentTrack.coverUrl}
                 alt=""
-                className="absolute inset-0 w-full h-full object-cover scale-125 blur-[120px] opacity-30"
+                className="absolute inset-0 w-full h-full object-cover scale-125 blur-[100px] opacity-40"
               />
               <div
                 className="absolute inset-0"
@@ -73,7 +73,7 @@ export function Layout({ children }: React.PropsWithChildren) {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="absolute inset-0 bg-background/70" />
+        <div className="absolute inset-0 bg-background/60" />
       </div>
 
       {/* Main Content Area */}
@@ -83,7 +83,7 @@ export function Layout({ children }: React.PropsWithChildren) {
 
         <div className="flex-1 flex flex-col min-w-0 md:pr-2 md:pt-2">
           <div className="flex-1 flex min-h-0">
-            <div className="flex-1 bg-card/50 backdrop-blur-sm md:rounded-t-lg flex flex-col min-w-0 overflow-hidden border border-border/10">
+            <div className="flex-1 md:rounded-t-lg flex flex-col min-w-0 overflow-hidden glass">
               <TopBar />
               <ScrollArea className="flex-1" ref={scrollRef}>
                 <main className="px-4 md:px-6 pb-8">
