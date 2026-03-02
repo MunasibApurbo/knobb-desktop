@@ -10,6 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { VisualizerSelector } from "@/components/visualizers/VisualizerSelector";
 import { VolumeBar } from "@/components/VolumeBar";
+import { useNavigate } from "react-router-dom";
 
 export function BottomPlayer() {
   const {
@@ -17,6 +18,7 @@ export function BottomPlayer() {
     togglePlay, next, previous, toggleShuffle, toggleRepeat, setVolume, seek, toggleRightPanel,
   } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
+  const navigate = useNavigate();
 
   if (!currentTrack) return null;
 
@@ -48,7 +50,12 @@ export function BottomPlayer() {
             </AnimatePresence>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold truncate text-foreground">{currentTrack.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{currentTrack.artist}</p>
+              <p
+                className={`text-xs truncate ${currentTrack.artistId ? "text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors" : "text-muted-foreground"}`}
+                onClick={() => currentTrack.artistId && navigate(`/artist/${currentTrack.artistId}`)}
+              >
+                {currentTrack.artist}
+              </p>
             </div>
             <Button
               variant="ghost" size="icon"
