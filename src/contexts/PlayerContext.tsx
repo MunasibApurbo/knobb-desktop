@@ -101,7 +101,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, isLoading: false }));
     });
 
-    return () => engine.destroy();
+    // Don't destroy engine on unmount — it's a singleton and HMR will re-mount
+    return () => {};
   }, []);
 
   // Update volume on engine
