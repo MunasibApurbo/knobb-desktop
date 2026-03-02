@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, memo } from "react";
 import { motion, useSpring, useTransform } from "framer-motion";
 import { TidalLyricLine } from "@/lib/monochromeApi";
 
@@ -9,134 +9,134 @@ interface BeautifulLyricsProps {
   isPlaying: boolean;
 }
 
-// Interlude dots component for instrumental breaks
-function InterludeDots({ isActive }: { isActive: boolean }) {
-  return (
-    <div className="flex items-center gap-2 py-4 h-12">
-      {[0, 1, 2].map((i) => (
-        <motion.div
-          key={i}
-          className="rounded-full bg-foreground"
-          animate={{
-            width: isActive ? 8 : 6,
-            height: isActive ? 8 : 6,
-            opacity: isActive ? 1 : 0.2,
-            scale: isActive ? [1, 1.4, 1] : 1,
-          }}
-          transition={{
-            scale: {
-              repeat: isActive ? Infinity : 0,
-              duration: 1.2,
-              delay: i * 0.2,
-              ease: "easeInOut",
-            },
-            default: { duration: 0.4 },
-          }}
-        />
-      ))}
-    </div>
-  );
-}
+// Interlude dots — animated during instrumental breaks
+const InterludeDots = memo(({ isActive }: { isActive: boolean }) => (
+  <div className="flex items-center gap-[6px] py-6 pl-1">
+    {[0, 1, 2].map((i) => (
+      <motion.div
+        key={i}
+        className="rounded-full bg-foreground"
+        animate={{
+          width: isActive ? 8 : 5,
+          height: isActive ? 8 : 5,
+          opacity: isActive ? 0.9 : 0.15,
+          scale: isActive ? [1, 1.5, 1] : 1,
+        }}
+        transition={{
+          scale: {
+            repeat: isActive ? Infinity : 0,
+            duration: 1.4,
+            delay: i * 0.25,
+            ease: "easeInOut",
+          },
+          default: { duration: 0.5 },
+        }}
+      />
+    ))}
+  </div>
+));
 
-// Individual lyric line with Beautiful Lyrics-style effects
-function LyricLine({
-  line,
+// Single lyric line with Beautiful Lyrics-style rendering
+const LyricLine = memo(({
+  text,
   state,
   progress,
   onClick,
 }: {
-  line: TidalLyricLine;
+  text: string;
   state: "active" | "sung" | "upcoming";
-  progress: number; // 0-1 for gradient fill on active line
+  progress: number;
   onClick: () => void;
-}) {
-  const scale = useSpring(1, { stiffness: 200, damping: 20 });
-  const blur = useSpring(0, { stiffness: 120, damping: 18 });
-  const opacity = useSpring(0.3, { stiffness: 150, damping: 20 });
-  const glowOpacity = useSpring(0, { stiffness: 100, damping: 15 });
-  const yOffset = useSpring(0, { stiffness: 180, damping: 22 });
+}) => {
+  const scale = useSpring(1, { stiffness: 170, damping: 20 });
+  const blur = useSpring(0, { stiffness: 100, damping: 16 });
+  const opacity = useSpring(0.3, { stiffness: 120, damping: 18 });
+  const yOffset = useSpring(0, { stiffness: 160, damping: 20 });
 
   useEffect(() => {
-    if (state === "active") {
-      scale.set(1.05);
-      blur.set(0);
-      opacity.set(1);
-      glowOpacity.set(1);
-      yOffset.set(-2);
-    } else if (state === "sung") {
-      scale.set(1);
-      blur.set(0);
-      opacity.set(0.4);
-      glowOpacity.set(0);
-      yOffset.set(0);
-    } else {
-      scale.set(1);
-      blur.set(4);
-      opacity.set(0.25);
-      glowOpacity.set(0);
-      yOffset.set(0);
+    switch (state) {
+      case "active":
+        scale.set(1.04);
+        blur.set(0);
+        opacity.set(1);
+        yOffset.set(-1);
+        break;
+      case "sung":
+        scale.set(1);
+        blur.set(0);
+        opacity.set(0.35);
+        yOffset.set(0);
+        break;
+      case "upcoming":
+        scale.set(0.98);
+        blur.set(3.5);
+        opacity.set(0.2);
+        yOffset.set(0);
+        break;
     }
-  }, [state, scale, blur, opacity, glowOpacity, yOffset]);
+  }, [state, scale, blur, opacity, yOffset]);
 
-  const filterStr = useTransform(blur, (b) =>
-    b > 0.1 ? `blur(${b}px)` : "none"
+  const filterVal = useTransform(blur, (b) =>
+    b > 0.05 ? `blur(${b}px)` : "none"
   );
 
-  // Gradient fill: text fills from left to right based on progress
-  const gradientProgress = Math.min(Math.max(progress * 100, 0), 100);
+  const pct = Math.min(Math.max(progress * 100, 0), 100);
 
   return (
-    <motion.p
-      style={{
-        scale,
-        opacity,
-        filter: filterStr,
-        y: yOffset,
-      }}
-      className="text-[1.7rem] leading-[1.5] font-bold cursor-pointer select-none origin-left py-1 transition-none will-change-transform"
+    <motion.div
+      style={{ scale, opacity, filter: filterVal, y: yOffset }}
+      className="origin-left will-change-transform cursor-pointer select-none"
       onClick={onClick}
     >
-      <motion.span
-        style={{
-          backgroundImage:
-            state === "active"
-              ? `linear-gradient(90deg, hsl(var(--foreground)) ${gradientProgress}%, hsl(var(--muted-foreground)) ${gradientProgress}%)`
-              : undefined,
-          WebkitBackgroundClip: state === "active" ? "text" : undefined,
-          WebkitTextFillColor: state === "active" ? "transparent" : undefined,
-          backgroundClip: state === "active" ? "text" : undefined,
-          textShadow:
-            state === "active"
-              ? `0 0 20px hsl(var(--dynamic-accent-glow)), 0 0 40px hsl(var(--dynamic-accent-glow))`
-              : undefined,
-        }}
-        className={
+      {/* Glow layer (behind text, only for active) */}
+      {state === "active" && (
+        <p
+          className="absolute text-[1.65rem] leading-[1.55] font-extrabold pointer-events-none"
+          style={{
+            WebkitTextStroke: "0px",
+            color: "hsl(var(--foreground))",
+            filter: "blur(16px)",
+            opacity: 0.35,
+            maskImage: `linear-gradient(90deg, black ${pct}%, transparent ${pct}%)`,
+            WebkitMaskImage: `linear-gradient(90deg, black ${pct}%, transparent ${pct}%)`,
+          }}
+          aria-hidden
+        >
+          {text}
+        </p>
+      )}
+
+      {/* Main text with gradient fill */}
+      <p
+        className="relative text-[1.65rem] leading-[1.55] font-extrabold"
+        style={
           state === "active"
-            ? "text-foreground"
-            : state === "sung"
-            ? "text-muted-foreground"
-            : "text-muted-foreground"
+            ? {
+                backgroundImage: `linear-gradient(90deg, hsl(var(--foreground)) ${pct}%, hsl(var(--muted-foreground) / 0.45) ${pct}%)`,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }
+            : undefined
         }
       >
-        {line.text}
-      </motion.span>
-    </motion.p>
+        {text}
+      </p>
+    </motion.div>
   );
-}
+});
 
 export function BeautifulLyrics({
   lyrics,
   currentTime,
   onSeek,
-  isPlaying,
 }: BeautifulLyricsProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLElement | null)[]>([]);
   const lastScrolledIdx = useRef(-1);
 
-  // Find active lyric index
+  // Active lyric index
   const activeLyricIdx = useMemo(() => {
-    if (lyrics.length === 0) return -1;
+    if (!lyrics.length) return -1;
     let idx = -1;
     for (let i = 0; i < lyrics.length; i++) {
       if (currentTime >= lyrics[i].time) idx = i;
@@ -145,17 +145,16 @@ export function BeautifulLyrics({
     return idx;
   }, [lyrics, currentTime]);
 
-  // Detect interludes (gaps > 5 seconds between lines)
-  const interludeMap = useMemo(() => {
-    const map = new Map<number, boolean>();
+  // Interludes: gaps > 5s
+  const interludeSet = useMemo(() => {
+    const s = new Set<number>();
     for (let i = 0; i < lyrics.length - 1; i++) {
-      const gap = lyrics[i + 1].time - (lyrics[i].time + 4); // rough estimate
-      if (gap > 5) map.set(i, true);
+      if (lyrics[i + 1].time - lyrics[i].time > 8) s.add(i);
     }
-    return map;
+    return s;
   }, [lyrics]);
 
-  // Calculate progress within active line
+  // Progress within active line (0–1)
   const activeProgress = useMemo(() => {
     if (activeLyricIdx < 0) return 0;
     const start = lyrics[activeLyricIdx].time;
@@ -163,62 +162,34 @@ export function BeautifulLyrics({
       activeLyricIdx < lyrics.length - 1
         ? lyrics[activeLyricIdx + 1].time
         : start + 5;
-    const elapsed = currentTime - start;
-    const dur = end - start;
-    return Math.min(Math.max(elapsed / dur, 0), 1);
+    return Math.min(Math.max((currentTime - start) / (end - start), 0), 1);
   }, [activeLyricIdx, currentTime, lyrics]);
 
-  // Auto-scroll to active line
+  // Auto-scroll
   useEffect(() => {
     if (activeLyricIdx < 0 || activeLyricIdx === lastScrolledIdx.current) return;
     lastScrolledIdx.current = activeLyricIdx;
     const el = lineRefs.current[activeLyricIdx];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [activeLyricIdx]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full overflow-y-auto scrollbar-thin scroll-smooth"
-    >
-      <div className="space-y-1 py-[35vh]">
+    <div className="h-full overflow-y-auto scrollbar-thin scroll-smooth">
+      <div className="py-[35vh] space-y-[2px]">
         {lyrics.map((line, i) => {
           const state: "active" | "sung" | "upcoming" =
-            i === activeLyricIdx
-              ? "active"
-              : i < activeLyricIdx
-              ? "sung"
-              : "upcoming";
-
-          const showInterlude =
-            interludeMap.has(i) &&
-            state === "active" &&
-            activeProgress > 0.85;
+            i === activeLyricIdx ? "active" : i < activeLyricIdx ? "sung" : "upcoming";
 
           return (
-            <div
-              key={i}
-              ref={(el) => {
-                lineRefs.current[i] = el;
-              }}
-            >
+            <div key={i} ref={(el) => { lineRefs.current[i] = el; }} className="relative">
               <LyricLine
-                line={line}
+                text={line.text}
                 state={state}
                 progress={state === "active" ? activeProgress : state === "sung" ? 1 : 0}
                 onClick={() => onSeek(line.time)}
               />
-              {interludeMap.has(i) && (
-                <InterludeDots
-                  isActive={
-                    i === activeLyricIdx ||
-                    (i === activeLyricIdx - 1 &&
-                      activeLyricIdx < lyrics.length &&
-                      currentTime < lyrics[activeLyricIdx].time + 1)
-                  }
-                />
+              {interludeSet.has(i) && (
+                <InterludeDots isActive={state === "active" && activeProgress > 0.7} />
               )}
             </div>
           );
