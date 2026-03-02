@@ -7,6 +7,7 @@ import { X, Music2, Mic2, ListMusic, Heart, Play, Loader2, GripVertical, Trash2 
 import { Button } from "@/components/ui/button";
 import { ArtistLink } from "@/components/ArtistLink";
 import { AddToPlaylistMenu } from "@/components/AddToPlaylistMenu";
+import { BeautifulLyrics } from "@/components/BeautifulLyrics";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -14,10 +15,10 @@ import { useNavigate } from "react-router-dom";
 type TabType = "lyrics" | "queue";
 
 export function RightPanel() {
-  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play, reorderQueue, removeFromQueue } = usePlayer();
+  const { currentTrack, currentTime, showRightPanel, toggleRightPanel, isPlaying, queue, play, reorderQueue, removeFromQueue, seek } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
-  const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]);
+  const lyricRefs = useRef<(HTMLParagraphElement | null)[]>([]); // kept for queue drag refs
   const [tab, setTab] = useState<TabType>("lyrics");
   const [lyrics, setLyrics] = useState<TidalLyricLine[]>([]);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -50,18 +51,6 @@ export function RightPanel() {
     fetchLyrics();
   }, [fetchLyrics]);
 
-  const activeLyricIdx = currentTrack && lyrics.length > 0
-    ? lyrics.reduce((acc, l, i) => (currentTime >= l.time ? i : acc), 0)
-    : 0;
-
-  // Auto-scroll to active lyric
-  useEffect(() => {
-    if (!showRightPanel || !currentTrack || tab !== "lyrics") return;
-    const el = lyricRefs.current[activeLyricIdx];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [activeLyricIdx, showRightPanel, currentTrack, tab]);
 
   if (!currentTrack) return null;
 
@@ -156,7 +145,7 @@ export function RightPanel() {
 
           {/* Tab Content */}
           {tab === "lyrics" ? (
-            <ScrollArea className="flex-1 px-5 pb-6">
+            <div className="flex-1 overflow-hidden px-3 pb-6">
               {lyricsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -167,32 +156,14 @@ export function RightPanel() {
                   <p className="text-sm text-muted-foreground">No lyrics available</p>
                 </div>
               ) : (
-                <div className="space-y-6 py-6">
-                  {lyrics.map((line, i) => {
-                    const isActive = i === activeLyricIdx;
-                    const isPast = i < activeLyricIdx;
-                    const distance = Math.abs(i - activeLyricIdx);
-                    return (
-                      <motion.p
-                        key={i}
-                        ref={(el) => { lyricRefs.current[i] = el; }}
-                        animate={{
-                          scale: isActive ? 1.08 : 1,
-                          opacity: isActive ? 1 : isPast ? 0.2 : Math.max(0.15, 0.5 - distance * 0.08),
-                          y: isActive ? -2 : 0,
-                        }}
-                        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                        className={`text-lg leading-relaxed origin-left cursor-default select-none font-medium transition-colors duration-500 ${
-                          isActive ? "text-foreground font-bold lyric-active" : "text-muted-foreground"
-                        }`}
-                      >
-                        {line.text}
-                      </motion.p>
-                    );
-                  })}
-                </div>
+                <BeautifulLyrics
+                  lyrics={lyrics}
+                  currentTime={currentTime}
+                  onSeek={seek}
+                  isPlaying={isPlaying}
+                />
               )}
-            </ScrollArea>
+            </div>
           ) : (
             <ScrollArea className="flex-1 px-3 pb-6">
               {/* Now Playing */}
