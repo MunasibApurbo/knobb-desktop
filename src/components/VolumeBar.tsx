@@ -5,11 +5,12 @@ interface VolumeBarProps {
   volume: number; // 0-1
   onChange: (v: number) => void;
   className?: string;
+  variant?: "wavy" | "straight";
 }
 
 const BAR_COUNT = 16;
 
-export function VolumeBar({ volume, onChange, className = "" }: VolumeBarProps) {
+export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }: VolumeBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
@@ -55,15 +56,22 @@ export function VolumeBar({ volume, onChange, className = "" }: VolumeBarProps) 
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
         const barPosition = (i + 0.5) / BAR_COUNT; // center of bar
         const isActive = barPosition <= volume;
-        // Create a wave-like height pattern
-        const wave = Math.sin((i / BAR_COUNT) * Math.PI * 2 + Date.now() * 0.001);
-        const baseHeight = 0.3 + (i / BAR_COUNT) * 0.7; // grows from left to right
-        const heightPct = isActive ? Math.max(0.25, baseHeight) : 0.15;
+
+        let heightPct = 0.15;
+        if (variant === "straight") {
+          heightPct = 0.2 + (i / (BAR_COUNT - 1)) * 0.8;
+          if (!isActive) heightPct = 0.15;
+        } else {
+          // Create a wave-like height pattern
+          const wave = Math.sin((i / BAR_COUNT) * Math.PI * 2 + Date.now() * 0.001);
+          const baseHeight = 0.3 + (i / BAR_COUNT) * 0.7; // grows from left to right
+          heightPct = isActive ? Math.max(0.25, baseHeight) : 0.15;
+        }
 
         return (
           <motion.div
             key={i}
-            className="flex-1 rounded-full origin-bottom"
+            className="flex-1  origin-bottom"
             animate={{
               scaleY: heightPct,
               opacity: isActive ? 1 : 0.6,
@@ -75,8 +83,8 @@ export function VolumeBar({ volume, onChange, className = "" }: VolumeBarProps) 
             style={{
               height: "100%",
               backgroundColor: isActive
-                ? `hsl(var(--dynamic-accent))`
-                : `hsl(var(--muted-foreground) / 0.5)`,
+                ? `var(--volume-active-color, hsl(var(--player-waveform)))`
+                : `var(--volume-inactive-color, hsl(var(--muted-foreground) / 0.3))`,
             }}
           />
         );

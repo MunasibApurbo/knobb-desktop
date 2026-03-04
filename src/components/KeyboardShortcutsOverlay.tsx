@@ -37,7 +37,7 @@ export function KeyboardShortcutsOverlay() {
                 {keys.map((key) => (
                   <kbd
                     key={key}
-                    className="px-2 py-1 text-xs font-mono rounded bg-accent text-foreground border border-border/30 min-w-[28px] text-center"
+                    className="px-2 py-1 text-xs font-mono bg-accent text-foreground border border-border/30 min-w-[28px] text-center"
                   >
                     {key}
                   </kbd>

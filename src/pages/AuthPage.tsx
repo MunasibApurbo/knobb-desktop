@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Music, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 export default function AuthPage() {
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,10 +18,13 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const routeState = location.state as { from?: string } | null;
+  const returnTo = typeof routeState?.from === "string" ? routeState.from : "/profile";
+
   // Redirect if already logged in
   useEffect(() => {
-    if (user) navigate("/", { replace: true });
-  }, [user, navigate]);
+    if (user) navigate(returnTo, { replace: true });
+  }, [navigate, returnTo, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +39,7 @@ export default function AuthPage() {
     } else {
       const { error } = await signIn(email, password);
       if (error) setError(error);
+      else navigate(returnTo, { replace: true });
     }
     setLoading(false);
   };
@@ -47,7 +52,7 @@ export default function AuthPage() {
         className="w-full max-w-sm space-y-6"
       >
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto" style={{ background: `hsl(var(--dynamic-accent))` }}>
+          <div className="w-14 h-14  flex items-center justify-center mx-auto" style={{ background: `hsl(var(--dynamic-accent))` }}>
             <Music className="w-7 h-7 text-background" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">

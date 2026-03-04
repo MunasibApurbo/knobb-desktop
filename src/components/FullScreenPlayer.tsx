@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { formatDuration } from "@/data/mockData";
+import { formatDuration } from "@/lib/utils";
 import { getLyrics, TidalLyricLine } from "@/lib/monochromeApi";
 import { Button } from "@/components/ui/button";
 import { VolumeBar } from "@/components/VolumeBar";
@@ -69,7 +69,7 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
   const handleShare = useCallback(() => {
     const text = `${currentTrack?.title} — ${currentTrack?.artist}`;
     if (navigator.share) {
-      navigator.share({ title: currentTrack?.title, text }).catch(() => {});
+      navigator.share({ title: currentTrack?.title, text }).catch(() => { });
     } else {
       navigator.clipboard.writeText(text);
       toast.success("Copied to clipboard");
@@ -101,7 +101,7 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
           {/* Close button */}
           <Button
             variant="ghost" size="icon"
-            className="absolute top-4 left-4 z-10 w-10 h-10 rounded-full text-muted-foreground hover:text-foreground bg-background/30 backdrop-blur-md"
+            className="absolute top-4 left-4 z-10 w-10 h-10  text-muted-foreground hover:text-foreground bg-background/30 backdrop-blur-md"
             onClick={onClose}
           >
             <ChevronDown className="w-5 h-5" />
@@ -110,7 +110,7 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
           {/* Share button */}
           <Button
             variant="ghost" size="icon"
-            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full text-muted-foreground hover:text-foreground bg-background/30 backdrop-blur-md"
+            className="absolute top-4 right-4 z-10 w-10 h-10  text-muted-foreground hover:text-foreground bg-background/30 backdrop-blur-md"
             onClick={handleShare}
           >
             <Share2 className="w-5 h-5" />
@@ -132,7 +132,7 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                className={`relative ${isMobile ? "w-[280px] h-[280px]" : "w-[380px] h-[380px]"} rounded-2xl overflow-hidden shadow-2xl`}
+                className={`relative ${isMobile ? "w-[280px] h-[280px]" : "w-[380px] h-[380px]"}  overflow-hidden shadow-2xl`}
               >
                 <img
                   src={currentTrack.coverUrl}
@@ -144,8 +144,23 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
 
               {/* Track info */}
               <div className="text-center w-full px-4">
-                <h2 className={`${isMobile ? "text-xl" : "text-2xl"} font-bold text-foreground truncate`}>{currentTrack.title}</h2>
-                <p className="text-base text-muted-foreground mt-1">{currentTrack.artist}</p>
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <h2 className={`${isMobile ? "text-lg" : "text-xl"} font-bold text-foreground truncate`}>{currentTrack.title}</h2>
+                  {currentTrack.explicit && (
+                    <span className="flex-shrink-0 px-1 py-0.5 text-[10px] font-bold bg-muted-foreground/20 text-muted-foreground rounded-[2px] leading-none uppercase">
+                      E
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col items-center gap-2">
+                  <p className="text-sm text-muted-foreground">{currentTrack.artist}</p>
+                  {currentTrack.audioQuality && (currentTrack.audioQuality === "LOSSLESS" || currentTrack.audioQuality === "MAX") && (
+                    <span className={`text-[10px] font-black px-2 py-1 rounded-[2px] leading-none tracking-tighter ${currentTrack.audioQuality === "MAX" ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20" : "bg-cyan-500/10 text-cyan-500 border border-cyan-500/20"
+                      }`}>
+                      {currentTrack.audioQuality}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Progress */}
@@ -180,7 +195,7 @@ export function FullScreenPlayer({ open, onClose }: FullScreenPlayerProps) {
                 </Button>
                 <Button
                   variant="ghost" size="icon"
-                  className="w-16 h-16 rounded-full bg-foreground text-background hover:bg-foreground/90 transition-all active:scale-95"
+                  className="w-16 h-16  bg-foreground text-background hover:bg-foreground/90 transition-all active:scale-95"
                   onClick={togglePlay}
                   disabled={isLoading && !isPlaying}
                 >

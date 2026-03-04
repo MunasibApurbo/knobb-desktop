@@ -20,7 +20,7 @@ interface SidebarContextType {
   setCollapsed: (v: boolean) => void;
   expandPanel: () => void;
 }
-const SidebarContext = createContext<SidebarContextType>({ collapsed: false, setCollapsed: () => {}, expandPanel: () => {} });
+const SidebarContext = createContext<SidebarContextType>({ collapsed: false, setCollapsed: () => { }, expandPanel: () => { } });
 export function useSidebarCollapsed() { return useContext(SidebarContext); }
 
 export function Layout({ children }: React.PropsWithChildren) {
@@ -70,95 +70,95 @@ export function Layout({ children }: React.PropsWithChildren) {
 
   return (
     <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed, expandPanel }}>
-    <div className="h-screen w-screen flex flex-col relative overflow-hidden">
-      {/* Dynamic blurred background from current track artwork */}
-      <div className="fixed inset-0 z-0 bg-background">
-        {currentTrack && (
-          <div className="absolute inset-0">
-            <img
-              key={currentTrack.id}
-              src={currentTrack.coverUrl}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover scale-150 blur-[80px] opacity-50 transition-opacity duration-[1500ms]"
-            />
-            <div
-              className="absolute inset-0 transition-all duration-[1500ms]"
-              style={{
-                background: `radial-gradient(ellipse at 20% 20%, hsl(${currentTrack.canvasColor} / 0.3), transparent 50%),
-                             radial-gradient(ellipse at 80% 80%, hsl(${currentTrack.canvasColor} / 0.15), transparent 50%)`,
-              }}
-            />
-          </div>
-        )}
-        <div className="absolute inset-0 bg-black/50" />
+      <div className="h-screen w-screen flex flex-col relative overflow-hidden">
+        {/* Dynamic blurred background from current track artwork */}
+        <div className="fixed inset-0 z-0 bg-background">
+          {currentTrack && (
+            <div className="absolute inset-0">
+              <img
+                key={currentTrack.id}
+                src={currentTrack.coverUrl}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover scale-150 blur-[80px] opacity-50 transition-opacity duration-[1500ms]"
+                style={{ opacity: 0.22 }}
+              />
+              <div
+                className="absolute inset-0 transition-all duration-[1500ms]"
+                style={{
+                  background: `radial-gradient(ellipse at 20% 20%, hsl(${currentTrack.canvasColor} / 0.14), transparent 55%),
+                             radial-gradient(ellipse at 80% 80%, hsl(${currentTrack.canvasColor} / 0.08), transparent 58%)`,
+                }}
+              />
+            </div>
+          )}
+          <div className="absolute inset-0 bg-black/75" />
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 min-h-0 relative z-10">
+          {!isMobile ? (
+            <ResizablePanelGroup direction="horizontal" className="h-full">
+              {/* Left Sidebar */}
+              <ResizablePanel
+                ref={sidebarPanelRef}
+                defaultSize={18}
+                minSize={12}
+                maxSize={30}
+                collapsible
+                collapsedSize={4}
+                onCollapse={() => setSidebarCollapsed(true)}
+                onExpand={() => setSidebarCollapsed(false)}
+              >
+                <AppSidebar />
+              </ResizablePanel>
+              <ResizableHandle className="w-0 relative after:absolute after:inset-y-0 after:-left-1 after:w-2 bg-transparent hover:after:bg-white/10 transition-colors z-50" />
+
+              {/* Center Content */}
+              <ResizablePanel defaultSize={showRightPanel ? 64 : 82} minSize={40}>
+                <div className="flex flex-col h-full min-h-0">
+                  <TopBar />
+                  <ScrollArea className="flex-1" ref={scrollRef}>
+                    <main className="pb-8 overflow-x-hidden">
+                      {children}
+                    </main>
+                  </ScrollArea>
+                </div>
+              </ResizablePanel>
+
+              {/* Right Panel */}
+              {showRightPanel && (
+                <>
+                  <ResizableHandle className="w-0 relative after:absolute after:inset-y-0 after:-left-1 after:w-2 bg-transparent hover:after:bg-white/10 transition-colors z-50" />
+                  <ResizablePanel defaultSize={18} minSize={12} maxSize={30}>
+                    <RightPanel />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          ) : (
+            <div className="flex flex-col flex-1 min-h-0">
+              <TopBar />
+              <ScrollArea className="flex-1" ref={scrollRef}>
+                <main className="px-4 pb-8">
+                  {children}
+                </main>
+              </ScrollArea>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Player - hidden on mobile */}
+        {!isMobile && <BottomPlayer onOpenFullScreen={openFullScreen} miniPlayerEnabled={miniPlayerEnabled} onToggleMiniPlayer={toggleMiniPlayerEnabled} />}
+
+        {/* Mobile bottom nav */}
+        {isMobile && <MobileNav />}
+
+        {/* Full-screen cinematic player */}
+        <FullScreenPlayer open={fullScreenOpen} onClose={closeFullScreen} />
+
+        {/* Mini player (PiP) - desktop only */}
+        {!isMobile && <MiniPlayer visible={miniPlayerVisible} onExpand={openFullScreen} onClose={closeMiniPlayer} />}
       </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 min-h-0 relative z-10">
-        {!isMobile ? (
-          <ResizablePanelGroup direction="horizontal" className="h-full">
-            {/* Left Sidebar */}
-            <ResizablePanel
-              ref={sidebarPanelRef}
-              defaultSize={18}
-              minSize={12}
-              maxSize={30}
-              collapsible
-              collapsedSize={4}
-              onCollapse={() => setSidebarCollapsed(true)}
-              onExpand={() => setSidebarCollapsed(false)}
-              className="py-2 pl-2"
-            >
-              <AppSidebar />
-            </ResizablePanel>
-            <ResizableHandle className="w-1 bg-transparent hover:bg-white/10 transition-colors" />
-
-            {/* Center Content */}
-            <ResizablePanel defaultSize={showRightPanel ? 64 : 82} minSize={40} className="pt-2 pr-2">
-              <div className="flex flex-col h-full min-h-0">
-                <TopBar />
-                <ScrollArea className="flex-1" ref={scrollRef}>
-                  <main className="px-4 md:px-6 pb-8">
-                    {children}
-                  </main>
-                </ScrollArea>
-              </div>
-            </ResizablePanel>
-
-            {/* Right Panel */}
-            {showRightPanel && (
-              <>
-                <ResizableHandle className="w-1 bg-transparent hover:bg-white/10 transition-colors" />
-                <ResizablePanel defaultSize={18} minSize={12} maxSize={30} className="py-2 pr-2">
-                  <RightPanel />
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
-        ) : (
-          <div className="flex flex-col flex-1 min-h-0">
-            <TopBar />
-            <ScrollArea className="flex-1" ref={scrollRef}>
-              <main className="px-4 pb-8">
-                {children}
-              </main>
-            </ScrollArea>
-          </div>
-        )}
-      </div>
-
-      {/* Bottom Player - hidden on mobile */}
-      {!isMobile && <BottomPlayer onOpenFullScreen={openFullScreen} miniPlayerEnabled={miniPlayerEnabled} onToggleMiniPlayer={toggleMiniPlayerEnabled} />}
-
-      {/* Mobile bottom nav */}
-      {isMobile && <MobileNav />}
-
-      {/* Full-screen cinematic player */}
-      <FullScreenPlayer open={fullScreenOpen} onClose={closeFullScreen} />
-
-      {/* Mini player (PiP) - desktop only */}
-      {!isMobile && <MiniPlayer visible={miniPlayerVisible} onExpand={openFullScreen} onClose={closeMiniPlayer} />}
-    </div>
     </SidebarContext.Provider>
   );
 }

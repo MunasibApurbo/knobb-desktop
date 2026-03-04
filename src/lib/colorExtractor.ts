@@ -78,5 +78,10 @@ function rgbToHsl(r: number, g: number, b: number): string {
     }
   }
 
-  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+  // Boost: ensure the color is bright, saturated and light
+  const hDeg = Math.round(h * 360);
+  const sPct = Math.max(Math.round(s * 100), 35);
+  const lPct = Math.min(Math.max(Math.round(l * 100), 45), 65); // clamp lightness 45-65%
+
+  return `${hDeg} ${sPct}% ${lPct}%`;
 }

@@ -15,12 +15,11 @@ export function FilterPill<T extends string>({ options, value, onChange, classNa
           key={opt.key}
           onClick={() => onChange(opt.key)}
           className={cn(
-            "px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "px-3.5 py-1.5  text-xs font-semibold whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             value === opt.key
-              ? "text-white shadow-sm"
+              ? "bg-white/20 text-foreground shadow-sm"
               : "bg-white/8 text-muted-foreground hover:bg-white/12 hover:text-foreground"
           )}
-          style={value === opt.key ? { backgroundColor: `hsl(var(--dynamic-accent, 250 60% 50%))` } : {}}
         >
           {opt.icon && <span className="mr-1.5 inline-flex">{opt.icon}</span>}
           {opt.label}

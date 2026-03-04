@@ -1,30 +1,47 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { usePlayHistory } from "@/hooks/usePlayHistory";
-import { Track } from "@/data/mockData";
+import { PlayHistoryEntry, usePlayHistory } from "@/hooks/usePlayHistory";
+import { Track } from "@/types/music";
 import { BarChart3, Clock, Music, Disc3, Loader2, TrendingUp } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
+
+type StatsRange = "7d" | "30d" | "all";
 
 export default function ListeningStatsPage() {
   const { user } = useAuth();
   const { getHistory } = usePlayHistory();
-  const [history, setHistory] = useState<(Track & { playedAt: string })[]>([]);
+  const navigate = useNavigate();
+  const [history, setHistory] = useState<PlayHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<StatsRange>("30d");
 
   useEffect(() => {
-    if (!user) { setLoading(false); return; }
-    getHistory(500).then((h) => {
-      setHistory(h);
+    if (!user) {
       setLoading(false);
-    });
+      return;
+    }
+    setLoading(true);
+    getHistory(1000).then(setHistory).finally(() => setLoading(false));
   }, [user, getHistory]);
 
+  const filteredHistory = useMemo(() => {
+    if (range === "all") return history;
+
+    const cutoffDays = range === "7d" ? 7 : 30;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - cutoffDays);
+    return history.filter((entry) => new Date(entry.playedAt) >= cutoff);
+  }, [history, range]);
+
   const stats = useMemo(() => {
-    const totalMinutes = Math.round(history.reduce((s, t) => s + t.duration, 0) / 60);
+    const totalListenedSeconds = filteredHistory.reduce((s, t) => s + t.listenedSeconds, 0);
+    const totalMinutes = Math.round(totalListenedSeconds / 60);
     const artistCounts: Record<string, number> = {};
     const trackCounts: Record<string, { track: Track; count: number }> = {};
     const hourCounts = new Array(24).fill(0);
 
-    history.forEach((t) => {
+    filteredHistory.forEach((t) => {
       artistCounts[t.artist] = (artistCounts[t.artist] || 0) + 1;
       if (!trackCounts[t.id]) trackCounts[t.id] = { track: t, count: 0 };
       trackCounts[t.id].count++;
@@ -42,48 +59,74 @@ export default function ListeningStatsPage() {
 
     const peakHour = hourCounts.indexOf(Math.max(...hourCounts));
 
-    return { totalMinutes, totalTracks: history.length, topArtists, topTracks, peakHour, hourCounts };
-  }, [history]);
+    return { totalMinutes, totalTracks: filteredHistory.length, topArtists, topTracks, peakHour, hourCounts };
+  }, [filteredHistory]);
 
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <BarChart3 className="w-12 h-12 text-muted-foreground mb-4" />
-        <p className="text-muted-foreground">Sign in to see your listening stats.</p>
+        <p className="text-muted-foreground mb-4">Sign in to see your listening stats.</p>
+        <Button onClick={() => navigate("/auth")}>Sign In</Button>
       </div>
     );
   }
 
   if (loading) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   const maxHour = Math.max(...stats.hourCounts, 1);
 
   return (
     <div className="max-w-2xl mx-auto py-8 space-y-6">
-      <h1 className="text-2xl font-bold flex items-center gap-2">
-        <BarChart3 className="w-6 h-6" style={{ color: `hsl(var(--dynamic-accent))` }} />
-        Listening Stats
-      </h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="w-6 h-6" style={{ color: `hsl(var(--dynamic-accent))` }} />
+          Listening Stats
+        </h1>
+        <div className="flex items-center gap-2">
+          {[
+            { value: "7d", label: "7D" },
+            { value: "30d", label: "30D" },
+            { value: "all", label: "All" },
+          ].map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setRange(option.value as StatsRange)}
+              className={`px-2.5 py-1 text-xs font-semibold transition-colors ${
+                range === option.value
+                  ? "text-foreground bg-accent/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/20"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Overview cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
           { icon: Music, label: "Tracks Played", value: stats.totalTracks.toString() },
           { icon: Clock, label: "Minutes Listened", value: stats.totalMinutes.toString() },
-          { icon: TrendingUp, label: "Peak Hour", value: `${stats.peakHour}:00` },
+          { icon: TrendingUp, label: "Peak Hour", value: `${String(stats.peakHour).padStart(2, "0")}:00` },
         ].map(({ icon: Icon, label, value }) => (
-          <div key={label} className="glass-heavy rounded-xl p-4 text-center space-y-1">
+          <div key={label} className="glass-heavy  p-4 text-center space-y-1">
             <Icon className="w-5 h-5 mx-auto text-muted-foreground" />
             <p className="text-xl font-bold text-foreground">{value}</p>
-            <p className="text-[11px] text-muted-foreground">{label}</p>
+            <p className="text-xs text-muted-foreground">{label}</p>
           </div>
         ))}
       </div>
 
       {/* Listening activity by hour */}
-      <div className="glass-heavy rounded-xl p-5 space-y-3">
+      <div className="glass-heavy  p-5 space-y-3">
         <h2 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
           <Clock className="w-4 h-4" style={{ color: `hsl(var(--dynamic-accent))` }} />
           Activity by Hour
@@ -92,7 +135,7 @@ export default function ListeningStatsPage() {
           {stats.hourCounts.map((count, i) => (
             <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
               <div
-                className="w-full rounded-sm transition-all"
+                className="w-full  transition-all"
                 style={{
                   height: `${(count / maxHour) * 100}%`,
                   minHeight: count > 0 ? 2 : 0,
@@ -102,13 +145,13 @@ export default function ListeningStatsPage() {
             </div>
           ))}
         </div>
-        <div className="flex justify-between text-[9px] text-muted-foreground">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm</span>
         </div>
       </div>
 
       {/* Top Artists */}
-      <div className="glass-heavy rounded-xl p-5 space-y-3">
+      <div className="glass-heavy  p-5 space-y-3">
         <h2 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
           <Disc3 className="w-4 h-4" style={{ color: `hsl(var(--dynamic-accent))` }} />
           Top Artists
@@ -131,7 +174,7 @@ export default function ListeningStatsPage() {
       </div>
 
       {/* Top Tracks */}
-      <div className="glass-heavy rounded-xl p-5 space-y-3">
+      <div className="glass-heavy  p-5 space-y-3">
         <h2 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
           <Music className="w-4 h-4" style={{ color: `hsl(var(--dynamic-accent))` }} />
           Top Tracks
@@ -143,7 +186,7 @@ export default function ListeningStatsPage() {
             {stats.topTracks.map(({ track, count }, i) => (
               <div key={track.id} className="flex items-center gap-3">
                 <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}</span>
-                <img src={track.coverUrl} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
+                <img src={track.coverUrl} alt="" className="w-9 h-9 object-cover shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate text-foreground">{track.title}</p>
                   <p className="text-xs text-muted-foreground truncate">{track.artist}</p>

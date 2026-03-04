@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { searchTracks, tidalTrackToAppTrack } from "@/lib/monochromeApi";
-import { Track } from "@/data/mockData";
+import { Track } from "@/types/music";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { Play, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -46,18 +46,17 @@ export default function GenrePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <h1 className="text-3xl font-bold text-foreground mb-6">Browse All</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Browse All</h1>
 
       {/* Genre Grid */}
-      <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-8">
+      <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
         {GENRES.map((genre) => (
           <motion.button
             key={genre.id}
             variants={fadeUp}
             onClick={() => loadGenre(genre)}
-            className={`relative h-28 rounded-lg overflow-hidden text-left p-4 transition-all hover:scale-[1.02] active:scale-[0.98] ${
-              selectedGenre === genre.id ? "ring-2 ring-foreground/30" : ""
-            }`}
+            className={`relative h-28  overflow-hidden text-left p-4 transition-all hover:scale-[1.02] active:scale-[0.98] ${selectedGenre === genre.id ? "ring-2 ring-foreground/30" : ""
+              }`}
             style={{
               background: `linear-gradient(135deg, hsl(${genre.color}), hsl(${genre.color} / 0.6))`,
             }}
@@ -78,20 +77,20 @@ export default function GenrePage() {
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+            <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
               {tracks.map((track) => {
                 const isCurrent = currentTrack?.id === track.id;
                 return (
                   <motion.div
                     key={track.id}
                     variants={fadeUp}
-                    className="glass-card rounded-md p-4 cursor-pointer group relative"
+                    className="relative group cursor-pointer transition-opacity hover:opacity-80"
                     onClick={() => play(track, tracks)}
                   >
-                    <div className="relative mb-4 rounded-md overflow-hidden aspect-square shadow-lg">
+                    <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
                       <img src={track.coverUrl} alt={track.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                       <div
-                        className="absolute bottom-2 right-2 w-12 h-12 rounded-full flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+                        className="absolute bottom-2 right-2 w-11 h-11 flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
                         style={{ background: `hsl(var(--dynamic-accent))` }}
                       >
                         {isCurrent && isPlaying ? (
@@ -101,8 +100,8 @@ export default function GenrePage() {
                         )}
                       </div>
                     </div>
-                    <p className="text-sm font-bold text-foreground truncate">{track.title}</p>
-                    <p className="text-xs text-muted-foreground truncate mt-1">{track.artist}</p>
+                    <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground truncate">{track.title}</p>
+                    <p className="text-xs text-muted-foreground/80 truncate">{track.artist}</p>
                   </motion.div>
                 );
               })}

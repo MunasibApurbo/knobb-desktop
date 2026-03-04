@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlaylists } from "@/hooks/usePlaylists";
-import { Track } from "@/data/mockData";
+import { Track } from "@/types/music";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,16 +35,32 @@ export function AddToPlaylistMenu({ track, children }: AddToPlaylistMenuProps) {
   if (!user) return <>{children}</>;
 
   const handleAdd = async (playlistId: string, playlistName: string) => {
-    await addTrack(playlistId, track);
-    toast.success(`Added to ${playlistName}`);
+    const result = await addTrack(playlistId, track);
+    if (result.added) {
+      toast.success(`Added to ${playlistName}`);
+      return;
+    }
+    if (result.reason === "duplicate") {
+      toast.info(`Already in ${playlistName}`);
+      return;
+    }
+    toast.error(`Failed to add to ${playlistName}`);
   };
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
     const id = await createPlaylist(newName.trim());
     if (id) {
-      await addTrack(id, track);
-      toast.success(`Created "${newName.trim()}" and added track`);
+      const result = await addTrack(id, track);
+      if (result.added) {
+        toast.success(`Saved to "${newName.trim()}"`);
+      } else if (result.reason === "duplicate") {
+        toast.info(`Track already exists in "${newName.trim()}"`);
+      } else {
+        toast.error("Playlist created, but failed to add track");
+      }
+    } else {
+      toast.error("Failed to create playlist");
     }
     setNewName("");
     setShowCreate(false);

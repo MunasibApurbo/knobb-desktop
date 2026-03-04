@@ -7,7 +7,9 @@ import { PlayerProvider } from "@/contexts/PlayerContext";
 import { LikedSongsProvider } from "@/contexts/LikedSongsContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { SearchProvider } from "@/contexts/SearchContext";
+import { SettingsProvider } from "@/contexts/SettingsContext";
 import { Layout } from "@/components/Layout";
+import { RequireAuth } from "@/components/RequireAuth";
 import Index from "./pages/Index";
 import AlbumPage from "./pages/AlbumPage";
 import PlaylistPage from "./pages/PlaylistPage";
@@ -22,6 +24,7 @@ import SettingsPage from "./pages/SettingsPage";
 import ListeningStatsPage from "./pages/ListeningStatsPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import ProfilePage from "./pages/ProfilePage";
+import FavoriteArtistsPage from "./pages/FavoriteArtistsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,33 +35,36 @@ const App = () => (
       <Toaster />
       <Sonner />
       <AuthProvider>
-        <PlayerProvider>
-          <LikedSongsProvider>
-            <BrowserRouter>
-              <SearchProvider>
-                <Layout>
-                  <Routes>
-                    <Route path="/" element={<Index />} />
-                    <Route path="/album/:id" element={<AlbumPage />} />
-                    <Route path="/playlist/:id" element={<PlaylistPage />} />
-                    <Route path="/my-playlist/:id" element={<UserPlaylistPage />} />
-                    <Route path="/search" element={<SearchPage />} />
-                    <Route path="/artist/:id" element={<ArtistPage />} />
-                    <Route path="/genre" element={<GenrePage />} />
-                    <Route path="/liked" element={<LikedSongsPage />} />
-                    <Route path="/history" element={<HistoryPage />} />
-                    <Route path="/auth" element={<AuthPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
-                    <Route path="/stats" element={<ListeningStatsPage />} />
-                    <Route path="/notifications" element={<NotificationsPage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </Layout>
-              </SearchProvider>
-            </BrowserRouter>
-          </LikedSongsProvider>
-        </PlayerProvider>
+        <SettingsProvider>
+          <PlayerProvider>
+            <LikedSongsProvider>
+              <BrowserRouter>
+                <SearchProvider>
+                  <Layout>
+                    <Routes>
+                      <Route path="/" element={<Index />} />
+                      <Route path="/album/:id" element={<AlbumPage />} />
+                      <Route path="/playlist/:id" element={<PlaylistPage />} />
+                      <Route path="/my-playlist/:id" element={<RequireAuth><UserPlaylistPage /></RequireAuth>} />
+                      <Route path="/search" element={<SearchPage />} />
+                      <Route path="/artist/:id" element={<ArtistPage />} />
+                      <Route path="/genre" element={<GenrePage />} />
+                      <Route path="/liked" element={<RequireAuth><LikedSongsPage /></RequireAuth>} />
+                      <Route path="/history" element={<RequireAuth><HistoryPage /></RequireAuth>} />
+                      <Route path="/auth" element={<AuthPage />} />
+                      <Route path="/settings" element={<SettingsPage />} />
+                      <Route path="/stats" element={<RequireAuth><ListeningStatsPage /></RequireAuth>} />
+                      <Route path="/favorite-artists" element={<RequireAuth><FavoriteArtistsPage /></RequireAuth>} />
+                      <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Layout>
+                </SearchProvider>
+              </BrowserRouter>
+            </LikedSongsProvider>
+          </PlayerProvider>
+        </SettingsProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>

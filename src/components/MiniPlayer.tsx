@@ -25,7 +25,7 @@ export function MiniPlayer({ visible, onExpand, onClose }: MiniPlayerProps) {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 80, opacity: 0, scale: 0.9 }}
           transition={{ type: "spring", damping: 25, stiffness: 350 }}
-          className="fixed bottom-4 right-4 z-[90] w-[320px] rounded-xl overflow-hidden shadow-2xl border border-border/30 bg-card/95 backdrop-blur-xl"
+          className="fixed bottom-4 right-4 z-[90] w-[320px]  overflow-hidden shadow-2xl border border-border/30 bg-card/95 backdrop-blur-xl"
         >
           {/* Progress bar at top */}
           <div className="h-0.5 w-full bg-muted">
@@ -43,7 +43,7 @@ export function MiniPlayer({ visible, onExpand, onClose }: MiniPlayerProps) {
             <img
               src={currentTrack.coverUrl}
               alt={currentTrack.title}
-              className="w-11 h-11 rounded-lg object-cover shadow-md cursor-pointer hover:brightness-110 transition"
+              className="w-11 h-11  object-cover shadow-md cursor-pointer hover:brightness-110 transition"
               onClick={onExpand}
             />
 
@@ -57,7 +57,7 @@ export function MiniPlayer({ visible, onExpand, onClose }: MiniPlayerProps) {
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost" size="icon"
-                className="w-9 h-9 rounded-full text-foreground hover:bg-foreground/10"
+                className="w-9 h-9  text-foreground hover:bg-foreground/10"
                 onClick={togglePlay}
                 disabled={isLoading && !isPlaying}
               >
@@ -73,10 +73,10 @@ export function MiniPlayer({ visible, onExpand, onClose }: MiniPlayerProps) {
                 <SkipForward className="w-4 h-4 fill-current" />
               </Button>
               <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-foreground" onClick={onExpand}>
-                <Maximize2 className="w-3.5 h-3.5" />
+                <Maximize2 className="w-[18px] h-[18px]" />
               </Button>
               <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-foreground" onClick={onClose}>
-                <X className="w-3.5 h-3.5" />
+                <X className="w-[18px] h-[18px]" />
               </Button>
             </div>
           </div>

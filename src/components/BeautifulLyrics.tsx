@@ -63,7 +63,7 @@ export function BeautifulLyrics({
 
   return (
     <div className="beautiful-lyrics-container h-full overflow-y-auto scrollbar-thin">
-      <div className="beautiful-lyrics-content py-[35vh] px-1">
+      <div className="beautiful-lyrics-content pt-[10vh] pb-[35vh] px-1">
         {lyrics.map((line, i) => {
           const state =
             i === activeIdx ? "active" : i < activeIdx ? "sung" : "idle";

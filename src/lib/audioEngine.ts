@@ -3,6 +3,8 @@
  * Supports crossfade between tracks via dual audio elements
  */
 
+export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
 type AudioEventCallback = () => void;
 type TimeUpdateCallback = (currentTime: number, duration: number) => void;
 
@@ -13,6 +15,16 @@ export class AudioEngine {
   private analyser: AnalyserNode | null = null;
   private gainNode: GainNode | null = null;
   private crossfadeGainNode: GainNode | null = null;
+
+  // Audio Graph Sub-nodes
+  private masterGain: GainNode | null = null;
+  private eqNodes: BiquadFilterNode[] = [];
+  private compressorNode: DynamicsCompressorNode | null = null;
+
+  private normalizationEnabled = false;
+  private equalizerEnabled = false;
+  private eqGains: number[] = new Array(10).fill(0);
+
   private source: MediaElementAudioSourceNode | null = null;
   private crossfadeSource: MediaElementAudioSourceNode | null = null;
   private connected = false;
@@ -89,9 +101,90 @@ export class AudioEngine {
     this.analyser.fftSize = 2048;
     this.analyser.smoothingTimeConstant = 0.8;
 
+    this.masterGain = this.audioContext.createGain();
     this.gainNode = this.audioContext.createGain();
-    this.gainNode.connect(this.analyser);
+
+    // Set up Equalizer Bands
+    this.eqNodes = EQ_BANDS.map((freq) => {
+      const filter = this.audioContext!.createBiquadFilter();
+      filter.type = "peaking";
+      filter.frequency.value = freq;
+      filter.Q.value = 1;
+      filter.gain.value = 0;
+      return filter;
+    });
+
+    // Set up Compressor (Normalization)
+    this.compressorNode = this.audioContext.createDynamicsCompressor();
+    this.compressorNode.threshold.value = -24;
+    this.compressorNode.knee.value = 30;
+    this.compressorNode.ratio.value = 12;
+    this.compressorNode.attack.value = 0.003;
+    this.compressorNode.release.value = 0.25;
+
+    // Connect source gain to master gain
+    this.gainNode.connect(this.masterGain);
+
+    this.rebuildAudioGraph();
+  }
+
+  private rebuildAudioGraph() {
+    if (!this.masterGain || !this.analyser || !this.compressorNode || !this.audioContext) return;
+
+    // Disconnect master gain
+    this.masterGain.disconnect();
+
+    let currentNode: AudioNode = this.masterGain;
+
+    // Route through EQ if enabled
+    if (this.equalizerEnabled && this.eqNodes.length > 0) {
+      // Disconnect all EQ nodes to cleanly re-route
+      this.eqNodes.forEach(node => node.disconnect());
+      for (let i = 0; i < this.eqNodes.length - 1; i++) {
+        this.eqNodes[i].connect(this.eqNodes[i + 1]);
+      }
+
+      // Map saved gains
+      this.eqNodes.forEach((node, idx) => {
+        node.gain.value = this.eqGains[idx] || 0;
+      });
+
+      currentNode.connect(this.eqNodes[0]);
+      currentNode = this.eqNodes[this.eqNodes.length - 1];
+    }
+
+    // Route through Compressor if enabled
+    if (this.normalizationEnabled) {
+      this.compressorNode.disconnect();
+      currentNode.connect(this.compressorNode);
+      currentNode = this.compressorNode;
+    }
+
+    // Connect final node to analyser and then destination
+    this.analyser.disconnect();
+    currentNode.connect(this.analyser);
     this.analyser.connect(this.audioContext.destination);
+  }
+
+  setNormalization(enabled: boolean) {
+    this.normalizationEnabled = enabled;
+    if (this.audioContext) this.rebuildAudioGraph();
+  }
+
+  setEqualizerEnabled(enabled: boolean) {
+    this.equalizerEnabled = enabled;
+    if (this.audioContext) this.rebuildAudioGraph();
+  }
+
+  setEqBandGain(bandIndex: number, gainDb: number) {
+    this.eqGains[bandIndex] = gainDb;
+    if (this.eqNodes[bandIndex]) {
+      this.eqNodes[bandIndex].gain.value = gainDb;
+    }
+  }
+
+  getEqGains() {
+    return this.eqGains;
   }
 
   private connectSource() {
@@ -129,7 +222,7 @@ export class AudioEngine {
     // Create gain for crossfade audio
     this.crossfadeGainNode = this.audioContext.createGain();
     this.crossfadeGainNode.gain.value = 0;
-    this.crossfadeGainNode.connect(this.analyser);
+    this.crossfadeGainNode.connect(this.masterGain!);
 
     try {
       this.crossfadeSource = this.audioContext.createMediaElementSource(this.crossfadeAudio);
@@ -330,14 +423,20 @@ export class AudioEngine {
     this.source?.disconnect();
     this.crossfadeSource?.disconnect();
     this.gainNode?.disconnect();
+    this.masterGain?.disconnect();
     this.crossfadeGainNode?.disconnect();
+    this.eqNodes.forEach(n => n.disconnect());
+    this.compressorNode?.disconnect();
     this.analyser?.disconnect();
     if (this.audioContext && this.audioContext.state !== "closed") {
-      this.audioContext.close().catch(() => {});
+      this.audioContext.close().catch(() => { });
     }
     this.audioContext = null;
     this.analyser = null;
+    this.masterGain = null;
     this.gainNode = null;
+    this.compressorNode = null;
+    this.eqNodes = [];
     this.crossfadeGainNode = null;
     this.source = null;
     this.crossfadeSource = null;
