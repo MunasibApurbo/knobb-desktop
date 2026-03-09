@@ -23,20 +23,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Validate signing secrets
-        env:
-          APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
-          APPLE_CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          test -n "$APPLE_CSC_LINK"
-          test -n "$APPLE_CSC_KEY_PASSWORD"
-          test -n "$APPLE_ID"
-          test -n "$APPLE_APP_SPECIFIC_PASSWORD"
-          test -n "$APPLE_TEAM_ID"
-
       - name: Install dependencies
         run: npm ci
 
@@ -44,6 +30,7 @@ jobs:
         run: npm run build
 
       - name: Decode macOS signing certificate
+        if: ${{ secrets.APPLE_CSC_LINK != '' }}
         env:
           APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
         run: |
@@ -55,12 +42,15 @@ jobs:
       - name: Publish macOS release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ runner.temp }}/apple-signing-cert.p12
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --mac --publish always
+        run: |
+          if [ -n "${{ secrets.APPLE_CSC_LINK }}" ]; then
+            export CSC_LINK="$RUNNER_TEMP/apple-signing-cert.p12"
+            export CSC_KEY_PASSWORD="${{ secrets.APPLE_CSC_KEY_PASSWORD }}"
+          fi
+          npx electron-builder --mac --publish always
 
   release-windows:
     name: Release Windows desktop
@@ -75,15 +65,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Validate signing secrets
-        shell: pwsh
-        env:
-          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CSC_LINK)) { throw "Missing WINDOWS_CSC_LINK" }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CSC_KEY_PASSWORD)) { throw "Missing WINDOWS_CSC_KEY_PASSWORD" }
-
       - name: Install dependencies
         run: npm ci
 
@@ -92,6 +73,7 @@ jobs:
 
       - name: Decode Windows signing certificate
         id: decode_windows_cert
+        if: ${{ secrets.WINDOWS_CSC_LINK != '' }}
         shell: pwsh
         env:
           WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
@@ -104,6 +86,9 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ steps.decode_windows_cert.outputs.cert_path }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-        run: npx electron-builder --win --publish always
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace('${{ secrets.WINDOWS_CSC_LINK }}')) {
+            $env:CSC_LINK = '${{ steps.decode_windows_cert.outputs.cert_path }}'
+            $env:CSC_KEY_PASSWORD = '${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}'
+          }
+          npx electron-builder --win --publish always
