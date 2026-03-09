@@ -30,10 +30,12 @@ jobs:
         run: npm run build
 
       - name: Decode macOS signing certificate
-        if: ${{ secrets.APPLE_CSC_LINK != '' }}
         env:
           APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
         run: |
+          if [ -z "$APPLE_CSC_LINK" ]; then
+            exit 0
+          fi
           if printf '%s' "$APPLE_CSC_LINK" | base64 --decode > "$RUNNER_TEMP/apple-signing-cert.p12" 2>/dev/null; then
             exit 0
           fi
@@ -73,11 +75,13 @@ jobs:
 
       - name: Decode Windows signing certificate
         id: decode_windows_cert
-        if: ${{ secrets.WINDOWS_CSC_LINK != '' }}
         shell: pwsh
         env:
           WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CSC_LINK)) {
+            exit 0
+          }
           $certPath = Join-Path $env:RUNNER_TEMP "windows-signing-cert.p12"
           [System.IO.File]::WriteAllBytes($certPath, [System.Convert]::FromBase64String($env:WINDOWS_CSC_LINK))
           "cert_path=$certPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
