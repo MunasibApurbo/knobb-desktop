@@ -34,13 +34,11 @@ import {
   type PlaybackSessionSnapshot,
 } from "@/lib/playbackSessions";
 import {
-  KNOBB_COMPANION_MAC_DOWNLOAD_URL,
   KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL,
   detectDesktopDownloadPlatform,
   formatDesktopPlatform,
   isDesktopDownloadRecommended,
   KNOBB_DESKTOP_REPO_URL,
-  KNOBB_MAC_DOWNLOAD_URL,
   KNOBB_RELEASES_URL,
   KNOBB_WINDOWS_DOWNLOAD_URL,
 } from "@/lib/desktopDownloads";
@@ -1446,15 +1444,6 @@ export default function SettingsPage() {
                       <>
                         <Button
                           asChild
-                          variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopDownloadMac")} <Download className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
                           variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
                           className={SETTINGS_ACTION_BUTTON_CLASS}
                         >
@@ -1496,15 +1485,6 @@ export default function SettingsPage() {
                 )}
                 action={(
                   <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
-                    <Button
-                      asChild
-                      variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_COMPANION_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopDownloadMac")} <Download className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
                     <Button
                       asChild
                       variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}

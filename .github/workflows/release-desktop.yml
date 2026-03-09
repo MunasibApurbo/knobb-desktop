@@ -29,8 +29,8 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      - name: Require macOS signing and notarization secrets for tagged releases
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Check macOS signing prerequisites
+        id: macos_release_prereqs
         env:
           APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
           APPLE_CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
@@ -41,15 +41,18 @@ jobs:
           missing=0
           for name in APPLE_CSC_LINK APPLE_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name}" ]; then
-              echo "::error::$name is required for signed macOS releases."
+              echo "::warning::$name is missing. Signed macOS publishing will be skipped."
               missing=1
             fi
           done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
+          if [ "$missing" -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Decode macOS signing certificate
+        if: steps.macos_release_prereqs.outputs.ready == 'true'
         env:
           APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
         run: |
@@ -62,6 +65,7 @@ jobs:
           printf '%s' "$APPLE_CSC_LINK" | base64 -D > "$RUNNER_TEMP/apple-signing-cert.p12"
 
       - name: Publish macOS release
+        if: steps.macos_release_prereqs.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -75,6 +79,7 @@ jobs:
           npx electron-builder --mac --publish always
 
       - name: Package macOS Discord Companion
+        if: steps.macos_release_prereqs.outputs.ready == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -87,7 +92,7 @@ jobs:
           npx electron-builder --config electron-builder.companion.yml --mac --publish never
 
       - name: Upload macOS Discord Companion assets
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.macos_release_prereqs.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -96,6 +101,10 @@ jobs:
             release/companion/Knobb-Discord-Companion-macOS.zip \
             release/companion/companion-mac.yml \
             --clobber
+
+      - name: Report skipped macOS publishing
+        if: steps.macos_release_prereqs.outputs.ready != 'true'
+        run: echo "Skipping signed macOS publishing because Apple signing credentials are not configured."
 
   release-windows:
     name: Release Windows desktop

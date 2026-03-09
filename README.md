@@ -188,12 +188,18 @@ Release publishing now uses `electron-builder` and `electron-updater` with GitHu
 
 The packaged desktop app now:
 
-- support auto-updates on packaged macOS and Windows builds
+- support required auto-updates on published Windows builds
 - treat every newer desktop release as required
 - check automatically on launch and every 4 hours
 - block the app if a required update is available or if offline update verification has been stale for more than 3 days
 
-The Discord Companion is packaged and uploaded with the same GitHub release, but it does not participate in the required-update flow.
+The Discord Companion is packaged and uploaded with the same GitHub release. It has updater support, but it does not participate in the main app's required-update flow.
+
+Current release status:
+
+- Windows releases are live through GitHub Actions tags.
+- Signed macOS publishing is on hold until Apple Developer enrollment and signing credentials are available.
+- Local macOS packaging still works for development and manual verification, but those builds are not a substitute for a live signed release.
 
 GitHub Actions release workflow:
 
@@ -204,17 +210,18 @@ GitHub Actions release workflow:
    - `npm run desktop:release -- --version 0.1.1`
 2. Commit the version bump.
 3. Push a matching git tag like `v0.1.1`.
-4. GitHub Actions builds and publishes the signed Knobb Desktop installers and uploads the Discord Companion installers to the same GitHub Release.
+4. GitHub Actions always publishes the Windows installers and uploads the Discord Companion Windows installer to the same GitHub Release.
+5. GitHub Actions publishes signed macOS installers only when Apple signing credentials are configured.
 
 Required GitHub Actions secrets:
 
-- macOS: `APPLE_CSC_LINK`, `APPLE_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
-- Windows: `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`
+- macOS live publishing only: `APPLE_CSC_LINK`, `APPLE_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
+- Windows signing optional: `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`
 
-The website and desktop updater both target the GitHub latest-release URLs:
+Current public release links:
 
-- macOS: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-macOS.dmg`
 - Windows: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-Setup.exe`
+- Companion Windows: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Discord-Companion-Setup.exe`
 - Release page: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest`
 - Repo: `https://github.com/MunasibApurbo/knobb-desktop`
 
