@@ -1,777 +1,1510 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { ArrowDown, ArrowUp, Check, ChevronRight, LogOut, RefreshCw } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, HelpCircle, Loader2, RotateCcw, Search, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { DiscordConnectDialog } from "@/components/DiscordConnectDialog";
+import { Input } from "@/components/ui/input";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
+import { Switch } from "@/components/ui/switch";
+import { PageTransition } from "@/components/PageTransition";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useLocalFiles } from "@/contexts/LocalFilesContext";
+import { usePlayer } from "@/contexts/PlayerContext";
+import { AudioQuality } from "@/contexts/player/playerTypes";
+import { DownloadFormat, useSettings } from "@/contexts/SettingsContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePlayer, AudioQuality } from "@/contexts/PlayerContext";
-import { useSettings } from "@/contexts/SettingsContext";
-import { EQ_BANDS } from "@/lib/audioEngine";
-import { API_INSTANCE_POOL, STREAMING_INSTANCE_POOL } from "@/lib/monochromeApi";
+import { subscribeToDiscordPresenceBridge } from "@/lib/discordPresence";
+import { type AudioQualityOption, getAudioQualityOptions } from "@/lib/audioQuality";
+import { getLocalDiscordPresenceBridgeStatus } from "@/lib/localDiscordPresenceBridge";
+import { clearMusicApiCache } from "@/lib/musicApi";
+import {
+  getPlaybackDeviceId,
+  listPlaybackSessions,
+  removeOtherPlaybackSessions,
+  type PlaybackSessionSnapshot,
+} from "@/lib/playbackSessions";
+import {
+  detectDesktopDownloadPlatform,
+  formatDesktopPlatform,
+  isDesktopDownloadRecommended,
+  KNOBB_MAC_DOWNLOAD_URL,
+  KNOBB_RELEASES_URL,
+  KNOBB_WINDOWS_DOWNLOAD_URL,
+} from "@/lib/desktopDownloads";
+import { getDesktopUpdatePresentation } from "@/lib/desktopUpdatePresentation";
+import { cn } from "@/lib/utils";
+import { getKnobbDesktopPlatform, isKnobbDesktopApp } from "@/lib/desktopApp";
+import { useKnobbDesktopUpdate } from "@/hooks/useKnobbDesktopUpdate";
 
-const QUALITY_OPTIONS: { value: AudioQuality; label: string; desc: string; badge?: string }[] = [
-  { value: "LOW", label: "Low", desc: "96 kbps · AAC" },
-  { value: "MEDIUM", label: "Normal", desc: "160 kbps · AAC" },
-  { value: "HIGH", label: "High", desc: "320 kbps · AAC" },
-  { value: "LOSSLESS", label: "HiFi / Lossless", desc: "16-bit, 44.1 kHz · FLAC", badge: "MASTER" },
-];
-
-const THEMES = [
-  { id: "default", name: "Default Dark", preview: "linear-gradient(135deg, #1a1a2e, #16213e)" },
-  { id: "midnight", name: "Midnight Blue", preview: "linear-gradient(135deg, #0f0c29, #302b63)" },
-  { id: "forest", name: "Forest", preview: "linear-gradient(135deg, #0b3d0b, #1a472a)" },
-  { id: "crimson", name: "Crimson", preview: "linear-gradient(135deg, #2d0a0a, #4a1a1a)" },
-  { id: "ocean", name: "Ocean", preview: "linear-gradient(135deg, #0a192f, #172a45)" },
-  { id: "amber", name: "Warm Amber", preview: "linear-gradient(135deg, #2d1f0e, #3d2b14)" },
-  { id: "monochrome", name: "Monochrome", preview: "linear-gradient(135deg, #111, #222)" },
-  { id: "amoled", name: "AMOLED Black", preview: "linear-gradient(135deg, #000, #0a0a0a)" },
-] as const;
-
-const FONTS = ["System Default", "Inter", "Roboto", "Outfit", "JetBrains Mono", "Poppins", "Nunito"] as const;
-const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
-const INSTANCE_VERSIONS: Record<string, string> = {
-  "https://us-west.monochrome.tf": "v2.5",
-  "https://eu-central.monochrome.tf": "v2.5",
-  "https://api.monochrome.tf": "v2.5",
-  "https://arran.monochrome.tf": "v2.4",
-  "https://triton.squid.wtf": "v2.4",
-  "https://monochrome-api.samidy.com": "v2.3",
-  "https://wolf.qqdl.site": "v2.2",
-  "https://maus.qqdl.site": "v2.2",
-  "https://vogel.qqdl.site": "v2.2",
-  "https://katze.qqdl.site": "v2.2",
-  "https://hund.qqdl.site": "v2.2",
-  "https://tidal.kinoplus.online": "v2.2",
-};
-
-const EQ_PRESETS: Record<string, number[]> = {
-  Flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  "Bass Attack": [6, 5, 4, 2, 0, -1, -2, -2, -1, 0],
-  "Vocal Lift": [-2, -1, 0, 2, 4, 5, 4, 2, 1, 0],
-  "Night Drive": [4, 3, 1, -1, -2, 0, 2, 3, 2, 1],
-  Air: [-3, -2, -1, 0, 1, 2, 3, 5, 6, 6],
-  Hyper: [5, 2, -1, -2, 3, 5, 1, -1, 4, 6],
-};
-
-function useStoredBoolean(key: string, defaultValue: boolean) {
-  const [value, setValue] = useState(() => {
-    const stored = localStorage.getItem(key);
-    if (stored === null) return defaultValue;
-    return stored === "true";
-  });
-
-  const setAndStore = (next: boolean) => {
-    setValue(next);
-    localStorage.setItem(key, String(next));
-  };
-
-  return [value, setAndStore] as const;
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function useStoredString(key: string, defaultValue: string) {
-  const [value, setValue] = useState(() => localStorage.getItem(key) || defaultValue);
-
-  const setAndStore = (next: string) => {
-    setValue(next);
-    localStorage.setItem(key, next);
-  };
-
-  return [value, setAndStore] as const;
+function normalizeSearchValue(value: string) {
+  return value.trim().toLowerCase();
 }
 
-function useStoredInstanceOrder(key: string, defaults: readonly string[]) {
-  const [order, setOrder] = useState<string[]>(() => {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [...defaults];
-    try {
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [...defaults];
-      const cleaned = parsed
-        .filter((entry): entry is string => typeof entry === "string")
-        .filter((entry) => defaults.includes(entry as any));
-      const remaining = defaults.filter((entry) => !cleaned.includes(entry));
-      return [...cleaned, ...remaining];
-    } catch {
-      return [...defaults];
-    }
-  });
-
-  const setAndStore = (next: string[]) => {
-    setOrder(next);
-    localStorage.setItem(key, JSON.stringify(next));
-  };
-
-  return [order, setAndStore] as const;
+function matchesSearchQuery(query: string, ...values: Array<string | number | null | undefined>) {
+  if (!query) return true;
+  return values.some((value) => normalizeSearchValue(String(value ?? "")).includes(query));
 }
 
-function Toggle({ on, onToggle, disabled = false }: { on: boolean; onToggle: () => void; disabled?: boolean }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <button
-      onClick={onToggle}
-      disabled={disabled}
-      className={`relative w-[56px] h-[32px]  transition-all duration-200 ${disabled ? "opacity-45 cursor-not-allowed" : ""
-        } ${on ? "bg-[#e6cfa6]" : "bg-white/12"}`}
-    >
-      <motion.div
-        className={`absolute top-[4px] w-6 h-6  shadow-md ${on ? "bg-black" : "bg-white"}`}
-        animate={{ left: on ? 28 : 4 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      />
-    </button>
-  );
-}
-
-function Group({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="mb-10">
-      <div className="mb-4 px-1">
-        <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">{title}</h2>
-        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+    <section className="space-y-0">
+      <h2 className="text-xl font-bold text-foreground px-0 py-3">{title}</h2>
+      <div
+        className={cn(
+          "settings-section-surface overflow-hidden shadow-[0_18px_44px_rgba(0,0,0,0.18)]",
+          PANEL_SURFACE_CLASS,
+        )}
+      >
+        {children}
       </div>
-      <div className="bg-white/[0.02] border border-white/5">{children}</div>
     </section>
   );
 }
 
 function Row({
-  label,
+  title,
   description,
   action,
-  onClick,
+  className = "",
 }: {
-  label: string;
-  description?: string;
+  title: string;
+  description?: React.ReactNode;
   action?: React.ReactNode;
-  onClick?: () => void;
+  className?: string;
 }) {
-  const Wrapper = onClick ? "button" : "div";
   return (
-    <Wrapper
-      onClick={onClick}
-      className={`flex items-center justify-between gap-4 w-full px-4 py-4 ${onClick ? "hover:bg-white/[0.04]" : ""}`}
+    <div
+      className={`settings-row grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 border-b border-white/10 last:border-b-0 transition-colors hover:bg-white/[0.03] ${className}`}
     >
-      <div className="min-w-0 text-left">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        {description && <p className="text-xs text-muted-foreground mt-0.5 leading-tight">{description}</p>}
+      <div className="min-w-0">
+        <p className="text-base font-semibold text-foreground">{title}</p>
+        {description ? <div className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
       </div>
-      <div className="shrink-0 flex items-center gap-2">{action}</div>
-    </Wrapper>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
   );
 }
 
+function SelectControl({
+  value,
+  onChange,
+  options,
+  className = "",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string; tag?: string }[];
+  className?: string;
+}) {
+  const selectedOption = options.find((option) => option.value === value);
+  const selectedLabel = selectedOption?.label ?? value;
+  const selectedTag = selectedOption?.tag;
+
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        className={`settings-select-trigger website-form-control h-11 min-w-[220px] rounded-[var(--settings-control-radius)] px-4 border-white/10 bg-white/[0.04] text-sm text-foreground focus:ring-0 focus:ring-offset-0 menu-sweep-hover ${className}`}
+      >
+        <SelectValue aria-label={selectedTag ? `${selectedLabel} ${selectedTag}` : selectedLabel}>
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="truncate">{selectedLabel}</span>
+            {selectedTag ? (
+              <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.08] px-2 py-0.5 text-[11px] font-medium tracking-[0.02em] text-white/72">
+                {selectedTag}
+              </span>
+            ) : null}
+          </span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent className="text-foreground">
+        {options.map((option) => (
+          <SelectItem
+            key={option.value}
+            value={option.value}
+            className="text-sm text-foreground focus:bg-white/[0.12] focus:text-foreground"
+          >
+            <span className="flex min-w-0 items-center justify-between gap-3">
+              <span className="truncate">{option.label}</span>
+              {option.tag ? (
+                <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium tracking-[0.02em] text-white/68">
+                  {option.tag}
+                </span>
+              ) : null}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ToggleControl({
+  checked,
+  onCheckedChange,
+  disabled = false,
+}: {
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Switch
+      checked={checked}
+      disabled={disabled}
+      onCheckedChange={onCheckedChange}
+      className="data-[state=checked]:bg-[hsl(var(--dynamic-accent))] data-[state=unchecked]:bg-white/25"
+    />
+  );
+}
+
+const SETTINGS_ACTION_BUTTON_CLASS =
+  "settings-action-button website-form-control menu-sweep-hover h-11 rounded-[var(--settings-control-radius)] border-white/12 bg-white/[0.03] px-5 text-sm font-semibold text-foreground hover:bg-white/[0.05] hover:text-black focus-visible:text-black focus:ring-0 focus:ring-offset-0";
+
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
-
   const {
-    theme,
-    setTheme,
+    isAdmin,
+    requestPasswordReset,
+    signOut,
+    signOutOtherSessions,
+    user,
+  } = useAuth();
+  const { language, setLanguage, t } = useLanguage();
+  const {
+    dynamicCardsEnabled,
+    setDynamicCardsEnabled,
     font,
     setFont,
-    compactMode,
-    setCompactMode,
-    animationsEnabled,
-    setAnimationsEnabled,
-    blurEffects,
-    setBlurEffects,
+    showLocalFiles,
+    setShowLocalFiles,
+    libraryItemStyle,
+    setLibraryItemStyle,
+    cardSize,
+    setCardSize,
+    discordPresenceEnabled,
+    setDiscordPresenceEnabled,
+    websiteMode,
+    setWebsiteMode,
+    pageDensity,
+    setPageDensity,
+    rightPanelAutoOpen,
+    setRightPanelAutoOpen,
+    rightPanelStyle,
+    setRightPanelStyle,
+    bottomPlayerStyle,
+    setBottomPlayerStyle,
+    showScrollbar,
+    setShowScrollbar,
     downloadFormat,
     setDownloadFormat,
-    clearCacheAndReset,
   } = useSettings();
-
+  const { localFiles, totalBytes } = useLocalFiles();
   const {
     quality,
     setQuality,
+    autoQualityEnabled,
+    setAutoQualityEnabled,
     normalization,
     toggleNormalization,
-    crossfadeDuration,
-    setCrossfadeDuration,
-    playbackSpeed,
-    setPlaybackSpeed,
     equalizerEnabled,
     toggleEqualizer,
-    eqGains,
-    setEqBandGain,
+    resetEqualizer,
+    preservePitch,
+    setPreservePitch,
   } = usePlayer();
 
-  const [lastfmConnected, setLastfmConnected] = useStoredBoolean("lastfm-connected", false);
-  const [lastfmUsername, setLastfmUsername] = useStoredString("lastfm-username", "");
+  const [storageVersion, setStorageVersion] = useState(0);
+  const [serviceWorkerReady, setServiceWorkerReady] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [discordConnectOpen, setDiscordConnectOpen] = useState(false);
+  const [discordBridgeStatus, setDiscordBridgeStatus] = useState(() => getLocalDiscordPresenceBridgeStatus());
+  const [playbackSessions, setPlaybackSessions] = useState<PlaybackSessionSnapshot[]>([]);
+  const [isLoadingPlaybackSessions, setIsLoadingPlaybackSessions] = useState(false);
+  const [accountAction, setAccountAction] = useState<"password-reset" | "sign-out-others" | "sign-out" | null>(null);
+  const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
+  const [isSettingsSearchOpen, setIsSettingsSearchOpen] = useState(false);
+  const settingsSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const desktopApp = isKnobbDesktopApp();
+  const desktopDownloadPlatform = useMemo(() => detectDesktopDownloadPlatform(), []);
+  const desktopPlatformLabel = useMemo(() => formatDesktopPlatform(getKnobbDesktopPlatform()), []);
+  const {
+    installUpdate,
+    isLoading: desktopUpdateLoading,
+    refreshStatus: refreshDesktopUpdateStatus,
+    status: desktopUpdateStatus,
+  } = useKnobbDesktopUpdate();
+  const desktopUpdatePresentation = useMemo(
+    () => getDesktopUpdatePresentation(desktopUpdateStatus),
+    [desktopUpdateStatus],
+  );
+  const discordBridgeReady = discordBridgeStatus.ok;
+  const discordBridgeConfigured = discordBridgeStatus.ok && discordBridgeStatus.configured;
+  const discordDesktopConnected = discordBridgeStatus.discordConnected;
+  const currentPlaybackDeviceId = useMemo(() => getPlaybackDeviceId(), []);
 
-  const [zippedBulkDownloads, setZippedBulkDownloads] = useStoredBoolean("download-zipped-bulk", true);
-  const [downloadLyrics, setDownloadLyrics] = useStoredBoolean("download-lyrics", true);
-  const [romajiLyrics, setRomajiLyrics] = useStoredBoolean("download-romaji-lyrics", false);
-  const [filenameTemplate, setFilenameTemplate] = useStoredString("download-filename-template", "{trackNumber} - {artist} - {title}");
-  const [zipFolderTemplate, setZipFolderTemplate] = useStoredString("download-zip-folder-template", "{albumTitle} - {albumArtist}");
-  const [generateM3U, setGenerateM3U] = useStoredBoolean("download-generate-m3u", true);
-  const [generateM3U8, setGenerateM3U8] = useStoredBoolean("download-generate-m3u8", true);
-  const [generateCUE, setGenerateCUE] = useStoredBoolean("download-generate-cue", true);
-  const [generateNFO, setGenerateNFO] = useStoredBoolean("download-generate-nfo", true);
-  const [generateJSON, setGenerateJSON] = useStoredBoolean("download-generate-json", true);
-  const [relativePaths, setRelativePaths] = useStoredBoolean("download-relative-paths", true);
-  const [separateDiscsInZip, setSeparateDiscsInZip] = useStoredBoolean("download-separate-discs", true);
-  const [apiInstanceOrder, setApiInstanceOrder] = useStoredInstanceOrder("api-instance-priority", API_INSTANCE_POOL);
-  const [streamingInstanceOrder, setStreamingInstanceOrder] = useStoredInstanceOrder("streaming-instance-priority", STREAMING_INSTANCE_POOL);
+  const openDiscordSetup = useCallback(() => {
+    window.setTimeout(() => {
+      setDiscordConnectOpen(true);
+    }, 0);
+  }, []);
 
-  const [cacheRefreshTick, setCacheRefreshTick] = useState(0);
-  const [isClearing, setIsClearing] = useState(false);
 
-  const activeEqPreset = useMemo(() => {
-    const found = Object.entries(EQ_PRESETS).find(([, values]) => values.every((value, index) => value === eqGains[index]));
-    return found?.[0] || "Custom";
-  }, [eqGains]);
+  const qualityOptions = useMemo<AudioQualityOption[]>(
+    () => getAudioQualityOptions(language),
+    [language],
+  );
+  const downloadFormatOptions = useMemo<{ value: DownloadFormat; label: string }[]>(() => [
+    { value: "flac", label: "FLAC" },
+    { value: "mp3_320", label: "MP3 320 kbps" },
+    { value: "mp3_128", label: "MP3 128 kbps" },
+  ], []);
 
-  const cacheEntries = useMemo(() => {
-    void cacheRefreshTick;
-    const localKeys = Object.keys(localStorage);
-    const cacheLikeLocal = localKeys.filter((key) => key.toLowerCase().includes("cache") || key.startsWith("search-") || key.startsWith("api-")).length;
-    return cacheLikeLocal + sessionStorage.length;
-  }, [cacheRefreshTick]);
+  const storageSnapshot = useMemo(() => {
+    void storageVersion;
+    let bytes = 0;
+    let downloads = 0;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      const value = localStorage.getItem(key) || "";
+      bytes += (key.length + value.length) * 2;
+      if (key.toLowerCase().includes("download")) downloads += 1;
+    }
+    return {
+      cacheMb: (bytes / (1024 * 1024)).toFixed(1),
+      downloadEntries: downloads,
+    };
+  }, [storageVersion]);
 
-  const applyEqPreset = (name: string) => {
-    const values = EQ_PRESETS[name];
-    if (!values) return;
-    values.forEach((value, index) => setEqBandGain(index, value));
-    toast.success(`EQ preset: ${name}`);
-  };
+  const discordConnectionDescription = useMemo(() => {
+    if (!discordBridgeReady) {
+      return t("settings.discordBridgeMissing");
+    }
 
-  const connectLastfm = () => {
-    const typed = window.prompt("Last.fm username", lastfmUsername || "");
-    if (!typed || !typed.trim()) return;
-    setLastfmUsername(typed.trim());
-    setLastfmConnected(true);
-    toast.success(`Last.fm connected as ${typed.trim()}`);
-  };
+    if (!discordBridgeConfigured) {
+      return t("settings.discordBridgeSetupRequired");
+    }
 
-  const disconnectLastfm = () => {
-    setLastfmConnected(false);
-    toast.success("Last.fm disconnected");
-  };
+    if (!discordDesktopConnected) {
+      return t("settings.discordAppWaiting");
+    }
 
-  const clearCacheOnly = () => {
-    const keys = Object.keys(localStorage);
-    for (const key of keys) {
-      const lower = key.toLowerCase();
-      if (lower.includes("cache") || key.startsWith("search-") || key.startsWith("api-")) {
+    return t("settings.discordAppConnected");
+  }, [discordBridgeConfigured, discordBridgeReady, discordDesktopConnected, t]);
+  const normalizedSettingsSearchQuery = normalizeSearchValue(settingsSearchQuery);
+  const hasSettingsSearchQuery = normalizedSettingsSearchQuery.length > 0;
+  const showSettingsSearchInput = isSettingsSearchOpen || hasSettingsSearchQuery;
+
+  const clearCache = () => {
+    clearMusicApiCache();
+    Object.keys(localStorage).forEach((key) => {
+      const k = key.toLowerCase();
+      if (k.includes("api-cache") || k.includes("search-cache") || k.includes("image-cache")) {
         localStorage.removeItem(key);
       }
+    });
+    if ("caches" in window) {
+      void caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
     }
-    sessionStorage.clear();
-    setCacheRefreshTick((prev) => prev + 1);
-    toast.success("Cache cleared");
+    setStorageVersion((prev) => prev + 1);
+    toast.success(t("settings.cacheCleared"));
   };
 
-  const moveInstance = (
-    list: string[],
-    index: number,
-    direction: "up" | "down",
-    setter: (next: string[]) => void,
-  ) => {
-    const target = direction === "up" ? index - 1 : index + 1;
-    if (target < 0 || target >= list.length) return;
-    const next = [...list];
-    const [moved] = next.splice(index, 1);
-    next.splice(target, 0, moved);
-    setter(next);
+  useEffect(() => {
+    const syncDiscordBridgeStatus = () => {
+      setDiscordBridgeStatus(getLocalDiscordPresenceBridgeStatus());
+    };
+
+    const unsubscribe = subscribeToDiscordPresenceBridge(syncDiscordBridgeStatus);
+
+    syncDiscordBridgeStatus();
+    return unsubscribe;
+  }, []);
+
+  const refreshPlaybackSessions = useCallback(async () => {
+    if (!user) {
+      setPlaybackSessions([]);
+      return;
+    }
+
+    setIsLoadingPlaybackSessions(true);
+    try {
+      const sessions = await listPlaybackSessions(user.id);
+      setPlaybackSessions(sessions);
+    } catch (error) {
+      console.error("Failed to load playback sessions", error);
+      setPlaybackSessions([]);
+    } finally {
+      setIsLoadingPlaybackSessions(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setPlaybackSessions([]);
+      return;
+    }
+
+    void refreshPlaybackSessions();
+    const intervalId = window.setInterval(() => {
+      void refreshPlaybackSessions();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refreshPlaybackSessions, user]);
+
+  const handleSendPasswordReset = async () => {
+    if (!user?.email) return;
+
+    setAccountAction("password-reset");
+    const { error } = await requestPasswordReset(user.email);
+    setAccountAction(null);
+
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    toast.success(`Password reset email sent to ${user.email}.`);
   };
+
+  const handleSignOutOtherSessions = async () => {
+    if (!user) return;
+
+    setAccountAction("sign-out-others");
+    const { error } = await signOutOtherSessions();
+
+    if (!error) {
+      try {
+        await removeOtherPlaybackSessions(user.id, currentPlaybackDeviceId);
+      } catch (cleanupError) {
+        console.error("Failed to clear other playback sessions", cleanupError);
+      }
+    }
+
+    setAccountAction(null);
+
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    toast.success("Signed out your other sessions.");
+    await refreshPlaybackSessions();
+  };
+
+  const handleSignOutCurrentSession = async () => {
+    setAccountAction("sign-out");
+    await signOut();
+    setAccountAction(null);
+    navigate("/auth");
+  };
+
+  const focusSettingsSearchInput = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      settingsSearchInputRef.current?.focus();
+      settingsSearchInputRef.current?.select();
+    });
+  }, []);
+
+  const handleSettingsSearchButtonClick = useCallback(() => {
+    if (!showSettingsSearchInput) {
+      setIsSettingsSearchOpen(true);
+    }
+    focusSettingsSearchInput();
+  }, [focusSettingsSearchInput, showSettingsSearchInput]);
+
+  const currentPlaybackSession = playbackSessions.find((session) => session.deviceId === currentPlaybackDeviceId) || null;
+  const otherPlaybackSessions = playbackSessions.filter((session) => session.deviceId !== currentPlaybackDeviceId);
+
+  useEffect(() => {
+    if (desktopApp) {
+      setServiceWorkerReady(false);
+      return;
+    }
+
+    const handleOnlineState = () => {
+      setIsOnline(navigator.onLine);
+    };
+
+    window.addEventListener("online", handleOnlineState);
+    window.addEventListener("offline", handleOnlineState);
+
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.ready
+        .then(() => {
+          setServiceWorkerReady(true);
+        })
+        .catch(() => {
+          setServiceWorkerReady(false);
+        });
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnlineState);
+      window.removeEventListener("offline", handleOnlineState);
+    };
+  }, [desktopApp]);
+
+  useEffect(() => {
+    if (!showSettingsSearchInput) return;
+    focusSettingsSearchInput();
+  }, [focusSettingsSearchInput, showSettingsSearchInput]);
+
+  const accountSectionTitle = t("settings.account");
+  const languageSectionTitle = t("settings.language");
+  const audioQualitySectionTitle = t("settings.audioQuality");
+  const librarySectionTitle = t("settings.yourLibrary");
+  const displaySectionTitle = t("settings.display");
+  const socialSectionTitle = t("settings.social");
+  const storageSectionTitle = t("settings.storage");
+  const adminSectionTitle = "Admin";
+
+  const accountSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, accountSectionTitle);
+  const accountProfileRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    user?.user_metadata?.display_name,
+    user?.email,
+    currentPlaybackSession?.deviceName,
+    currentPlaybackSession?.currentTrack?.title,
+    currentPlaybackSession?.currentTrack?.artist,
+    "profile account session",
+  );
+  const passwordResetRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    "Password reset",
+    "Send a reset link to your account email and finish the change securely in email.",
+    "reset password email",
+  );
+  const activeSessionsRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    "Active sessions",
+    currentPlaybackSession?.deviceName,
+    currentPlaybackSession?.currentTrack?.title,
+    currentPlaybackSession?.currentTrack?.artist,
+    ...otherPlaybackSessions.flatMap((session) => [session.deviceName, session.currentTrack?.title, session.currentTrack?.artist]),
+    "session playback device sign out other sessions",
+  );
+  const signOutRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.signOut"),
+    t("settings.signOutDescription"),
+    "log out logout",
+  );
+  const guestRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.guest"),
+    t("settings.signInManage"),
+    t("settings.signIn"),
+    "account",
+  );
+  const accountSectionVisible = user
+    ? accountSectionTitleMatch || accountProfileRowMatch || passwordResetRowMatch || activeSessionsRowMatch || signOutRowMatch
+    : accountSectionTitleMatch || guestRowMatch;
+
+  const languageSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, languageSectionTitle);
+  const languageRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.chooseLanguage"),
+    t("settings.languageDescription"),
+    t("settings.languageEnglish"),
+    t("settings.languageBangla"),
+  );
+  const languageSectionVisible = languageSectionTitleMatch || languageRowMatch;
+
+  const audioQualitySectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, audioQualitySectionTitle);
+  const streamingQualityRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.streamingQuality"),
+    quality,
+    ...qualityOptions.map((option) => option.label),
+    ...qualityOptions.map((option) => option.tag),
+  );
+  const downloadFormatRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.downloadFormat"),
+    downloadFormat,
+    ...downloadFormatOptions.map((option) => option.label),
+  );
+  const autoQualityRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.autoAdjustQuality"),
+    t("settings.recommendedOn"),
+    "auto quality",
+  );
+  const equalizerRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.equalizer"),
+    "audio tuning preset bands reset",
+  );
+  const pitchRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.preservePitch"),
+    t("settings.preservePitchDescription"),
+  );
+  const loudnessRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.volumeNormalization"),
+    t("settings.volumeNormalizationDescription"),
+  );
+  const audioQualitySectionVisible = audioQualitySectionTitleMatch
+    || streamingQualityRowMatch
+    || downloadFormatRowMatch
+    || autoQualityRowMatch
+    || equalizerRowMatch
+    || pitchRowMatch
+    || loudnessRowMatch;
+
+  const librarySectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, librarySectionTitle);
+  const showLocalFilesRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.showLocalFiles"),
+    t("settings.showLocalFilesDescription"),
+    "local files library",
+  );
+  const localFilesSummaryRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.localFilesCount", { count: localFiles.length }),
+    t("settings.localFilesStorage", { size: formatBytes(totalBytes) }),
+    t("settings.openLocalFiles"),
+    "local files storage",
+  );
+  const librarySectionVisible = librarySectionTitleMatch || showLocalFilesRowMatch || localFilesSummaryRowMatch;
+
+  const displaySectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, displaySectionTitle);
+  const websiteModeRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.websiteMode"),
+    t("settings.websiteModeDescription"),
+    t("settings.websiteModeEdgy"),
+    t("settings.websiteModeRoundish"),
+  );
+  const pageDensityRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.pageDensity"),
+    t("settings.pageDensityDescription"),
+    t("settings.pageDensityComfortable"),
+    t("settings.pageDensityCompact"),
+  );
+  const fontRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.font"),
+    t("settings.fontDescription"),
+    t("settings.fontDefault"),
+    t("settings.fontGrotesk"),
+    font,
+  );
+  const dynamicCardsRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.dynamicCards"),
+    t("settings.dynamicCardsDescription"),
+    t("settings.dynamicCardsEnabledOption"),
+    t("settings.dynamicCardsDisabledOption"),
+  );
+  const showScrollbarRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.showScrollbar"),
+    t("settings.showScrollbarDescription"),
+    t("settings.optionYes"),
+    t("settings.optionNo"),
+  );
+  const libraryCardStyleRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.libraryCardStyle"),
+    t("settings.libraryCardStyleDescription"),
+    t("settings.libraryCardStyleCover"),
+    t("settings.libraryCardStyleList"),
+  );
+  const rightPanelStyleRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.rightPanelStyle"),
+    t("settings.rightPanelStyleDescription"),
+    t("settings.rightPanelStyleClassic"),
+    t("settings.rightPanelStyleArtwork"),
+  );
+  const rightPanelAutoOpenRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.rightPanelAutoOpen"),
+    t("settings.rightPanelAutoOpenDescription"),
+    t("settings.rightPanelAutoOpenAlways"),
+    t("settings.rightPanelAutoOpenWhilePlaying"),
+    t("settings.rightPanelAutoOpenNever"),
+  );
+  const bottomPlayerStyleRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.bottomPlayerStyle"),
+    t("settings.bottomPlayerStyleDescription"),
+    t("settings.bottomPlayerStyleCurrent"),
+    t("settings.bottomPlayerStyleBlack"),
+  );
+  const cardSizeRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.cardSize"),
+    t("settings.cardSizeDescription"),
+    t("settings.sizeSmaller"),
+    t("settings.sizeSmall"),
+    t("settings.sizeDefault"),
+    t("settings.sizeBig"),
+    t("settings.sizeBigger"),
+  );
+  const displaySectionVisible = displaySectionTitleMatch
+    || websiteModeRowMatch
+    || pageDensityRowMatch
+    || fontRowMatch
+    || dynamicCardsRowMatch
+    || showScrollbarRowMatch
+    || libraryCardStyleRowMatch
+    || rightPanelStyleRowMatch
+    || rightPanelAutoOpenRowMatch
+    || bottomPlayerStyleRowMatch
+    || cardSizeRowMatch;
+
+  const socialSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, socialSectionTitle);
+  const discordConnectRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.discordConnect"),
+    discordConnectionDescription,
+    t("settings.openSetup"),
+    "discord rich presence",
+  );
+  const discordPresenceRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.discordPresence"),
+    t("settings.discordPresenceDescription"),
+    "discord status activity rich presence",
+  );
+  const lastFmRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.lastfm"),
+    t("settings.lastfmDescription"),
+    "last fm scrobbling",
+  );
+  const socialSectionVisible = socialSectionTitleMatch || discordConnectRowMatch || discordPresenceRowMatch || lastFmRowMatch;
+
+  const adminSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, adminSectionTitle);
+  const adminRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    "Open privacy audit",
+    "Review user accounts through the secured admin audit surface.",
+    "admin audit privacy",
+  );
+  const adminSectionVisible = isAdmin && (adminSectionTitleMatch || adminRowMatch);
+
+  const storageSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, storageSectionTitle);
+  const offlineAppRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.offlineApp"),
+    desktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending"),
+    "offline cache service worker",
+  );
+  const installAppRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.desktopDownloads"),
+    t("settings.desktopDownloadsDescription"),
+    t("settings.desktopDownloadMac"),
+    t("settings.desktopDownloadWindows"),
+    t("settings.desktopViewRelease"),
+    desktopUpdatePresentation.title,
+    desktopUpdatePresentation.detail,
+    "desktop download update release mac windows",
+  );
+  const downloadsRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.downloadsEntries", { count: storageSnapshot.downloadEntries }),
+    t("settings.offlineContent"),
+    "downloads offline",
+  );
+  const storageLocalFilesRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.localFilesCount", { count: localFiles.length }),
+    t("settings.localFilesStorage", { size: formatBytes(totalBytes) }),
+  );
+  const cacheRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.cacheSize", { size: storageSnapshot.cacheMb }),
+    t("settings.cacheDescription"),
+    t("settings.clearCache"),
+    "cache storage",
+  );
+  const storageLocationRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.offlineStorageLocation"),
+    window.location.origin,
+    isOnline ? "Online" : "Offline",
+    "storage location",
+  );
+  const storageSectionVisible = storageSectionTitleMatch
+    || offlineAppRowMatch
+    || installAppRowMatch
+    || downloadsRowMatch
+    || storageLocalFilesRowMatch
+    || cacheRowMatch
+    || storageLocationRowMatch;
+
+  const hasVisibleSearchResults = accountSectionVisible
+    || languageSectionVisible
+    || audioQualitySectionVisible
+    || librarySectionVisible
+    || displaySectionVisible
+    || socialSectionVisible
+    || adminSectionVisible
+    || storageSectionVisible;
 
   return (
-    <div className="py-6 pb-32">
-      <h1 className="text-2xl font-bold text-foreground mb-6">Settings</h1>
-
-      <Group title="Appearance" description="Visual preferences that are fully applied in-app.">
-        <div className="p-4 border-b border-white/5">
-          <p className="text-sm font-medium text-foreground mb-3">Theme</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {THEMES.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setTheme(item.id as any)}
-                className={`relative h-16 overflow-hidden transition-all ${theme === item.id
-                    ? "ring-2 ring-[hsl(var(--dynamic-accent))] ring-offset-1 ring-offset-background"
-                    : "hover:opacity-80"
-                  }`}
-              >
-                <div className="absolute inset-0" style={{ background: item.preview }} />
-                <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-1">
-                  <span className="text-xs font-semibold text-white/90">{item.name}</span>
-                </div>
-                {theme === item.id && <Check className="w-3.5 h-3.5 text-[hsl(var(--dynamic-accent))] absolute top-1 right-1" />}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <Row
-          label="Font Family"
-          description="Choose your preferred app font"
-          action={
-            <select
-              value={font}
-              onChange={(event) => setFont(event.target.value as any)}
-              className="text-xs bg-white/5 border border-white/10 px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--dynamic-accent))]"
-            >
-              {FONTS.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          }
-        />
-
-        <Row
-          label="Compact Mode"
-          description="Reduce spacing for denser layouts"
-          action={<Toggle on={compactMode} onToggle={() => setCompactMode(!compactMode)} />}
-        />
-
-        <Row
-          label="Animations"
-          description="Enable motion and transitions"
-          action={<Toggle on={animationsEnabled} onToggle={() => setAnimationsEnabled(!animationsEnabled)} />}
-        />
-
-        <Row
-          label="Blur Effects"
-          description="Enable blurred surfaces where supported"
-          action={<Toggle on={blurEffects} onToggle={() => setBlurEffects(!blurEffects)} />}
-        />
-      </Group>
-
-      <Group title="Audio Playback" description="Playback settings wired directly to the player engine.">
-        <div className="p-3 border-b border-white/5 space-y-1">
-          {QUALITY_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              onClick={() => setQuality(option.value)}
-              className={`w-full flex items-center justify-between px-4 py-3 transition-all ${quality === option.value
-                  ? "bg-[hsl(var(--dynamic-accent)/0.1)] ring-1 ring-[hsl(var(--dynamic-accent)/0.3)]"
-                  : "hover:bg-white/[0.04]"
-                }`}
-            >
-              <div className="text-left">
-                <div className="flex items-center gap-2">
-                  <span className={`text-sm font-semibold ${quality === option.value ? "text-[hsl(var(--dynamic-accent))]" : "text-foreground"}`}>
-                    {option.label}
-                  </span>
-                  {option.badge && (
-                    <span className="px-1.5 py-0.5 text-xs font-black bg-yellow-500 text-black rounded-[2px] leading-none uppercase tracking-tighter">
-                      {option.badge}
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground">{option.desc}</span>
-              </div>
-              {quality === option.value && <Check className="w-5 h-5 text-[hsl(var(--dynamic-accent))]" />}
-            </button>
-          ))}
-        </div>
-
-        <Row
-          label="Normalize Volume"
-          description="Balance loud and quiet tracks"
-          action={<Toggle on={normalization} onToggle={toggleNormalization} />}
-        />
-
-        <Row
-          label="Playback Speed"
-          description="Change playback rate"
-          action={
-            <select
-              value={playbackSpeed}
-              onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
-              className="text-xs bg-white/5 border border-white/10 px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--dynamic-accent))]"
-            >
-              {PLAYBACK_SPEEDS.map((speed) => (
-                <option key={speed} value={speed}>
-                  {speed}x
-                </option>
-              ))}
-            </select>
-          }
-        />
-
-        <Row
-          label="Crossfade"
-          description="Blend between tracks"
-          action={
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min="0"
-                max="12"
-                step="1"
-                value={crossfadeDuration}
-                onChange={(event) => setCrossfadeDuration(parseInt(event.target.value, 10))}
-                className="w-24 accent-[hsl(var(--dynamic-accent))] h-1 bg-white/10  appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:"
+    <PageTransition>
+      <div className="max-w-6xl mx-auto px-6 pb-24 pt-8 space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-4xl md:text-5xl font-black tracking-tight text-foreground">{t("settings.title")}</h1>
+          <div className="flex w-full justify-end gap-3 sm:w-auto">
+            {showSettingsSearchInput ? (
+              <Input
+                ref={settingsSearchInputRef}
+                value={settingsSearchQuery}
+                onChange={(event) => setSettingsSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  if (settingsSearchQuery) {
+                    setSettingsSearchQuery("");
+                    return;
+                  }
+                  setIsSettingsSearchOpen(false);
+                  settingsSearchInputRef.current?.blur();
+                }}
+                placeholder={t("settings.searchPlaceholder")}
+                aria-label={t("settings.searchAria")}
+                className="h-11 w-full max-w-xs rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0 sm:w-72"
               />
-              <span className="text-xs text-muted-foreground font-medium w-8 text-right">
-                {crossfadeDuration > 0 ? `${crossfadeDuration}s` : "Off"}
-              </span>
-            </div>
-          }
-        />
-      </Group>
-
-      <Group title="Equalizer" description="Edge-tuned 10-band EQ with presets and live neon response.">
-        <Row
-          label="Enable Equalizer"
-          description={`Current preset: ${activeEqPreset}`}
-          action={<Toggle on={equalizerEnabled} onToggle={toggleEqualizer} />}
-        />
-
-        {equalizerEnabled && (
-          <div className="border-t border-white/5 p-4 sm:p-6 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0))]">
-            <div className="flex flex-wrap gap-2 mb-5">
-              {Object.keys(EQ_PRESETS).map((name) => (
-                <button
-                  key={name}
-                  onClick={() => applyEqPreset(name)}
-                  className={`px-3 py-1.5 text-xs font-semibold border transition-all ${activeEqPreset === name
-                      ? "border-[hsl(var(--dynamic-accent))] text-[hsl(var(--dynamic-accent))] bg-[hsl(var(--dynamic-accent)/0.12)]"
-                      : "border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20"
-                    }`}
-                >
-                  {name}
-                </button>
-              ))}
-              <button
-                onClick={() => applyEqPreset("Flat")}
-                className="px-3 py-1.5 text-xs font-semibold border border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div className="grid grid-cols-10 gap-2 sm:gap-3">
-              {EQ_BANDS.map((frequency, index) => (
-                <div key={frequency} className=" border border-white/10 bg-black/30 p-2">
-                  <div className="text-center mb-2">
-                    <p className="text-[10px] text-muted-foreground/90 font-semibold">
-                      {frequency >= 1000 ? `${frequency / 1000}k` : frequency}
-                    </p>
-                    <p className="text-[10px] font-bold text-foreground/90 mt-0.5">
-                      {eqGains[index] > 0 ? "+" : ""}
-                      {eqGains[index]}
-                    </p>
-                  </div>
-
-                  <div className="relative h-[150px] flex items-center justify-center">
-                    <div className="absolute h-[130px] w-2  bg-white/10 overflow-hidden">
-                      <div
-                        className="absolute bottom-0 left-0 right-0  bg-[linear-gradient(180deg,hsl(var(--dynamic-accent)),hsl(var(--dynamic-accent)/0.35))] shadow-[0_0_18px_hsl(var(--dynamic-accent)/0.45)]"
-                        style={{ height: `${((eqGains[index] + 12) / 24) * 100}%` }}
-                      />
-                    </div>
-
-                    <input
-                      type="range"
-                      min="-12"
-                      max="12"
-                      step="1"
-                      value={eqGains[index]}
-                      onChange={(event) => setEqBandGain(index, parseInt(event.target.value, 10))}
-                      className="absolute inset-0 opacity-0 cursor-ns-resize"
-                      style={{ WebkitAppearance: "slider-vertical" } as { WebkitAppearance: "slider-vertical" }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleSettingsSearchButtonClick}
+              className="settings-search-button website-form-control menu-sweep-hover flex h-11 w-11 items-center justify-center rounded-[var(--settings-control-radius)] border border-white/10 bg-white/[0.04] text-muted-foreground focus:ring-0 focus:ring-offset-0"
+              aria-label={t("settings.searchAria")}
+            >
+              <Search className="w-4 h-4" />
+            </button>
           </div>
-        )}
-      </Group>
-
-      <Group title="Downloads & Export" description="Persistent download/export preferences.">
-        <Row
-          label="Format"
-          description="Audio format for downloads"
-          action={
-            <select
-              value={downloadFormat}
-              onChange={(event) => setDownloadFormat(event.target.value)}
-              className="text-xs bg-white/5 border border-white/10 px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--dynamic-accent))]"
-            >
-              <option value="flac">FLAC</option>
-              <option value="alac">ALAC</option>
-              <option value="aac">AAC</option>
-              <option value="mp3">MP3</option>
-              <option value="ogg">OGG</option>
-            </select>
-          }
-        />
-
-        <Row
-          label="Zipped Bulk Downloads"
-          description="Download multiple tracks as one ZIP"
-          action={<Toggle on={zippedBulkDownloads} onToggle={() => setZippedBulkDownloads(!zippedBulkDownloads)} />}
-        />
-
-        <Row
-          label="Download Lyrics"
-          description="Include lyric files in track downloads"
-          action={<Toggle on={downloadLyrics} onToggle={() => setDownloadLyrics(!downloadLyrics)} />}
-        />
-
-        <Row
-          label="Romaji Lyrics"
-          description="Convert Japanese lyrics to Romaji"
-          action={
-            <Toggle
-              on={romajiLyrics}
-              onToggle={() => setRomajiLyrics(!romajiLyrics)}
-              disabled={!downloadLyrics}
-            />
-          }
-        />
-
-        <div className="px-4 py-4 border-t border-white/5">
-          <label className="text-sm font-medium text-foreground block mb-1">Filename Template</label>
-          <p className="text-xs text-muted-foreground mb-2">Available: {'{trackNumber}'}, {'{artist}'}, {'{title}'}, {'{album}'}, {'{year}'}</p>
-          <input
-            type="text"
-            value={filenameTemplate}
-            onChange={(event) => setFilenameTemplate(event.target.value)}
-            className="w-full text-sm bg-white/6 border border-white/10 px-4 py-3 text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--dynamic-accent))]"
-          />
         </div>
 
-        <div className="px-4 py-4 border-t border-white/5">
-          <label className="text-sm font-medium text-foreground block mb-1">ZIP Folder Template</label>
-          <p className="text-xs text-muted-foreground mb-2">Available: {'{albumTitle}'}, {'{albumArtist}'}, {'{year}'}</p>
-          <input
-            type="text"
-            value={zipFolderTemplate}
-            onChange={(event) => setZipFolderTemplate(event.target.value)}
-            className="w-full text-sm bg-white/6 border border-white/10 px-4 py-3 text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--dynamic-accent))]"
-          />
-        </div>
-
-        <Row
-          label="Generate M3U"
-          description="Create M3U playlists with downloads"
-          action={<Toggle on={generateM3U} onToggle={() => setGenerateM3U(!generateM3U)} />}
-        />
-
-        <Row
-          label="Generate M3U8"
-          description="Create UTF-8 M3U8 playlists"
-          action={<Toggle on={generateM3U8} onToggle={() => setGenerateM3U8(!generateM3U8)} />}
-        />
-
-        <Row
-          label="Generate CUE"
-          description="Create CUE sheets for gapless sets"
-          action={<Toggle on={generateCUE} onToggle={() => setGenerateCUE(!generateCUE)} />}
-        />
-
-        <Row
-          label="Generate NFO"
-          description="Create NFO metadata files"
-          action={<Toggle on={generateNFO} onToggle={() => setGenerateNFO(!generateNFO)} />}
-        />
-
-        <Row
-          label="Generate JSON"
-          description="Create rich JSON metadata files"
-          action={<Toggle on={generateJSON} onToggle={() => setGenerateJSON(!generateJSON)} />}
-        />
-
-        <Row
-          label="Relative Paths"
-          description="Use relative paths in generated playlists"
-          action={<Toggle on={relativePaths} onToggle={() => setRelativePaths(!relativePaths)} />}
-        />
-
-        <Row
-          label="Separate Discs in ZIP"
-          description="Split tracks into disc folders when applicable"
-          action={<Toggle on={separateDiscsInZip} onToggle={() => setSeparateDiscsInZip(!separateDiscsInZip)} />}
-        />
-      </Group>
-
-      <Group title="API Instances" description="All metadata/search API backends in priority order.">
-        <div className="p-3 space-y-2">
-          {apiInstanceOrder.map((instance, index) => (
-            <div key={instance} className="flex items-center justify-between  border border-white/10 bg-white/[0.02] px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-sm text-foreground truncate">{instance}</p>
-                <p className="text-xs text-muted-foreground">{INSTANCE_VERSIONS[instance] || "v2.x"}</p>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => moveInstance(apiInstanceOrder, index, "up", setApiInstanceOrder)}
-                  className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  disabled={index === 0}
-                  aria-label={`Move ${instance} up`}
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => moveInstance(apiInstanceOrder, index, "down", setApiInstanceOrder)}
-                  className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  disabled={index === apiInstanceOrder.length - 1}
-                  aria-label={`Move ${instance} down`}
-                >
-                  <ArrowDown className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Group>
-
-      <Group title="Streaming Instances" description="All stream providers used for track playback fallback.">
-        <div className="p-3 space-y-2">
-          {streamingInstanceOrder.map((instance, index) => (
-            <div key={instance} className="flex items-center justify-between  border border-white/10 bg-white/[0.02] px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-sm text-foreground truncate">{instance}</p>
-                <p className="text-xs text-muted-foreground">{INSTANCE_VERSIONS[instance] || "v2.x"}</p>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => moveInstance(streamingInstanceOrder, index, "up", setStreamingInstanceOrder)}
-                  className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  disabled={index === 0}
-                  aria-label={`Move ${instance} up`}
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => moveInstance(streamingInstanceOrder, index, "down", setStreamingInstanceOrder)}
-                  className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  disabled={index === streamingInstanceOrder.length - 1}
-                  aria-label={`Move ${instance} down`}
-                >
-                  <ArrowDown className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Group>
-
-      <Group title="Scrobbling" description="Connected music tracking accounts.">
-        <Row
-          label="Last.fm Scrobbling"
-          description={lastfmConnected ? `Connected as ${lastfmUsername || "user"}` : "Not connected"}
-          action={
-            lastfmConnected ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-9 px-4"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  disconnectLastfm();
-                }}
-              >
-                Disconnect
-              </Button>
+        {accountSectionVisible ? (
+          <Section title={accountSectionTitle}>
+            {user ? (
+              <>
+                {accountSectionTitleMatch || accountProfileRowMatch ? (
+                  <Row
+                    title={user.user_metadata?.display_name || user.email || "Signed in"}
+                    description={
+                      <div className="space-y-1">
+                        <p>{user.email}</p>
+                        <p>
+                          {currentPlaybackSession
+                            ? `Current session: ${currentPlaybackSession.deviceName}`
+                            : "Current session is active on this device."}
+                        </p>
+                      </div>
+                    }
+                    action={
+                      <Button
+                        variant="outline"
+                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        onClick={() => navigate("/profile")}
+                      >
+                        {t("settings.view")} <ExternalLink className="w-4 h-4 ml-2" />
+                      </Button>
+                    }
+                  />
+                ) : null}
+                {accountSectionTitleMatch || passwordResetRowMatch ? (
+                  <Row
+                    title="Password reset"
+                    description="Send a reset link to your account email and finish the change securely in email."
+                    action={
+                      <Button
+                        variant="outline"
+                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        onClick={() => {
+                          void handleSendPasswordReset();
+                        }}
+                        disabled={accountAction !== null || !user.email}
+                      >
+                        {accountAction === "password-reset" ? "Sending..." : "Send reset email"}
+                      </Button>
+                    }
+                  />
+                ) : null}
+                {accountSectionTitleMatch || activeSessionsRowMatch ? (
+                  <Row
+                    title="Active sessions"
+                    description={
+                      <div className="space-y-3">
+                        <p>
+                          {isLoadingPlaybackSessions
+                            ? "Checking your active sessions..."
+                            : `${playbackSessions.length || 1} active session${playbackSessions.length === 1 ? "" : "s"} detected.`}
+                        </p>
+                        <div className="space-y-2">
+                          {currentPlaybackSession ? (
+                            <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3">
+                              <p className="text-sm font-semibold text-foreground">
+                                {currentPlaybackSession.deviceName} · This device
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {currentPlaybackSession.currentTrack
+                                  ? `${currentPlaybackSession.currentTrack.title} · ${currentPlaybackSession.currentTrack.artist}${currentPlaybackSession.isPlaying ? " · Playing" : " · Paused"}`
+                                  : "No active track right now."}
+                              </p>
+                            </div>
+                          ) : null}
+                          {otherPlaybackSessions.map((session) => (
+                            <div
+                              key={session.id}
+                              className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3"
+                            >
+                              <p className="text-sm font-semibold text-foreground">{session.deviceName}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {session.currentTrack
+                                  ? `${session.currentTrack.title} · ${session.currentTrack.artist}${session.isPlaying ? " · Playing" : " · Paused"}`
+                                  : "Signed in with no active playback."}
+                              </p>
+                            </div>
+                          ))}
+                          {!isLoadingPlaybackSessions && !currentPlaybackSession && otherPlaybackSessions.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              No other signed-in Knobb sessions are active right now.
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    }
+                    action={
+                      <Button
+                        variant="outline"
+                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        onClick={() => {
+                          void handleSignOutOtherSessions();
+                        }}
+                        disabled={accountAction !== null || otherPlaybackSessions.length === 0}
+                      >
+                        {accountAction === "sign-out-others" ? "Signing out..." : "Sign out other sessions"}
+                      </Button>
+                    }
+                  />
+                ) : null}
+                {accountSectionTitleMatch || signOutRowMatch ? (
+                  <Row
+                    title={t("settings.signOut")}
+                    description={t("settings.signOutDescription")}
+                    action={
+                      <Button
+                        variant="outline"
+                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        onClick={() => {
+                          void handleSignOutCurrentSession();
+                        }}
+                        disabled={accountAction !== null}
+                      >
+                        {accountAction === "sign-out" ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Signing out...
+                          </>
+                        ) : (
+                          t("settings.signOut")
+                        )}
+                      </Button>
+                    }
+                  />
+                ) : null}
+              </>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-4"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  connectLastfm();
-                }}
-              >
-                Connect
-              </Button>
-            )
-          }
-        />
-      </Group>
+              <>
+                {accountSectionTitleMatch || guestRowMatch ? (
+                  <Row
+                    title={t("settings.guest")}
+                    description={t("settings.signInManage")}
+                    action={
+                      <Button
+                        variant="outline"
+                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        onClick={() => navigate("/auth")}
+                      >
+                        {t("settings.signIn")}
+                      </Button>
+                    }
+                  />
+                ) : null}
+              </>
+            )}
+          </Section>
+        ) : null}
 
-      <Group title="System" description="Utilities and maintenance tools.">
-        <Row
-          label="Keyboard Shortcuts"
-          description="View and customize keyboard shortcuts"
-          action={
-            <Button
-              variant="secondary"
-              size="sm"
-              className="h-9 px-4"
-              onClick={(event) => {
-                event.stopPropagation();
-                toast.info("Shortcuts: Space play/pause, Shift+Arrows next/prev/volume, M mute");
-              }}
-            >
-              Customize
-            </Button>
-          }
-        />
+        {languageSectionVisible ? (
+          <Section title={languageSectionTitle}>
+            {languageSectionTitleMatch || languageRowMatch ? (
+              <Row
+                title={t("settings.chooseLanguage")}
+                description={t("settings.languageDescription")}
+                action={
+                  <SelectControl
+                    value={language}
+                    onChange={(value) => setLanguage(value as "en" | "bn")}
+                    options={[
+                      { value: "en", label: `${t("settings.languageEnglish")} (English)` },
+                      { value: "bn", label: `${t("settings.languageBangla")} (বাংলা)` },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+          </Section>
+        ) : null}
 
-        <Row
-          label="Cache"
-          description={`Cache: ${cacheEntries}/200 entries`}
-          action={
-            <Button
-              variant="secondary"
-              size="sm"
-              className="h-9 px-4"
-              onClick={(event) => {
-                event.stopPropagation();
-                clearCacheOnly();
-              }}
-            >
-              Clear Cache
-            </Button>
-          }
-        />
+        {audioQualitySectionVisible ? (
+          <Section title={audioQualitySectionTitle}>
+            {audioQualitySectionTitleMatch || streamingQualityRowMatch ? (
+              <Row
+                title={t("settings.streamingQuality")}
+                action={
+                  <SelectControl
+                    value={quality}
+                    onChange={(value) => setQuality(value as AudioQuality)}
+                    options={qualityOptions}
+                  />
+                }
+              />
+            ) : null}
+            {audioQualitySectionTitleMatch || downloadFormatRowMatch ? (
+              <Row
+                title={t("settings.downloadFormat")}
+                action={
+                  <SelectControl
+                    value={downloadFormat}
+                    onChange={(value) => setDownloadFormat(value as DownloadFormat)}
+                    options={downloadFormatOptions}
+                  />
+                }
+              />
+            ) : null}
+            {audioQualitySectionTitleMatch || autoQualityRowMatch ? (
+              <Row
+                title={t("settings.autoAdjustQuality")}
+                description={t("settings.recommendedOn")}
+                action={<ToggleControl checked={autoQualityEnabled} onCheckedChange={setAutoQualityEnabled} />}
+              />
+            ) : null}
+            {audioQualitySectionTitleMatch || equalizerRowMatch ? (
+              <Row
+                title={t("settings.equalizer")}
+                description={t("settings.equalizerDescription")}
+                action={
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={cn(SETTINGS_ACTION_BUTTON_CLASS, "px-4")}
+                      onClick={resetEqualizer}
+                      disabled={!equalizerEnabled}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Reset
+                    </Button>
+                    <ToggleControl checked={equalizerEnabled} onCheckedChange={() => toggleEqualizer()} />
+                  </div>
+                }
+              />
+            ) : null}
+            {audioQualitySectionTitleMatch || pitchRowMatch ? (
+              <Row
+                title={t("settings.preservePitch")}
+                description={t("settings.preservePitchDescription")}
+                action={<ToggleControl checked={preservePitch} onCheckedChange={setPreservePitch} />}
+              />
+            ) : null}
+            {audioQualitySectionTitleMatch || loudnessRowMatch ? (
+              <Row
+                title={t("settings.volumeNormalization")}
+                description={t("settings.volumeNormalizationDescription")}
+                action={<ToggleControl checked={normalization} onCheckedChange={() => toggleNormalization()} />}
+              />
+            ) : null}
+          </Section>
+        ) : null}
 
-        {user ? (
-          <>
-            <Row
-              label={user.email || "Signed in"}
-              description="Your account is connected"
-              action={<span className="px-2 py-0.5 text-xs font-bold uppercase bg-[hsl(var(--dynamic-accent)/0.15)] text-[hsl(var(--dynamic-accent))]">Active</span>}
-            />
-            <Row
-              label="Sign out"
-              description="Log out of your account"
-              onClick={() => {
-                signOut();
-                toast.success("Signed out");
-              }}
-              action={<LogOut className="w-4 h-4 text-muted-foreground" />}
-            />
-          </>
-        ) : (
-          <Row
-            label="Sign in"
-            description="Connect your account"
-            onClick={() => navigate("/auth")}
-            action={<ChevronRight className="w-4 h-4 text-muted-foreground" />}
-          />
-        )}
+        {librarySectionVisible ? (
+          <Section title={librarySectionTitle}>
+            {librarySectionTitleMatch || showLocalFilesRowMatch ? (
+              <Row
+                title={t("settings.showLocalFiles")}
+                description={t("settings.showLocalFilesDescription")}
+                action={<ToggleControl checked={showLocalFiles} onCheckedChange={setShowLocalFiles} />}
+              />
+            ) : null}
+            {librarySectionTitleMatch || localFilesSummaryRowMatch ? (
+              <Row
+                title={t("settings.localFilesCount", { count: localFiles.length })}
+                description={t("settings.localFilesStorage", { size: formatBytes(totalBytes) })}
+                action={
+                  <Button
+                    variant="outline"
+                    className={SETTINGS_ACTION_BUTTON_CLASS}
+                    onClick={() => navigate("/local-files")}
+                  >
+                    {t("settings.openLocalFiles")}
+                  </Button>
+                }
+              />
+            ) : null}
+          </Section>
+        ) : null}
 
-        <Row
-          label="Factory Reset"
-          description="Clears all local settings and reloads"
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 px-4"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsClearing(true);
-                clearCacheAndReset();
-              }}
-              disabled={isClearing}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isClearing ? "animate-spin" : ""}`} />
-              Reset
-            </Button>
-          }
+        {displaySectionVisible ? (
+          <Section title={displaySectionTitle}>
+            {displaySectionTitleMatch || websiteModeRowMatch ? (
+              <Row
+                title={t("settings.websiteMode")}
+                description={t("settings.websiteModeDescription")}
+                action={
+                  <SelectControl
+                    value={websiteMode}
+                    onChange={(value) => setWebsiteMode(value as typeof websiteMode)}
+                    options={[
+                      { value: "edgy", label: t("settings.websiteModeEdgy") },
+                      { value: "roundish", label: t("settings.websiteModeRoundish") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || pageDensityRowMatch ? (
+              <Row
+                title={t("settings.pageDensity")}
+                description={t("settings.pageDensityDescription")}
+                action={
+                  <SelectControl
+                    value={pageDensity}
+                    onChange={(value) => setPageDensity(value as typeof pageDensity)}
+                    options={[
+                      { value: "comfortable", label: t("settings.pageDensityComfortable") },
+                      { value: "compact", label: t("settings.pageDensityCompact") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || fontRowMatch ? (
+              <Row
+                title={t("settings.font")}
+                description={t("settings.fontDescription")}
+                action={
+                  <SelectControl
+                    value={font}
+                    onChange={(value) => setFont(value as typeof font)}
+                    options={[
+                      { value: "System Default", label: t("settings.fontDefault") },
+                      { value: "Space Grotesk", label: t("settings.fontGrotesk") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || dynamicCardsRowMatch ? (
+              <Row
+                title={t("settings.dynamicCards")}
+                description={t("settings.dynamicCardsDescription")}
+                action={
+                  <SelectControl
+                    value={dynamicCardsEnabled ? "dynamic" : "normal"}
+                    onChange={(value) => setDynamicCardsEnabled(value === "dynamic")}
+                    options={[
+                      { value: "dynamic", label: t("settings.dynamicCardsEnabledOption") },
+                      { value: "normal", label: t("settings.dynamicCardsDisabledOption") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || showScrollbarRowMatch ? (
+              <Row
+                title={t("settings.showScrollbar")}
+                description={t("settings.showScrollbarDescription")}
+                action={
+                  <SelectControl
+                    value={showScrollbar ? "yes" : "no"}
+                    onChange={(value) => setShowScrollbar(value === "yes")}
+                    options={[
+                      { value: "yes", label: t("settings.optionYes") },
+                      { value: "no", label: t("settings.optionNo") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || libraryCardStyleRowMatch ? (
+              <Row
+                title={t("settings.libraryCardStyle")}
+                description={t("settings.libraryCardStyleDescription")}
+                action={
+                  <SelectControl
+                    value={libraryItemStyle}
+                    onChange={(value) => setLibraryItemStyle(value as typeof libraryItemStyle)}
+                    options={[
+                      { value: "cover", label: t("settings.libraryCardStyleCover") },
+                      { value: "list", label: t("settings.libraryCardStyleList") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || rightPanelStyleRowMatch ? (
+              <Row
+                title={t("settings.rightPanelStyle")}
+                description={t("settings.rightPanelStyleDescription")}
+                action={
+                  <SelectControl
+                    value={rightPanelStyle}
+                    onChange={(value) => setRightPanelStyle(value as typeof rightPanelStyle)}
+                    options={[
+                      { value: "classic", label: t("settings.rightPanelStyleClassic") },
+                      { value: "artwork", label: t("settings.rightPanelStyleArtwork") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || rightPanelAutoOpenRowMatch ? (
+              <Row
+                title={t("settings.rightPanelAutoOpen")}
+                description={t("settings.rightPanelAutoOpenDescription")}
+                action={
+                  <SelectControl
+                    value={rightPanelAutoOpen}
+                    onChange={(value) => setRightPanelAutoOpen(value as typeof rightPanelAutoOpen)}
+                    options={[
+                      { value: "always", label: t("settings.rightPanelAutoOpenAlways") },
+                      { value: "while-playing", label: t("settings.rightPanelAutoOpenWhilePlaying") },
+                      { value: "never", label: t("settings.rightPanelAutoOpenNever") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || bottomPlayerStyleRowMatch ? (
+              <Row
+                title={t("settings.bottomPlayerStyle")}
+                description={t("settings.bottomPlayerStyleDescription")}
+                action={
+                  <SelectControl
+                    value={bottomPlayerStyle}
+                    onChange={(value) => setBottomPlayerStyle(value as typeof bottomPlayerStyle)}
+                    options={[
+                      { value: "current", label: t("settings.bottomPlayerStyleCurrent") },
+                      { value: "black", label: t("settings.bottomPlayerStyleBlack") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || cardSizeRowMatch ? (
+              <Row
+                title={t("settings.cardSize")}
+                description={t("settings.cardSizeDescription")}
+                action={
+                  <SelectControl
+                    value={cardSize}
+                    onChange={(value) => setCardSize(value as typeof cardSize)}
+                    options={[
+                      { value: "smaller", label: t("settings.sizeSmaller") },
+                      { value: "small", label: t("settings.sizeSmall") },
+                      { value: "default", label: t("settings.sizeDefault") },
+                      { value: "big", label: t("settings.sizeBig") },
+                      { value: "bigger", label: t("settings.sizeBigger") },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
+          </Section>
+        ) : null}
+
+        {socialSectionVisible ? (
+          <Section title={socialSectionTitle}>
+            {socialSectionTitleMatch || discordConnectRowMatch ? (
+              <Row
+                title={t("settings.discordConnect")}
+                description={discordConnectionDescription}
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={SETTINGS_ACTION_BUTTON_CLASS}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openDiscordSetup();
+                    }}
+                  >
+                    {t("settings.openSetup")}
+                  </Button>
+                }
+              />
+            ) : null}
+            {socialSectionTitleMatch || discordPresenceRowMatch ? (
+              <Row
+                title={t("settings.discordPresence")}
+                description={t("settings.discordPresenceDescription")}
+                action={
+                  <ToggleControl
+                    checked={discordPresenceEnabled}
+                    onCheckedChange={(next) => {
+                      if (!next) {
+                        setDiscordPresenceEnabled(false);
+                        return;
+                      }
+
+                      if (!discordBridgeReady) {
+                        toast.info(t("settings.discordBridgeMissing"));
+                        openDiscordSetup();
+                        return;
+                      }
+
+                      if (!discordBridgeConfigured) {
+                        toast.info(t("settings.discordBridgeSetupRequired"));
+                        openDiscordSetup();
+                        return;
+                      }
+
+                      if (!discordDesktopConnected) {
+                        toast.info(t("settings.discordAppWaiting"));
+                        openDiscordSetup();
+                        return;
+                      }
+
+                      setDiscordPresenceEnabled(true);
+                    }}
+                  />
+                }
+              />
+            ) : null}
+            {socialSectionTitleMatch || lastFmRowMatch ? (
+              <Row
+                title={t("settings.lastfm")}
+                description={t("settings.lastfmDescription")}
+              />
+            ) : null}
+          </Section>
+        ) : null}
+
+        {adminSectionVisible ? (
+          <Section title={adminSectionTitle}>
+            {adminSectionTitleMatch || adminRowMatch ? (
+              <Row
+                title="Open privacy audit"
+                description="Review user accounts through the secured admin audit surface."
+                action={
+                  <Button
+                    variant="outline"
+                    className={SETTINGS_ACTION_BUTTON_CLASS}
+                    onClick={() => navigate("/admin")}
+                  >
+                    Open audit <Shield className="ml-2 h-4 w-4" />
+                  </Button>
+                }
+              />
+            ) : null}
+          </Section>
+        ) : null}
+
+        {storageSectionVisible ? (
+          <Section title={storageSectionTitle}>
+            {storageSectionTitleMatch || offlineAppRowMatch ? (
+              <Row
+                title={t("settings.offlineApp")}
+                description={desktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending")}
+                action={desktopApp || serviceWorkerReady ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <HelpCircle className="w-5 h-5 text-muted-foreground" />}
+              />
+            ) : null}
+            {storageSectionTitleMatch || installAppRowMatch ? (
+              <Row
+                title={t("settings.desktopDownloads")}
+                description={(
+                  <div className="space-y-1">
+                    <p>{t("settings.desktopDownloadsDescription")}</p>
+                    {desktopApp ? (
+                      <>
+                        <p>{desktopUpdatePresentation.title}. {desktopUpdatePresentation.detail}</p>
+                        <p>{t("settings.desktopUpdateVersion", { version: desktopUpdateStatus?.currentVersion || "0.0.0" })}</p>
+                        <p>{t("settings.desktopUpdatePlatform", { platform: desktopPlatformLabel })}</p>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+                action={
+                  <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
+                    {desktopApp ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                          onClick={() => {
+                            if (desktopUpdateStatus?.status === "downloaded") {
+                              void installUpdate();
+                              return;
+                            }
+
+                            void refreshDesktopUpdateStatus();
+                          }}
+                          disabled={
+                            desktopUpdateLoading
+                            || desktopUpdateStatus?.status === "checking"
+                            || desktopUpdateStatus?.status === "downloading"
+                          }
+                        >
+                          {desktopUpdateStatus?.status === "downloaded" ? (
+                            <>
+                              {t("settings.desktopRestartUpdate")}
+                              <RotateCcw className="ml-2 h-4 w-4" />
+                            </>
+                          ) : desktopUpdateStatus?.status === "downloading" ? (
+                            <>
+                              {desktopUpdatePresentation.title}
+                              <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                            </>
+                          ) : desktopUpdateStatus?.status === "checking" ? (
+                            <>
+                              {t("settings.desktopCheckUpdates")}
+                              <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                            </>
+                          ) : (
+                            <>
+                              {desktopUpdateStatus?.status === "error" || desktopUpdateStatus?.blockingReason === "offline-grace-expired"
+                                ? t("settings.desktopRetryUpdate")
+                                : t("settings.desktopCheckUpdates")}
+                              <RotateCcw className="ml-2 h-4 w-4" />
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                        >
+                          <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
+                            {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
+                          </a>
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          asChild
+                          variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                        >
+                          <a href={KNOBB_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                            {t("settings.desktopDownloadMac")} <Download className="ml-2 h-4 w-4" />
+                          </a>
+                        </Button>
+                        <Button
+                          asChild
+                          variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                        >
+                          <a href={KNOBB_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                            {t("settings.desktopDownloadWindows")} <Download className="ml-2 h-4 w-4" />
+                          </a>
+                        </Button>
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                        >
+                          <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
+                            {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
+                          </a>
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                }
+              />
+            ) : null}
+            {storageSectionTitleMatch || downloadsRowMatch ? (
+              <Row
+                title={t("settings.downloadsEntries", { count: storageSnapshot.downloadEntries })}
+                description={t("settings.offlineContent")}
+              />
+            ) : null}
+            {storageSectionTitleMatch || storageLocalFilesRowMatch ? (
+              <Row
+                title={t("settings.localFilesCount", { count: localFiles.length })}
+                description={t("settings.localFilesStorage", { size: formatBytes(totalBytes) })}
+              />
+            ) : null}
+            {storageSectionTitleMatch || cacheRowMatch ? (
+              <Row
+                title={t("settings.cacheSize", { size: storageSnapshot.cacheMb })}
+                description={t("settings.cacheDescription")}
+                action={
+                  <Button
+                    variant="outline"
+                    className={SETTINGS_ACTION_BUTTON_CLASS}
+                    onClick={clearCache}
+                  >
+                    {t("settings.clearCache")}
+                  </Button>
+                }
+              />
+            ) : null}
+            {storageSectionTitleMatch || storageLocationRowMatch ? (
+              <Row
+                title={t("settings.offlineStorageLocation")}
+                description={`${window.location.origin} · ${isOnline ? "Online" : "Offline"}`}
+                action={<HelpCircle className="w-5 h-5 text-muted-foreground" />}
+              />
+            ) : null}
+          </Section>
+        ) : null}
+
+        {hasSettingsSearchQuery && !hasVisibleSearchResults ? (
+          <div className={cn("rounded-[28px] border border-white/10 bg-white/[0.03] px-5 py-6 text-sm text-muted-foreground", PANEL_SURFACE_CLASS)}>
+            {t("settings.searchNoResults")}
+          </div>
+        ) : null}
+
+        <DiscordConnectDialog
+          open={discordConnectOpen}
+          onOpenChange={setDiscordConnectOpen}
+          presenceEnabled={discordPresenceEnabled}
+          status={discordBridgeStatus}
+          onEnablePresence={() => {
+            setDiscordPresenceEnabled(true);
+          }}
         />
-      </Group>
-    </div>
+      </div >
+    </PageTransition >
   );
 }

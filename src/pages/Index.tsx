@@ -1,60 +1,126 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLikedSongs } from "@/contexts/LikedSongsContext";
+import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
 import { usePlayHistory } from "@/hooks/usePlayHistory";
-import { Play, Mic2, ChevronRight, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
-import {
-  searchArtists,
-  searchAlbums,
-  tidalTrackToAppTrack,
-  getTidalImageUrl,
-  getRecommendations,
-  TidalAlbum,
-} from "@/lib/monochromeApi";
-import { Track } from "@/types/music";
-import { motion } from "framer-motion";
+import { useHomeFeeds } from "@/hooks/useHomeFeeds";
+import { useSavedAlbums } from "@/hooks/useSavedAlbums";
+import { useMainScrollY } from "@/hooks/useMainScrollY";
+import { useMotionPreferences } from "@/hooks/useMotionPreferences";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { ChevronLeft, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/PageTransition";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { TrackContextMenu } from "@/components/TrackContextMenu";
 import { Button } from "@/components/ui/button";
-import { useRecommendations } from "@/hooks/useRecommendations";
+import { useSettings } from "@/contexts/SettingsContext";
+import { useResponsiveMediaCardCount } from "@/hooks/useResponsiveMediaCardCount";
+import { ArtistCardWrapper, HomeAlbumCard, TrackCard } from "@/components/home/HomeMediaCards";
+import { HOME_SECTION_CONFIG, type HomeSectionKey } from "@/lib/homeSections";
+import {
+  getControlTap,
+  getMotionProfile,
+  getSectionRevealVariants,
+  getStaggerContainerVariants,
+  getStaggerItemVariants,
+  getSurfaceSwapTransition,
+} from "@/lib/motion";
 
-// Curated pool of real artist names – Monochrome-style approach
-const ARTIST_POOL = [
-  "sabrina carpenter", "chappell roan", "tyla", "central cee", "ice spice", "sza",
-  "drake", "the weeknd", "taylor swift", "billie eilish", "dua lipa", "kendrick lamar",
-  "bad bunny", "travis scott", "ariana grande", "post malone", "doja cat", "olivia rodrigo",
-  "harry styles", "lana del rey", "frank ocean", "tyler the creator", "kanye west", "rihanna",
-  "beyonce", "ed sheeran", "bruno mars", "adele", "j cole", "21 savage",
-  "metro boomin", "future", "lil uzi vert", "playboi carti", "don toliver", "chase atlantic",
-];
-const ALBUM_QUERIES = ["new releases 2025", "top albums 2025"];
+function getCarouselTransform(pageIndex: number, dragOffset = 0) {
+  return `translate3d(calc(${-pageIndex * 100}% + ${dragOffset}px), 0, 0)`;
+}
 
-const stagger = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.05 } },
-};
+function HomeSectionBlock({
+  index,
+  motionEnabled,
+  websiteMode,
+  scrollProgress,
+  reloading,
+  header,
+  children,
+}: {
+  index: number;
+  motionEnabled: boolean;
+  websiteMode: "edgy" | "roundish";
+  scrollProgress: number;
+  reloading: boolean;
+  header: ReactNode;
+  children: ReactNode;
+}) {
+  const motionProfile = getMotionProfile(websiteMode);
+  const isRoundish = websiteMode === "roundish";
+  const sectionVariants = getSectionRevealVariants(motionEnabled, websiteMode);
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: "easeOut" as const } },
-};
+  return (
+    <motion.section
+      custom={index}
+      className="mobile-page-panel home-motion-section relative"
+      initial="hidden"
+      animate="show"
+      variants={sectionVariants}
+      style={{
+        ["--home-section-accent-opacity" as string]: 0.18 + (1 - scrollProgress) * 0.1,
+      }}
+    >
+      <motion.div
+        aria-hidden="true"
+        className="home-section-accent pointer-events-none absolute inset-x-0 top-0 h-28"
+        animate={{
+          opacity: motionEnabled ? 0.32 + (1 - scrollProgress) * 0.16 : 0.3,
+          y: motionEnabled ? -scrollProgress * (isRoundish ? 18 : 14) : 0,
+          scaleX: motionEnabled ? 1 + scrollProgress * (isRoundish ? 0.05 : 0.035) : 1,
+        }}
+        transition={{
+          duration: motionEnabled ? motionProfile.duration.base : 0,
+          ease: motionProfile.ease.smooth,
+        }}
+      />
+      <div className="relative z-10">{header}</div>
+      <motion.div
+        className="relative z-10"
+        animate={{
+          opacity: reloading && motionEnabled ? 0.7 : 1,
+          scale: reloading && motionEnabled ? (isRoundish ? 0.988 : 0.994) : 1,
+          y: reloading && motionEnabled ? (isRoundish ? 9 : 6) : 0,
+        }}
+        transition={{
+          duration: motionEnabled ? motionProfile.duration.base : 0,
+          ease: motionProfile.ease.smooth,
+        }}
+      >
+        {children}
+      </motion.div>
+    </motion.section>
+  );
+}
 
 /* ── Section header with optional "See all" and reload button ── */
 function SectionHeader({
   title,
-  onSeeAll,
+  onViewAll,
   onReload,
   loading,
+  viewAllLabel = "View all",
+  onPageBack,
+  onPageForward,
+  canPageBack,
+  canPageForward,
+  showPager,
 }: {
   title: string;
-  onSeeAll?: () => void;
+  onViewAll?: () => void;
   onReload?: () => void;
   loading?: boolean;
+  viewAllLabel?: string;
+  onPageBack?: () => void;
+  onPageForward?: () => void;
+  canPageBack?: boolean;
+  canPageForward?: boolean;
+  showPager?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 border border-white/10 border-b-0">
+    <div className="home-section-header hover-desaturate-meta flex items-center justify-between px-4 py-3 border border-white/10 border-b-0">
       <h2 className="text-xl font-bold text-foreground">{title}</h2>
       <div className="flex items-center gap-3">
         {onReload && (
@@ -66,12 +132,32 @@ function SectionHeader({
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
         )}
-        {onSeeAll && (
+        {showPager && (
+          <>
+            <button
+              onClick={onPageBack}
+              disabled={!canPageBack}
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-muted-foreground"
+              aria-label={`Previous ${title}`}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onPageForward}
+              disabled={!canPageForward}
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-muted-foreground"
+              aria-label={`Next ${title}`}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </>
+        )}
+        {onViewAll && (
           <button
-            onClick={onSeeAll}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            onClick={onViewAll}
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
-            See all <ChevronRight className="w-4 h-4" />
+            {viewAllLabel}
           </button>
         )}
       </div>
@@ -79,348 +165,410 @@ function SectionHeader({
   );
 }
 
-/* ── Card wrapper ── */
-function CardShell({
-  children,
-  onClick,
-  className = "",
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <motion.div
-      variants={fadeUp}
-      className={`hover-desaturate-card relative group cursor-pointer border-r border-b border-white/10 transition-colors hover:bg-white/[0.03] flex flex-col ${className}`}
-      onClick={onClick}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-/* ── Track card ── */
-function TrackCard({ track, tracks }: { track: Track; tracks: Track[] }) {
-  const { play, currentTrack } = usePlayer();
-  const isCurrent = currentTrack?.id === track.id;
-  return (
-    <TrackContextMenu track={track} tracks={tracks}>
-      <CardShell onClick={() => play(track, tracks)}>
-        <div className="relative overflow-hidden aspect-square shadow-sm w-full">
-          <img
-            src={track.coverUrl}
-            alt={track.title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-          <div
-            className="absolute bottom-3 right-3 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-300 z-20 hover:scale-110"
-            style={{ background: `hsl(var(--dynamic-accent))` }}
-          >
-            <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
-          </div>
-        </div>
-        <div className="p-3 pt-2 md:p-4 md:pt-3 flex-1 flex flex-col justify-center">
-          <p
-            className={`text-sm font-medium leading-tight mb-[2px] truncate ${isCurrent ? "font-semibold" : "text-foreground"}`}
-            style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}
-          >
-            {track.title}
-          </p>
-          <p className="text-xs text-muted-foreground/80 truncate">{track.artist}</p>
-        </div>
-      </CardShell>
-    </TrackContextMenu>
-  );
-}
-
-/* ── Artist card ── */
-function ArtistCard({ id, name, picture, onClick }: { id: number; name: string; picture: string; onClick: () => void }) {
-  return (
-    <CardShell onClick={onClick}>
-      <div className="relative overflow-hidden aspect-[3/2] shadow-sm mx-auto w-full">
-        <img
-          src={picture || "/placeholder.svg"}
-          alt={name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-        />
-      </div>
-      <div className="p-3 pt-2 md:p-4 md:pt-3 flex-1 flex flex-col justify-center">
-        <p className="text-sm font-medium leading-tight mb-[2px] text-foreground text-center truncate">{name}</p>
-        <div className="flex items-center justify-center gap-1">
-          <Mic2 className="w-[14px] h-[14px] text-muted-foreground/80" />
-          <p className="text-xs text-muted-foreground/80">Artist</p>
-        </div>
-      </div>
-    </CardShell>
-  );
-}
-
-/* ── Album card with cover art ── */
-function HomeAlbumCard({ album, navigate, playAlbum }: { album: TidalAlbum; navigate: any; playAlbum: any }) {
-  const coverUrl = album.cover ? getTidalImageUrl(album.cover, "750x750") : "/placeholder.svg";
-  return (
-    <CardShell
-      onClick={() => {
-        const artistName = album.artists?.[0]?.name || album.artist?.name || "";
-        const params = new URLSearchParams();
-        if (album.title) params.set("title", album.title);
-        if (artistName) params.set("artist", artistName);
-        navigate(`/album/tidal-${album.id}?${params.toString()}`);
-      }}
-    >
-      <div className="relative overflow-hidden aspect-square shadow-sm bg-muted w-full">
-        <img
-          src={coverUrl}
-          alt={album.title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
-        />
-        <div
-          className="absolute bottom-3 right-3 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-300 z-20 hover:scale-110"
-          style={{ background: `hsl(var(--dynamic-accent))` }}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            playAlbum(album);
-          }}
-        >
-          <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
-        </div>
-      </div>
-      <div className="p-3 pt-2 md:p-4 md:pt-3 flex-1 flex flex-col justify-center">
-        <p className="text-sm font-medium leading-tight mb-[2px] text-foreground truncate">{album.title}</p>
-        <p className="text-xs text-muted-foreground/80 truncate">{album.artist?.name || album.artists?.[0]?.name || "Various Artists"}</p>
-      </div>
-    </CardShell>
-  );
-}
-
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good Morning";
-  if (hour < 18) return "Good Afternoon";
-  return "Good Evening";
-}
-
-const CARD_GRID = "hover-desaturate-grid grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0 mb-0 border-l border-t border-white/10";
-
-const getTrackHistoryKey = (track: Track) => {
-  if (typeof track.tidalId === "number" && Number.isFinite(track.tidalId)) {
-    return `tidal:${track.tidalId}`;
-  }
-  if (track.id) return `id:${track.id}`;
-  return `fallback:${track.title.trim().toLowerCase()}::${track.artist.trim().toLowerCase()}`;
-};
-
-const dedupeLatestHistoryTracks = (tracks: Track[]) => {
-  const seen = new Set<string>();
-  const deduped: Track[] = [];
-
-  for (const track of tracks) {
-    const key = getTrackHistoryKey(track);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(track);
-  }
-
-  return deduped;
-};
+const CARD_ROW_FRAME = "website-mode-grid-frame home-section-grid hover-desaturate-grid home-section-carousel-frame border-l border-t border-white/10";
+const HOME_HERO_CTA_BASE_CLASS =
+  "home-hero-cta rounded-none !h-14 !w-full justify-center !border !px-4 sm:!px-5 md:!px-6 !text-sm sm:!text-base !font-semibold tracking-[-0.01em] transition-colors";
+const HOME_HERO_CTA_PRIMARY_CLASS =
+  `${HOME_HERO_CTA_BASE_CLASS} !border-white/10 !bg-white !text-black hover:!bg-white/90 hover:!text-black`;
+const HOME_HERO_CTA_SECONDARY_CLASS =
+  `${HOME_HERO_CTA_BASE_CLASS} !border-white/10 !bg-white/[0.04] !text-white hover:!bg-white/[0.1] hover:!text-white`;
 
 const Index = () => {
-  const { play, playAlbum } = usePlayer();
   const { user } = useAuth();
   const { getHistory } = usePlayHistory();
-  const { recommendations: forYouTracks, loading: loadingForYou } = useRecommendations();
+  const { isLiked, toggleLike } = useLikedSongs();
+  const { favoriteArtists } = useFavoriteArtists();
+  const { isSaved: isAlbumSaved, toggleSavedAlbum } = useSavedAlbums();
+  const { cardSize } = useSettings();
+  const isMobile = useIsMobile();
+  const { motionEnabled, allowAmbientMotion, websiteMode, isRoundish, strongDesktopEffects } = useMotionPreferences();
+  const allowHomeAmbientMotion = allowAmbientMotion && (isMobile || strongDesktopEffects);
+  const enableScrollLinkedHomeMotion = !isMobile && allowHomeAmbientMotion;
+  const scrollY = useMainScrollY(enableScrollLinkedHomeMotion);
+  const motionProfile = getMotionProfile(websiteMode);
+  const { containerRef, collapsedCount: homeRowCardCount } = useResponsiveMediaCardCount(cardSize);
+  const [sectionPageIndexes, setSectionPageIndexes] = useState<Record<string, number>>({});
+  const [draggingSections, setDraggingSections] = useState<Record<string, boolean>>({});
+  const frameRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const trackRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const sectionItemCountsRef = useRef<Record<string, number>>({});
+  const dragSessionsRef = useRef<Record<string, { pointerId: number; startX: number; lastOffset: number; moved: boolean }>>({});
+  const dragAnimationFramesRef = useRef<Record<string, number | undefined>>({});
+  const pendingTransformsRef = useRef<Record<string, { pageIndex: number; dragOffset: number } | undefined>>({});
+  const clickSuppressionRef = useRef<Record<string, number>>({});
   const navigate = useNavigate();
+  const {
+    error,
+    loaded,
+    newReleases,
+    recommendedAlbums,
+    recommendedArtists,
+    recommendedTracks,
+    recentTracks,
+    reloadingSection,
+    reloadSection,
+    retryInitialLoad,
+  } = useHomeFeeds({
+    favoriteArtists,
+    getHistory,
+    userId: user?.id,
+  });
 
-  // Recommendations
-  const [recommendedArtists, setRecommendedArtists] = useState<{ id: number; name: string; picture: string }[]>([]);
-  const [recommendedAlbums, setRecommendedAlbums] = useState<TidalAlbum[]>([]);
-  const [recommendedTracks, setRecommendedTracks] = useState<Track[]>([]);
-  const [recentTracks, setRecentTracks] = useState<Track[]>([]);
+  const openSectionPage = (section: HomeSectionKey) => navigate(`/home-section/${section}`);
+  const rowVariants = useMemo(() => getStaggerContainerVariants(motionEnabled, websiteMode), [motionEnabled, websiteMode]);
+  const rowItemVariants = useMemo(() => getStaggerItemVariants(motionEnabled, websiteMode), [motionEnabled, websiteMode]);
+  const scrollProgress = enableScrollLinkedHomeMotion ? Math.min(scrollY / 320, 1) : 0;
+  const heroShift = enableScrollLinkedHomeMotion ? -scrollProgress * 22 : 0;
+  const heroScale = enableScrollLinkedHomeMotion ? 1 - scrollProgress * 0.018 : 1;
+  const heroOpacity = enableScrollLinkedHomeMotion ? 1 - scrollProgress * 0.12 : 1;
 
-  // UI state
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-  const [reloadingSection, setReloadingSection] = useState<string | null>(null);
-  const fetchedRef = useRef(false);
+  const getPageCount = (itemsLength: number) =>
+    Math.max(1, Math.ceil(itemsLength / Math.max(1, homeRowCardCount)));
 
-  const toggleSection = (section: string) => {
-    setExpandedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(section)) next.delete(section);
-      else next.add(section);
-      return next;
+  const getCurrentPage = (section: string, itemsLength: number) =>
+    Math.min(sectionPageIndexes[section] ?? 0, getPageCount(itemsLength) - 1);
+
+  function getSectionPages<T>(items: T[]) {
+    const pageSize = Math.max(1, homeRowCardCount);
+    const pages: T[][] = [];
+
+    for (let index = 0; index < items.length; index += pageSize) {
+      pages.push(items.slice(index, index + pageSize));
+    }
+
+    return pages;
+  }
+
+  const moveSectionPage = (section: string, itemsLength: number, direction: -1 | 1) => {
+    setSectionPageIndexes((previous) => {
+      const pageCount = getPageCount(itemsLength);
+      const currentPage = Math.min(previous[section] ?? 0, pageCount - 1);
+      const nextPage = Math.max(0, Math.min(pageCount - 1, currentPage + direction));
+      if (nextPage === currentPage) return previous;
+      return { ...previous, [section]: nextPage };
     });
   };
 
-  /* ── Reload a specific recommendation section ── */
-  const reloadSection = useCallback(async (section: string) => {
-    setReloadingSection(section);
-    try {
-      switch (section) {
-        case "recommended": {
-          // Fetch fresh recommendations with a slightly different seed
-          const seed = recommendedTracks[0]?.tidalId || recentTracks[0]?.tidalId;
-          if (seed) {
-            const recs = await getRecommendations(seed);
-            // Shuffle the results for variety
-            const shuffled = recs.sort(() => Math.random() - 0.5);
-            setRecommendedTracks(shuffled.map(tidalTrackToAppTrack).slice(0, 12));
-          }
-          break;
-        }
-        case "recalbums": {
-          const queries = ["best albums 2025", "new music 2025", "top albums", "new releases"];
-          const randomQuery = queries[Math.floor(Math.random() * queries.length)];
-          const albums = await searchAlbums(randomQuery, 12);
-          setRecommendedAlbums(albums);
-          break;
-        }
-        case "recartists": {
-          // Pick 12 random artists from curated pool
-          const shuffled = [...ARTIST_POOL].sort(() => Math.random() - 0.5).slice(0, 12);
-          const results = await Promise.all(
-            shuffled.map(async (q) => {
-              try {
-                const res = await searchArtists(q);
-                if (res.length > 0) {
-                  return { id: res[0].id, name: res[0].name, picture: res[0].picture ? getTidalImageUrl(res[0].picture, "1080x720") : "" };
-                }
-              } catch { }
-              return null;
-            })
-          );
-          const filtered = results.filter((r): r is { id: number; name: string; picture: string } => r !== null && r.picture !== "");
-          if (filtered.length > 0) setRecommendedArtists(filtered);
-          break;
-        }
-      }
-    } catch (e) {
-      console.error(`Failed to reload ${section}:`, e);
-    } finally {
-      setReloadingSection(null);
-    }
-  }, [recommendedTracks, recentTracks]);
+  const canExpandSection = (items: { length: number }) => items.length > homeRowCardCount;
 
-  /* ── Initial content load ── */
-  const loadContent = useCallback(async () => {
-    setError(false);
-    try {
-      // Recommended / Discovery Artists – pick 12 random from curated pool
-      const artistPicks = [...ARTIST_POOL].sort(() => Math.random() - 0.5).slice(0, 12);
-      const discoveryResults = await Promise.all(
-        artistPicks.map(async (q) => {
-          try {
-            const results = await searchArtists(q);
-            if (results.length > 0 && results[0].picture) {
-              return { id: results[0].id, name: results[0].name, picture: getTidalImageUrl(results[0].picture, "1080x720") };
-            }
-          } catch { }
-          return null;
-        })
-      );
-      setRecommendedArtists(discoveryResults.filter((r): r is { id: number; name: string; picture: string } => r !== null));
+  const shouldShowPager = (_section: string, itemsLength: number) => getPageCount(itemsLength) > 1;
 
-      // Recommended Albums
-      try {
-        const allAlbums: TidalAlbum[] = [];
-        for (const q of ALBUM_QUERIES) {
-          const albums = await searchAlbums(q, 8);
-          allAlbums.push(...albums);
-        }
-        const uniqueAlbums = Array.from(
-          new Map(allAlbums.map(a => [a.id, a])).values()
-        ).slice(0, 12);
-        setRecommendedAlbums(uniqueAlbums);
-      } catch (e) {
-        console.error("Failed to load recommended albums:", e);
-      }
+  const handleSectionReload = (section: HomeSectionKey) => {
+    setSectionPageIndexes((previous) => (
+      previous[section] === 0 ? previous : { ...previous, [section]: 0 }
+    ));
+    void reloadSection(section);
+  };
 
-      setLoaded(true);
-    } catch (e) {
-      console.error("Failed to load home content:", e);
-      setError(true);
-      setLoaded(true);
-    }
+  const rowStyle = {
+    "--home-row-columns": Math.max(1, homeRowCardCount),
+  } as CSSProperties;
+
+  const setFrameRef = (section: string) => (node: HTMLDivElement | null) => {
+    frameRefs.current[section] = node;
+  };
+
+  const setTrackRef = (section: string) => (node: HTMLDivElement | null) => {
+    trackRefs.current[section] = node;
+  };
+
+  const getTrackedItemsLength = (section: string) => sectionItemCountsRef.current[section] ?? 0;
+
+  const snapSectionTransform = (section: string, pageIndex: number, dragOffset = 0) => {
+    const track = trackRefs.current[section];
+    if (!track) return;
+    track.style.transform = getCarouselTransform(pageIndex, dragOffset);
+  };
+
+  const flushSectionTransform = (section: string) => {
+    const pendingTransform = pendingTransformsRef.current[section];
+    const track = trackRefs.current[section];
+    dragAnimationFramesRef.current[section] = undefined;
+
+    if (!pendingTransform || !track) return;
+
+    track.style.transform = getCarouselTransform(pendingTransform.pageIndex, pendingTransform.dragOffset);
+  };
+
+  const scheduleSectionTransform = (section: string, pageIndex: number, dragOffset: number) => {
+    pendingTransformsRef.current[section] = { pageIndex, dragOffset };
+
+    if (dragAnimationFramesRef.current[section] != null) return;
+
+    dragAnimationFramesRef.current[section] = window.requestAnimationFrame(() => {
+      flushSectionTransform(section);
+    });
+  };
+
+  const clearSectionAnimationFrame = (section: string) => {
+    const frame = dragAnimationFramesRef.current[section];
+    if (frame == null) return;
+    window.cancelAnimationFrame(frame);
+    dragAnimationFramesRef.current[section] = undefined;
+  };
+
+  useEffect(() => {
+    const activeFrames = dragAnimationFramesRef.current;
+    return () => {
+      Object.keys(activeFrames).forEach((section) => {
+        const frame = activeFrames[section];
+        if (frame == null) return;
+        window.cancelAnimationFrame(frame);
+      });
+    };
   }, []);
 
-  /* ── Load history-based content ── */
-  useEffect(() => {
-    if (user) {
-      getHistory(20).then(async (h) => {
-        const latestUniqueHistory = dedupeLatestHistoryTracks(h);
-        setRecentTracks(latestUniqueHistory.slice(0, 10));
+  const setSectionDragging = (section: string, next: boolean) => {
+    setDraggingSections((previous) => {
+      if (!!previous[section] === next) return previous;
+      if (!next && !previous[section]) return previous;
+      if (!next) {
+        const rest = { ...previous };
+        delete rest[section];
+        return rest;
+      }
+      return { ...previous, [section]: true };
+    });
+  };
 
-        // Recommendations from most recent tracks
-        if (latestUniqueHistory.length > 0 && latestUniqueHistory[0].tidalId) {
-          try {
-            const recs = await getRecommendations(latestUniqueHistory[0].tidalId);
-            const appRecs = recs.map(tidalTrackToAppTrack).slice(0, 12);
+  const cancelCarouselDrag = (
+    section: string,
+    currentTarget?: HTMLDivElement,
+    pointerId?: number,
+  ) => {
+    const session = dragSessionsRef.current[section];
+    if (!session) return;
 
-            if (latestUniqueHistory.length > 1 && latestUniqueHistory[1].tidalId) {
-              try {
-                const recs2 = await getRecommendations(latestUniqueHistory[1].tidalId);
-                const appRecs2 = recs2.map(tidalTrackToAppTrack).slice(0, 12);
-                const allRecs = [...appRecs];
-                for (const r of appRecs2) {
-                  if (!allRecs.some(existing => existing.id === r.id)) {
-                    allRecs.push(r);
-                  }
-                }
-                setRecommendedTracks(allRecs.slice(0, 12));
-              } catch {
-                setRecommendedTracks(appRecs);
-              }
-            } else {
-              setRecommendedTracks(appRecs);
-            }
-          } catch (e) {
-            console.error("Failed to load recommendations:", e);
-          }
+    delete dragSessionsRef.current[section];
+    clearSectionAnimationFrame(section);
+    pendingTransformsRef.current[section] = undefined;
+
+    if (currentTarget && pointerId != null && currentTarget.hasPointerCapture(pointerId)) {
+      currentTarget.releasePointerCapture(pointerId);
+    }
+
+    setSectionDragging(section, false);
+    snapSectionTransform(section, getCurrentPage(section, getTrackedItemsLength(section)));
+  };
+
+  const cancelCarouselDragRef = useRef(cancelCarouselDrag);
+  cancelCarouselDragRef.current = cancelCarouselDrag;
+
+  const handleCarouselPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    section: string,
+    itemsLength: number,
+  ) => {
+    if (getPageCount(itemsLength) <= 1) return;
+    if (event.button !== 0) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, select, [role='button'], [data-no-carousel-drag='true']")) {
+      return;
+    }
+
+    dragSessionsRef.current[section] = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      lastOffset: 0,
+      moved: false,
+    };
+
+    clearSectionAnimationFrame(section);
+    pendingTransformsRef.current[section] = undefined;
+  };
+
+  const handleCarouselPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    section: string,
+    itemsLength: number,
+  ) => {
+    const session = dragSessionsRef.current[section];
+    if (!session || session.pointerId !== event.pointerId) return;
+
+    if (event.buttons === 0) {
+      cancelCarouselDrag(section, event.currentTarget, event.pointerId);
+      return;
+    }
+
+    const pageCount = getPageCount(itemsLength);
+    const currentPage = getCurrentPage(section, itemsLength);
+    const rawDelta = event.clientX - session.startX;
+    const isOverscrollingStart = currentPage === 0 && rawDelta > 0;
+    const isOverscrollingEnd = currentPage === pageCount - 1 && rawDelta < 0;
+    const nextOffset = (isOverscrollingStart || isOverscrollingEnd ? rawDelta * 0.28 : rawDelta * 0.94);
+
+    session.lastOffset = nextOffset;
+    if (Math.abs(rawDelta) > 6) {
+      if (!session.moved) {
+        session.moved = true;
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.setPointerCapture(event.pointerId);
         }
+        setSectionDragging(section, true);
+      }
+    }
+
+    if (!session.moved) return;
+
+    scheduleSectionTransform(section, currentPage, nextOffset);
+  };
+
+  const finishCarouselDrag = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    section: string,
+    itemsLength: number,
+  ) => {
+    const session = dragSessionsRef.current[section];
+    if (!session || session.pointerId !== event.pointerId) return;
+
+    delete dragSessionsRef.current[section];
+    clearSectionAnimationFrame(section);
+    pendingTransformsRef.current[section] = undefined;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!session.moved) return;
+
+    setSectionDragging(section, false);
+
+    const pageCount = getPageCount(itemsLength);
+    const currentPage = getCurrentPage(section, itemsLength);
+    const frameWidth = frameRefs.current[section]?.clientWidth ?? event.currentTarget.clientWidth;
+    const threshold = Math.max(56, frameWidth * 0.14);
+    const direction = Math.abs(session.lastOffset) >= threshold
+      ? (session.lastOffset < 0 ? 1 : -1)
+      : 0;
+    const targetPage = Math.max(0, Math.min(pageCount - 1, currentPage + direction));
+
+    snapSectionTransform(section, targetPage);
+
+    if (targetPage !== currentPage) {
+      moveSectionPage(section, itemsLength, direction as -1 | 1);
+    }
+
+    if (session.moved) {
+      clickSuppressionRef.current[section] = Date.now() + 220;
+    }
+  };
+
+  const handleCarouselClickCapture = (event: MouseEvent<HTMLDivElement>, section: string) => {
+    const suppressUntil = clickSuppressionRef.current[section];
+    if (!suppressUntil || suppressUntil < Date.now()) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    delete clickSuppressionRef.current[section];
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const cancelAllCarouselDrags = () => {
+      Object.keys(dragSessionsRef.current).forEach((section) => {
+        cancelCarouselDragRef.current(section);
       });
+    };
+
+    window.addEventListener("blur", cancelAllCarouselDrags);
+    document.addEventListener("visibilitychange", cancelAllCarouselDrags);
+
+    return () => {
+      window.removeEventListener("blur", cancelAllCarouselDrags);
+      document.removeEventListener("visibilitychange", cancelAllCarouselDrags);
+    };
+  }, []);
+
+  function renderSectionRow<T>(
+    items: T[],
+    section: string,
+    renderItem: (item: T, index: number) => ReactNode,
+    contentKey: string,
+  ) {
+    sectionItemCountsRef.current[section] = items.length;
+
+    if (isMobile) {
+      return (
+        <div
+          className={`${CARD_ROW_FRAME} overflow-x-auto border-r border-b border-white/10 scrollbar-hide`}
+          style={{
+            ...rowStyle,
+            ["--home-row-columns" as string]: 2.08,
+          }}
+        >
+          <motion.div
+            key={contentKey}
+            className="home-section-inline-row scrollbar-hide"
+            initial={motionEnabled ? { opacity: 0.82, y: 10 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={getSurfaceSwapTransition(motionEnabled, websiteMode)}
+          >
+            {items.map((item, index) => (
+              <div key={`${section}-inline-${index}`} className="home-section-inline-item">
+                {renderItem(item, index)}
+              </div>
+            ))}
+          </motion.div>
+        </div>
+      );
     }
-  }, [user, getHistory]);
 
-  useEffect(() => {
-    if (!fetchedRef.current) {
-      fetchedRef.current = true;
-      loadContent();
-    }
-  }, [loadContent]);
+    const pages = getSectionPages(items);
+    const currentPage = getCurrentPage(section, items.length);
+    const isDragging = !!draggingSections[section];
 
-  // Safety net: never leave the home page in perpetual loading state.
-  useEffect(() => {
-    if (loaded) return;
-    const timer = window.setTimeout(() => {
-      setLoaded(true);
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [loaded]);
-
-  if (!loaded) {
     return (
-      <PageTransition>
-        <div className="px-4 py-4 border-b border-white/10">
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">{getGreeting()}</h1>
-        </div>
-        <div className="px-4 py-8 flex items-center gap-3 text-muted-foreground border-b border-white/10">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Loading your homepage...</span>
-        </div>
-        <div className="px-4 py-6">
-          <LoadingSkeleton />
-        </div>
-      </PageTransition>
+      <div
+        ref={setFrameRef(section)}
+        className={`${CARD_ROW_FRAME} ${isDragging ? "is-dragging" : ""}`}
+        style={rowStyle}
+        onDragStart={(event) => event.preventDefault()}
+        onPointerDown={(event) => handleCarouselPointerDown(event, section, items.length)}
+        onPointerMove={(event) => handleCarouselPointerMove(event, section, items.length)}
+        onPointerUp={(event) => finishCarouselDrag(event, section, items.length)}
+        onPointerCancel={(event) => cancelCarouselDrag(section, event.currentTarget, event.pointerId)}
+        onLostPointerCapture={(event) => cancelCarouselDrag(section, event.currentTarget, event.pointerId)}
+        onClickCapture={(event) => handleCarouselClickCapture(event, section)}
+      >
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            key={contentKey}
+            className="home-section-carousel-swap-layer"
+            initial={motionEnabled ? { opacity: 0.72, y: 10, scale: 0.995 } : false}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={motionEnabled ? { opacity: 0.4, y: -10, scale: 1.004 } : undefined}
+            transition={getSurfaceSwapTransition(motionEnabled, websiteMode)}
+          >
+            <motion.div variants={rowVariants} initial="hidden" animate="show">
+              <div
+                ref={setTrackRef(section)}
+                className={`home-section-carousel-track ${isDragging ? "is-dragging" : ""}`}
+                style={{
+                  transform: getCarouselTransform(currentPage),
+                }}
+              >
+                {pages.map((pageItems, pageIndex) => (
+                  <div
+                    key={`${section}-page-${pageIndex}`}
+                    className="home-section-carousel-page"
+                  >
+                    {pageItems.map((item, itemIndex) => renderItem(item, pageIndex * homeRowCardCount + itemIndex))}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
     );
   }
 
+  if (!loaded) return <LoadingSkeleton />;
+
   if (
     error &&
-    forYouTracks.length === 0 &&
     recommendedTracks.length === 0 &&
     recommendedAlbums.length === 0 &&
     recommendedArtists.length === 0 &&
@@ -428,13 +576,15 @@ const Index = () => {
   ) {
     return (
       <PageTransition>
-        <div className="hover-desaturate-page">
+        <div className="home-page-surface hover-desaturate-page">
           <div className="flex flex-col items-center justify-center h-64 gap-4">
             <AlertCircle className="w-12 h-12 text-muted-foreground" />
             <p className="text-muted-foreground text-lg font-medium">Failed to load content</p>
             <Button
               variant="outline"
-              onClick={() => { fetchedRef.current = false; loadContent(); }}
+              onClick={() => {
+                void retryInitialLoad();
+              }}
               className="gap-2"
             >
               <RefreshCw className="w-4 h-4" /> Try again
@@ -445,97 +595,302 @@ const Index = () => {
     );
   }
 
-  const getSectionTracks = (tracks: Track[], section: string) =>
-    expandedSections.has(section) ? tracks : tracks.slice(0, 5);
+  const hasAnyRows =
+    recommendedTracks.length > 0 ||
+    recentTracks.length > 0 ||
+    recommendedAlbums.length > 0 ||
+    recommendedArtists.length > 0;
 
   return (
     <PageTransition>
-      <div className="hover-desaturate-page">
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground px-4 py-4 border-b border-white/10">{getGreeting()}</h1>
+      <div ref={containerRef} className="mobile-page-shell home-page-surface hover-desaturate-page">
+        <motion.section
+          className="mobile-page-panel home-hero-panel relative isolate overflow-hidden border border-white/10 px-4 py-5 sm:px-5 sm:py-6 md:px-7 md:py-7"
+          initial={motionEnabled ? { opacity: 0, y: 20, scale: 0.992 } : false}
+          animate={{ opacity: heroOpacity, y: heroShift, scale: heroScale }}
+          transition={{
+            duration: motionEnabled ? motionProfile.duration.slow : 0,
+            ease: motionProfile.ease.smooth,
+          }}
+        >
+          <motion.div
+            aria-hidden="true"
+            className="home-hero-ambient pointer-events-none absolute inset-0"
+            animate={
+              allowHomeAmbientMotion
+                ? {
+                    opacity: [0.72, 1, 0.8],
+                    scale: [1, isRoundish ? 1.06 : 1.035, 1],
+                  }
+                : { opacity: 0.88, scale: 1 }
+            }
+            transition={
+              allowHomeAmbientMotion
+                ? {
+                    duration: isRoundish ? 14 : 12,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }
+                : { duration: 0 }
+            }
+          />
+          <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-2xl min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                {user ? "For You" : "Guest Mode"}
+              </p>
+              <h1 className="mt-3 max-w-none text-[clamp(2rem,8.4vw,3.9rem)] font-black leading-[0.94] tracking-[-0.05em] text-white sm:max-w-[13ch] md:max-w-none md:text-5xl md:leading-[0.95]">
+                {user
+                  ? "Fresh picks, recent plays, and artists worth revisiting."
+                  : "Browse the catalog now. Sign in when you want Knobb to remember it."}
+              </h1>
+              <p className="mt-4 max-w-xl text-sm leading-6 text-white/66 sm:text-[15px]">
+                {user
+                  ? "Knobb keeps the home feed close to your listening habits, then opens outward into new releases and deeper cuts."
+                  : "You can explore releases, search artists, and play tracks without an account. Sign in when you want liked songs, playlists, library edits, and listening history to sync across sessions."}
+              </p>
+            </div>
+            <div className="grid w-full gap-3 sm:grid-cols-2 xl:min-w-[22rem] xl:w-auto">
+              {user ? (
+                <>
+                  <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                    <Button
+                      className={HOME_HERO_CTA_PRIMARY_CLASS}
+                      onClick={() => navigate("/browse")}
+                    >
+                      Browse new releases
+                    </Button>
+                  </motion.div>
+                  <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                    <Button
+                      className={HOME_HERO_CTA_SECONDARY_CLASS}
+                      onClick={() => navigate("/history")}
+                    >
+                      Open history
+                    </Button>
+                  </motion.div>
+                </>
+              ) : (
+                <>
+                  <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                    <Button
+                      className={HOME_HERO_CTA_PRIMARY_CLASS}
+                      onClick={() => navigate("/auth", { state: { from: "/" } })}
+                    >
+                      Sign in to unlock library
+                    </Button>
+                  </motion.div>
+                  <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                    <Button
+                      className={HOME_HERO_CTA_SECONDARY_CLASS}
+                      onClick={() => navigate("/browse")}
+                    >
+                      Browse new releases
+                    </Button>
+                  </motion.div>
+                </>
+              )}
+            </div>
+          </div>
+        </motion.section>
 
-        {/* For You — Algorithmic Recommendations */}
-        {forYouTracks.length > 0 && (
-          <>
-            <SectionHeader
-              title="For You"
-              onSeeAll={() => toggleSection("foryou")}
-              loading={loadingForYou}
-            />
-            <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-              {getSectionTracks(forYouTracks, "foryou").map((track, i) => (
-                <TrackCard key={`foryou-${track.id}-${i}`} track={track} tracks={forYouTracks} />
-              ))}
-            </motion.div>
-          </>
+        {/* Recommended Tracks (Tidal recommendations) */}
+        {recommendedTracks.length > 0 && (
+          <HomeSectionBlock
+            index={0}
+            motionEnabled={motionEnabled}
+            websiteMode={websiteMode}
+            scrollProgress={scrollProgress}
+            reloading={reloadingSection === "recommended"}
+            header={(
+              <SectionHeader
+                title={HOME_SECTION_CONFIG.recommended.title}
+                onViewAll={canExpandSection(recommendedTracks) ? () => openSectionPage("recommended") : undefined}
+                onReload={() => handleSectionReload("recommended")}
+                loading={reloadingSection === "recommended"}
+                viewAllLabel="View all"
+                showPager={!isMobile && shouldShowPager("recommended", recommendedTracks.length)}
+                onPageBack={() => moveSectionPage("recommended", recommendedTracks.length, -1)}
+                onPageForward={() => moveSectionPage("recommended", recommendedTracks.length, 1)}
+                canPageBack={getCurrentPage("recommended", recommendedTracks.length) > 0}
+                canPageForward={getCurrentPage("recommended", recommendedTracks.length) < getPageCount(recommendedTracks.length) - 1}
+              />
+            )}
+          >
+            {renderSectionRow(recommendedTracks, "recommended", (track) => (
+              <motion.div key={`rec-${track.id}`} variants={rowItemVariants}>
+                <TrackCard
+                  track={track}
+                  tracks={recommendedTracks}
+                  liked={isLiked(track.id)}
+                  onToggleLike={() => {
+                    void toggleLike(track);
+                  }}
+                />
+              </motion.div>
+            ), `recommended:${recommendedTracks.length}:${recommendedTracks[0]?.id ?? "empty"}:${recommendedTracks[recommendedTracks.length - 1]?.id ?? "empty"}`)}
+          </HomeSectionBlock>
         )}
 
-        {/* Recommended Songs — Generic Selection */}
-        {recommendedTracks.length > 0 && forYouTracks.length === 0 && (
-          <>
-            <SectionHeader
-              title="Recommended Songs"
-              onSeeAll={() => toggleSection("recommended")}
-              onReload={() => reloadSection("recommended")}
-              loading={reloadingSection === "recommended"}
-            />
-            <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-              {getSectionTracks(recommendedTracks, "recommended").map((track) => (
-                <TrackCard key={`rec-${track.id}`} track={track} tracks={recommendedTracks} />
-              ))}
-            </motion.div>
-          </>
+        {/* New Releases for You */}
+        {newReleases.length > 0 && (
+          <HomeSectionBlock
+            index={1}
+            motionEnabled={motionEnabled}
+            websiteMode={websiteMode}
+            scrollProgress={scrollProgress}
+            reloading={reloadingSection === "newreleases"}
+            header={(
+              <SectionHeader
+                title={HOME_SECTION_CONFIG.newreleases.title}
+                onViewAll={canExpandSection(newReleases) ? () => openSectionPage("newreleases") : undefined}
+                onReload={() => handleSectionReload("newreleases")}
+                loading={reloadingSection === "newreleases"}
+                viewAllLabel="View all"
+                showPager={!isMobile && shouldShowPager("newreleases", newReleases.length)}
+                onPageBack={() => moveSectionPage("newreleases", newReleases.length, -1)}
+                onPageForward={() => moveSectionPage("newreleases", newReleases.length, 1)}
+                canPageBack={getCurrentPage("newreleases", newReleases.length) > 0}
+                canPageForward={getCurrentPage("newreleases", newReleases.length) < getPageCount(newReleases.length) - 1}
+              />
+            )}
+          >
+            {renderSectionRow(newReleases, "newreleases", (album) => (
+              <motion.div key={`new-release-${album.id}`} variants={rowItemVariants}>
+                <HomeAlbumCard
+                  album={album}
+                  saved={isAlbumSaved(album.id)}
+                  onToggleSave={() => {
+                    void toggleSavedAlbum({
+                      albumId: album.id,
+                      albumTitle: album.title,
+                      albumArtist: album.artist || "Various Artists",
+                      albumCoverUrl: album.coverUrl,
+                    });
+                  }}
+                />
+              </motion.div>
+            ), `newreleases:${newReleases.length}:${newReleases[0]?.id ?? "empty"}:${newReleases[newReleases.length - 1]?.id ?? "empty"}`)}
+          </HomeSectionBlock>
         )}
 
         {/* Recently Played */}
         {recentTracks.length > 0 && (
-          <>
-            <SectionHeader title="Recently Played" onSeeAll={() => navigate("/history")} />
-            <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-              {recentTracks.slice(0, 5).map((track, i) => (
-                <TrackCard key={`recent-${track.id}-${i}`} track={track} tracks={recentTracks} />
-              ))}
-            </motion.div>
-          </>
+          <HomeSectionBlock
+            index={2}
+            motionEnabled={motionEnabled}
+            websiteMode={websiteMode}
+            scrollProgress={scrollProgress}
+            reloading={reloadingSection === "recent"}
+            header={(
+              <SectionHeader
+                title={HOME_SECTION_CONFIG.recent.title}
+                onViewAll={canExpandSection(recentTracks) ? () => openSectionPage("recent") : undefined}
+                onReload={() => handleSectionReload("recent")}
+                loading={reloadingSection === "recent"}
+                viewAllLabel="View all"
+                showPager={!isMobile && shouldShowPager("recent", recentTracks.length)}
+                onPageBack={() => moveSectionPage("recent", recentTracks.length, -1)}
+                onPageForward={() => moveSectionPage("recent", recentTracks.length, 1)}
+                canPageBack={getCurrentPage("recent", recentTracks.length) > 0}
+                canPageForward={getCurrentPage("recent", recentTracks.length) < getPageCount(recentTracks.length) - 1}
+              />
+            )}
+          >
+            {renderSectionRow(recentTracks, "recent", (track, index) => (
+              <motion.div key={`recent-${track.id}-${index}`} variants={rowItemVariants}>
+                <TrackCard
+                  track={track}
+                  tracks={recentTracks}
+                  liked={isLiked(track.id)}
+                  onToggleLike={() => {
+                    void toggleLike(track);
+                  }}
+                />
+              </motion.div>
+            ), `recent:${recentTracks.length}:${recentTracks[0]?.id ?? "empty"}:${recentTracks[recentTracks.length - 1]?.id ?? "empty"}`)}
+          </HomeSectionBlock>
         )}
 
         {/* Recommended Albums */}
         {recommendedAlbums.length > 0 && (
-          <>
-            <SectionHeader
-              title="Recommended Albums"
-              onSeeAll={() => toggleSection("recalbums")}
-              onReload={() => reloadSection("recalbums")}
-              loading={reloadingSection === "recalbums"}
-            />
-            <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-              {(expandedSections.has("recalbums") ? recommendedAlbums : recommendedAlbums.slice(0, 5)).map((album) => (
-                <HomeAlbumCard key={`recalbum-${album.id}`} album={album} navigate={navigate} playAlbum={playAlbum} />
-              ))}
-            </motion.div>
-          </>
+          <HomeSectionBlock
+            index={3}
+            motionEnabled={motionEnabled}
+            websiteMode={websiteMode}
+            scrollProgress={scrollProgress}
+            reloading={reloadingSection === "recalbums"}
+            header={(
+              <SectionHeader
+                title={HOME_SECTION_CONFIG.recalbums.title}
+                onViewAll={canExpandSection(recommendedAlbums) ? () => openSectionPage("recalbums") : undefined}
+                onReload={() => handleSectionReload("recalbums")}
+                loading={reloadingSection === "recalbums"}
+                viewAllLabel="View all"
+                showPager={!isMobile && shouldShowPager("recalbums", recommendedAlbums.length)}
+                onPageBack={() => moveSectionPage("recalbums", recommendedAlbums.length, -1)}
+                onPageForward={() => moveSectionPage("recalbums", recommendedAlbums.length, 1)}
+                canPageBack={getCurrentPage("recalbums", recommendedAlbums.length) > 0}
+                canPageForward={getCurrentPage("recalbums", recommendedAlbums.length) < getPageCount(recommendedAlbums.length) - 1}
+              />
+            )}
+          >
+            {renderSectionRow(recommendedAlbums, "recalbums", (album) => (
+              <motion.div key={`recalbum-${album.id}`} variants={rowItemVariants}>
+                <HomeAlbumCard
+                  album={album}
+                  saved={isAlbumSaved(album.id)}
+                  onToggleSave={() => {
+                    void toggleSavedAlbum({
+                      albumId: album.id,
+                      albumTitle: album.title,
+                      albumArtist: album.artist || "Various Artists",
+                      albumCoverUrl: album.coverUrl,
+                    });
+                  }}
+                />
+              </motion.div>
+            ), `recalbums:${recommendedAlbums.length}:${recommendedAlbums[0]?.id ?? "empty"}:${recommendedAlbums[recommendedAlbums.length - 1]?.id ?? "empty"}`)}
+          </HomeSectionBlock>
         )}
 
         {/* Recommended Artists */}
         {recommendedArtists.length > 0 && (
-          <>
-            <SectionHeader
-              title="Recommended Artists"
-              onSeeAll={() => toggleSection("recartists")}
-              onReload={() => reloadSection("recartists")}
-              loading={reloadingSection === "recartists"}
-            />
-            <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-              {(expandedSections.has("recartists") ? recommendedArtists : recommendedArtists.slice(0, 5)).map((artist, i) => (
-                <ArtistCard
-                  key={`disc-${artist.name}-${i}`}
-                  id={artist.id}
-                  name={artist.name}
-                  picture={artist.picture}
-                  onClick={() => navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`)}
+          <HomeSectionBlock
+            index={4}
+            motionEnabled={motionEnabled}
+            websiteMode={websiteMode}
+            scrollProgress={scrollProgress}
+            reloading={reloadingSection === "recartists"}
+            header={(
+              <SectionHeader
+                title={HOME_SECTION_CONFIG.recartists.title}
+                onViewAll={canExpandSection(recommendedArtists) ? () => openSectionPage("recartists") : undefined}
+                onReload={() => handleSectionReload("recartists")}
+                loading={reloadingSection === "recartists"}
+                viewAllLabel="View all"
+                showPager={!isMobile && shouldShowPager("recartists", recommendedArtists.length)}
+                onPageBack={() => moveSectionPage("recartists", recommendedArtists.length, -1)}
+                onPageForward={() => moveSectionPage("recartists", recommendedArtists.length, 1)}
+                canPageBack={getCurrentPage("recartists", recommendedArtists.length) > 0}
+                canPageForward={getCurrentPage("recartists", recommendedArtists.length) < getPageCount(recommendedArtists.length) - 1}
+              />
+            )}
+          >
+            {renderSectionRow(recommendedArtists, "recartists", (artist) => (
+              <motion.div key={`rec-art-${artist.id}`} variants={rowItemVariants}>
+                <ArtistCardWrapper
+                  artist={artist}
                 />
-              ))}
-            </motion.div>
-          </>
+              </motion.div>
+            ), `recartists:${recommendedArtists.length}:${recommendedArtists[0]?.id ?? "empty"}:${recommendedArtists[recommendedArtists.length - 1]?.id ?? "empty"}`)}
+          </HomeSectionBlock>
+        )}
+
+        {!hasAnyRows && (
+          <div className="px-4 py-10 border-t border-white/10 text-muted-foreground">
+            Play a few tracks to personalize your home recommendations.
+          </div>
         )}
       </div>
     </PageTransition>

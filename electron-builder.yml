@@ -1,0 +1,45 @@
+appId: fm.knobb.desktop
+productName: Knobb Desktop
+directories:
+  output: release/desktop
+files:
+  - dist/**/*
+  - desktop/**/*
+  - scripts/discord-presence-bridge-core.mjs
+  - public/brand/**/*
+  - discord-presence.bridge.example.json
+extraMetadata:
+  main: desktop/knobb/main.mjs
+publish:
+  provider: github
+  owner: MunasibApurbo
+  repo: soft-visuals-studio
+  releaseType: release
+  vPrefixedTagName: true
+mac:
+  artifactName: Knobb-Desktop-macOS.${ext}
+  category: public.app-category.music
+  icon: desktop/knobb/assets/knobb.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+dmg:
+  artifactName: Knobb-Desktop-macOS.${ext}
+win:
+  artifactName: Knobb-Desktop-Setup.${ext}
+  icon: public/favicon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: Knobb-Desktop-Setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: false
+  perMachine: false
