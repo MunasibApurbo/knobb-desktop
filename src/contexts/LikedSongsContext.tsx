@@ -1,20 +1,21 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Track } from "@/types/music";
+import { normalizeTrackIdentity } from "@/lib/trackIdentity";
+import { scheduleBackgroundTask } from "@/lib/performanceProfile";
+import { getSupabaseClient } from "@/lib/runtimeModules";
 
 interface LikedSongsContextType {
   likedSongs: Track[];
   isLiked: (trackId: string) => boolean;
+  addLikedSong: (track: Track) => Promise<"added" | "duplicate" | "error">;
   toggleLike: (track: Track) => Promise<void>;
 }
 
 const LikedSongsContext = createContext<LikedSongsContextType | null>(null);
-
-const LOCAL_LIKED_SONGS_KEY = "nobb.liked-songs";
-
-const buildStorageKey = (userId: string) => `${LOCAL_LIKED_SONGS_KEY}:${userId}`;
 
 const getTrackKey = (track: Track) => {
   if (typeof track.tidalId === "number" && Number.isFinite(track.tidalId)) {
@@ -36,68 +37,15 @@ const dedupeTracks = (tracks: Track[]) => {
   return deduped;
 };
 
-const readLocalLikedSongs = (userId: string): Track[] => {
-  try {
-    const raw = localStorage.getItem(buildStorageKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return dedupeTracks(parsed as Track[]);
-  } catch (error) {
-    console.error("Failed to read local liked songs", error);
-    return [];
-  }
-};
-
-const writeLocalLikedSongs = (userId: string, tracks: Track[]) => {
-  try {
-    localStorage.setItem(buildStorageKey(userId), JSON.stringify(tracks));
-  } catch (error) {
-    console.error("Failed to persist local liked songs", error);
-  }
-};
-
-const mergeLikedSongs = (primary: Track[], secondary: Track[]) => {
-  const byKey = new Map<string, Track>();
-  for (const track of primary) byKey.set(getTrackKey(track), track);
-  for (const track of secondary) {
-    const key = getTrackKey(track);
-    if (!byKey.has(key)) byKey.set(key, track);
-  }
-  return Array.from(byKey.values());
-};
-
-const isMissingLikedSongsTableError = (error: unknown) => {
-  const message =
-    typeof error === "object" && error && "message" in error
-      ? String((error as { message?: unknown }).message || "")
-      : String(error || "");
-  return message.toLowerCase().includes("liked_songs");
-};
-
 export function LikedSongsProvider({ children }: { children: React.ReactNode }) {
   const [likedSongs, setLikedSongs] = useState<Track[]>([]);
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const likedSongsRef = useRef<Track[]>([]);
-  const remoteUnavailableRef = useRef(false);
 
   useEffect(() => {
     likedSongsRef.current = likedSongs;
   }, [likedSongs]);
-
-  useEffect(() => {
-    remoteUnavailableRef.current = false;
-  }, [user?.id]);
-
-  const setAndPersist = useCallback(
-    (next: Track[]) => {
-      const normalized = dedupeTracks(next);
-      likedSongsRef.current = normalized;
-      setLikedSongs(normalized);
-      if (user?.id) writeLocalLikedSongs(user.id, normalized);
-    },
-    [user?.id]
-  );
 
   const fetchRemoteLikedSongs = useCallback(async () => {
     if (!user) {
@@ -106,14 +54,8 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
-    const localLikedSongs = readLocalLikedSongs(user.id);
-    if (localLikedSongs.length > 0) {
-      setAndPersist(localLikedSongs);
-    }
-
-    if (remoteUnavailableRef.current) return;
-
     try {
+      const supabase = await getSupabaseClient();
       const { data, error } = await supabase
         .from("liked_songs")
         .select("track_data,track_key,liked_at")
@@ -121,51 +63,118 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
 
       if (error) throw error;
 
-      const remoteLikedSongs = (data || []).map((row) => row.track_data as Track);
-      const merged = mergeLikedSongs(remoteLikedSongs, localLikedSongs);
-      setAndPersist(merged);
+      const remoteLikedSongs = (data || []).map((row) =>
+        normalizeTrackIdentity({
+          ...(row.track_data as unknown as Track),
+          addedAt: row.liked_at,
+        })
+      );
+
+      const normalized = dedupeTracks(remoteLikedSongs);
+      likedSongsRef.current = normalized;
+      setLikedSongs(normalized);
     } catch (e) {
       console.error("Failed to fetch liked songs:", e);
-      if (isMissingLikedSongsTableError(e)) {
-        remoteUnavailableRef.current = true;
-      }
     }
-  }, [user?.id, setAndPersist]);
+  }, [user]);
 
   // Fetch liked songs on mount or user change (local-first, remote-sync)
   useEffect(() => {
-    void fetchRemoteLikedSongs();
-  }, [fetchRemoteLikedSongs]);
+    if (!user) {
+      void fetchRemoteLikedSongs();
+      return;
+    }
 
-  useEffect(() => {
-    if (!user || remoteUnavailableRef.current) return;
-
-    const channel = supabase
-      .channel(`liked-songs:${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "liked_songs",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          void fetchRemoteLikedSongs();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return scheduleBackgroundTask(() => {
+      void fetchRemoteLikedSongs();
+    }, 900);
   }, [fetchRemoteLikedSongs, user]);
 
-  // (Supabase channel effect moved down)
+  useEffect(() => {
+    if (!userId) return;
+
+    let active = true;
+    let channel: RealtimeChannel | null = null;
+    const cancel = scheduleBackgroundTask(() => {
+      void (async () => {
+        const supabase = await getSupabaseClient();
+        if (!active) return;
+
+        channel = supabase
+          .channel(`liked-songs:${userId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "liked_songs",
+              filter: `user_id=eq.${userId}`,
+            },
+            () => {
+              void fetchRemoteLikedSongs();
+            }
+          )
+          .subscribe();
+      })();
+    }, 1400);
+
+    return () => {
+      active = false;
+      cancel();
+      if (channel) {
+        void getSupabaseClient().then((supabase) => supabase.removeChannel(channel!));
+      }
+    };
+  }, [fetchRemoteLikedSongs, userId]);
 
   const isLiked = useCallback(
     (trackId: string) => likedSongs.some((t) => String(t.id) === String(trackId)),
     [likedSongs]
+  );
+
+  const addLikedSong = useCallback(
+    async (track: Track): Promise<"added" | "duplicate" | "error"> => {
+      if (!user) {
+        toast.error("Please sign in to like songs");
+        return "error";
+      }
+
+      const normalizedTrack = normalizeTrackIdentity(track);
+      const targetKey = getTrackKey(normalizedTrack);
+      const alreadyLiked = likedSongsRef.current.some((t) => getTrackKey(t) === targetKey);
+      if (alreadyLiked) return "duplicate";
+
+      const likedTrack = {
+        ...normalizedTrack,
+        addedAt: new Date().toISOString(),
+      };
+      const previous = likedSongsRef.current;
+      const normalized = dedupeTracks([likedTrack, ...likedSongsRef.current]);
+      likedSongsRef.current = normalized;
+      setLikedSongs(normalized);
+
+      try {
+        const supabase = await getSupabaseClient();
+        const persistableTrack = { ...likedTrack };
+        delete persistableTrack.streamUrl;
+        delete persistableTrack.addedAt;
+        const likedSongInsert: TablesInsert<"liked_songs"> = {
+          user_id: user.id,
+          track_data: persistableTrack as unknown as Json,
+          track_key: targetKey,
+        };
+        const { error } = await supabase.from("liked_songs").insert(likedSongInsert);
+        if (error) throw error;
+        return "added";
+      } catch (e) {
+        console.error("Failed to sync liked song", e);
+        likedSongsRef.current = previous;
+        setLikedSongs(previous);
+        toast.error("Failed to sync liked song");
+        return "error";
+      }
+    },
+    [user]
   );
 
   const toggleLike = useCallback(
@@ -175,20 +184,27 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
         return;
       }
 
-      const targetKey = getTrackKey(track);
+      const normalizedTrack = normalizeTrackIdentity(track);
+      const targetKey = getTrackKey(normalizedTrack);
       const currentlyLiked = likedSongsRef.current.some(
         (t) => getTrackKey(t) === targetKey
       );
+      const likedTrack = {
+        ...normalizedTrack,
+        addedAt: new Date().toISOString(),
+      };
 
       const nextLikedSongs = currentlyLiked
         ? likedSongsRef.current.filter((t) => getTrackKey(t) !== targetKey)
-        : [track, ...likedSongsRef.current.filter((t) => getTrackKey(t) !== targetKey)];
-      const previous = likedSongsRef.current;
-      setAndPersist(nextLikedSongs);
+        : [likedTrack, ...likedSongsRef.current.filter((t) => getTrackKey(t) !== targetKey)];
 
-      if (remoteUnavailableRef.current) return;
+      const previous = likedSongsRef.current;
+      const normalized = dedupeTracks(nextLikedSongs);
+      likedSongsRef.current = normalized;
+      setLikedSongs(normalized);
 
       try {
+        const supabase = await getSupabaseClient();
         if (currentlyLiked) {
           const { error } = await supabase
             .from("liked_songs")
@@ -197,28 +213,30 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
             .eq("track_key", targetKey);
           if (error) throw error;
         } else {
-          const { error } = await supabase.from("liked_songs").insert({
+          const persistableTrack = { ...likedTrack };
+          delete persistableTrack.streamUrl;
+          delete persistableTrack.addedAt;
+          const likedSongInsert: TablesInsert<"liked_songs"> = {
             user_id: user.id,
-            track_data: track as any,
+            track_data: persistableTrack as unknown as Json,
             track_key: targetKey,
-          });
+          };
+          const { error } = await supabase.from("liked_songs").insert(likedSongInsert);
           if (error) throw error;
         }
       } catch (e) {
         console.error("Failed to sync liked song", e);
-        if (isMissingLikedSongsTableError(e)) {
-          remoteUnavailableRef.current = true;
-        } else {
-          setAndPersist(previous);
-          toast.error("Failed to sync liked song");
-        }
+        // Rollback
+        likedSongsRef.current = previous;
+        setLikedSongs(previous);
+        toast.error("Failed to sync liked song");
       }
     },
-    [setAndPersist, user]
+    [user]
   );
 
   return (
-    <LikedSongsContext.Provider value={{ likedSongs, isLiked, toggleLike }}>
+    <LikedSongsContext.Provider value={{ likedSongs, isLiked, addLikedSong, toggleLike }}>
       {children}
     </LikedSongsContext.Provider>
   );

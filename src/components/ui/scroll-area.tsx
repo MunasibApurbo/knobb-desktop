@@ -1,37 +1,41 @@
 import * as React from "react";
-import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
+import type * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 
+import { useOptionalSettings } from "@/contexts/SettingsContext";
 import { cn } from "@/lib/utils";
+
+type ScrollAreaProps = React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
+  forceVisibleScrollbar?: boolean;
+  viewportProps?: React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Viewport>;
+};
 
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
->(({ className, children, ...props }, ref) => (
-  <ScrollAreaPrimitive.Root ref={ref} className={cn("relative overflow-hidden", className)} {...props}>
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">{children}</ScrollAreaPrimitive.Viewport>
-    <ScrollBar />
-  </ScrollAreaPrimitive.Root>
-));
-ScrollArea.displayName = ScrollAreaPrimitive.Root.displayName;
+  ScrollAreaProps
+>(({ className, children, forceVisibleScrollbar = false, viewportProps, type, scrollHideDelay, ...props }, ref) => {
+  const showScrollbar = useOptionalSettings()?.showScrollbar ?? true;
+  const hideScrollbarChrome = !forceVisibleScrollbar && !showScrollbar;
+  const { className: viewportClassName, ...nativeViewportProps } = viewportProps ?? {};
+  void type;
+  void scrollHideDelay;
 
-const ScrollBar = React.forwardRef<
-  React.ElementRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>
->(({ className, orientation = "vertical", ...props }, ref) => (
-  <ScrollAreaPrimitive.ScrollAreaScrollbar
-    ref={ref}
-    orientation={orientation}
-    className={cn(
-      "flex touch-none select-none transition-colors opacity-0 pointer-events-none",
-      orientation === "vertical" && "h-full !w-0 !border-0 !p-0",
-      orientation === "horizontal" && "!h-0 w-full !border-0 !p-0",
-      className,
-    )}
-    {...props}
-  >
-    <ScrollAreaPrimitive.ScrollAreaThumb className="relative flex-1 bg-transparent" />
-  </ScrollAreaPrimitive.ScrollAreaScrollbar>
-));
-ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName;
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "scroll-area-native overflow-auto overscroll-y-contain",
+        hideScrollbarChrome && "scrollbar-hide",
+        className,
+        viewportClassName,
+      )}
+      {...props}
+      {...nativeViewportProps}
+    >
+      {children}
+    </div>
+  );
+});
 
-export { ScrollArea, ScrollBar };
+ScrollArea.displayName = "ScrollArea";
+
+export { ScrollArea };

@@ -1,52 +1,62 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, startTransition } from "react";
+import { pushAppDiagnostic } from "@/lib/appDiagnostics";
+import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
 import { Track } from "@/types/music";
-import {
-  searchTracks,
-  searchArtists,
-  searchAlbums,
-  searchPlaylists,
-  tidalTrackToAppTrack,
-  getTidalImageUrl,
-} from "@/lib/monochromeApi";
+import type {
+  TidalReferenceAlbumResult,
+  TidalReferenceArtistResult,
+  TidalReferencePlaylistResult,
+} from "@/lib/tidalReferenceMappers";
 
-type SearchTab = "all" | "tracks" | "artists" | "albums" | "playlists";
+export type SearchArtistResult = TidalReferenceArtistResult;
+export type SearchAlbumResult = TidalReferenceAlbumResult;
+export type SearchPlaylistResult = TidalReferencePlaylistResult;
+type SearchResultBundle = {
+  tracks: Track[];
+  artists: SearchArtistResult[];
+  albums: SearchAlbumResult[];
+  playlists: SearchPlaylistResult[];
+};
 
-export interface SearchArtistResult {
-  id: number;
-  name: string;
-  imageUrl: string;
+let tidalReferenceSearchModulePromise: Promise<typeof import("@/lib/tidalReferenceSearch")> | null = null;
+
+function loadTidalReferenceSearch() {
+  if (!tidalReferenceSearchModulePromise) {
+    tidalReferenceSearchModulePromise = import("@/lib/tidalReferenceSearch");
+  }
+  return tidalReferenceSearchModulePromise;
 }
 
-export interface SearchAlbumResult {
-  id: number;
-  title: string;
-  artist: string;
-  coverUrl: string;
+async function reportSearchFailure(error: unknown, query: string) {
+  try {
+    const module = await import("@/lib/observability");
+    await module.reportClientError(error, "search_failed", { query });
+  } catch {
+    // Diagnostics should never block search UX.
+  }
 }
 
-export interface SearchPlaylistResult {
-  id: string;
-  title: string;
-  description: string;
-  trackCount: number;
-  coverUrl: string;
-}
+const SEARCH_RECENTS_KEY = "search-recents";
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_RECENTS_LIMIT = 8;
 
 interface SearchContextType {
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
   query: string;
   setQuery: (q: string) => void;
-  searchTab: SearchTab;
-  setSearchTab: (tab: SearchTab) => void;
   tidalTracks: Track[];
   tidalArtists: SearchArtistResult[];
   tidalAlbums: SearchAlbumResult[];
   tidalPlaylists: SearchPlaylistResult[];
   isSearching: boolean;
-  handleSearch: (q: string) => void;
+  searchError: string | null;
+  recentQueries: string[];
+  handleSearch: (q: string) => Promise<void>;
   onQueryChange: (value: string) => void;
   closeSearch: () => void;
+  removeRecentQuery: (value: string) => void;
+  clearRecentQueries: () => void;
 }
 
 const SearchContext = createContext<SearchContextType | null>(null);
@@ -60,138 +70,142 @@ export function useSearch() {
 export function SearchProvider({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [searchTab, setSearchTab] = useState<SearchTab>("all");
   const [tidalTracks, setTidalTracks] = useState<Track[]>([]);
   const [tidalArtists, setTidalArtists] = useState<SearchArtistResult[]>([]);
   const [tidalAlbums, setTidalAlbums] = useState<SearchAlbumResult[]>([]);
   const [tidalPlaylists, setTidalPlaylists] = useState<SearchPlaylistResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [recentQueries, setRecentQueries] = useState<string[]>(() => {
+    try {
+      const storedValue = safeStorageGetItem(SEARCH_RECENTS_KEY);
+      if (!storedValue) return [];
+      const parsed = JSON.parse(storedValue);
+      return Array.isArray(parsed) ? parsed.filter((value) => typeof value === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cacheRef = useRef(new Map<string, { expiresAt: number; result: SearchResultBundle }>());
 
-  const handleSearch = useCallback(async (searchQuery: string) => {
-    if (!searchQuery.trim()) {
+  useEffect(() => () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  }, []);
+
+  const clearResults = useCallback(() => {
+    startTransition(() => {
       setTidalTracks([]);
       setTidalArtists([]);
       setTidalAlbums([]);
       setTidalPlaylists([]);
+    });
+  }, []);
+
+  const applyResults = useCallback((result: SearchResultBundle) => {
+    startTransition(() => {
+      setTidalTracks(result.tracks);
+      setTidalArtists(result.artists.slice(0, 12));
+      setTidalAlbums(result.albums);
+      setTidalPlaylists(result.playlists);
+    });
+  }, []);
+
+  const persistRecentQueries = useCallback((nextQueries: string[]) => {
+    safeStorageSetItem(SEARCH_RECENTS_KEY, JSON.stringify(nextQueries));
+    setRecentQueries(nextQueries);
+  }, []);
+
+  const rememberQuery = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    persistRecentQueries([
+      trimmed,
+      ...recentQueries.filter((queryValue) => queryValue.toLowerCase() !== trimmed.toLowerCase()),
+    ].slice(0, SEARCH_RECENTS_LIMIT));
+  }, [persistRecentQueries, recentQueries]);
+
+  const handleSearch = useCallback(async (searchQuery: string) => {
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery) {
+      setSearchError(null);
+      clearResults();
       return;
     }
+
+    const cacheKey = trimmedQuery.toLowerCase();
+    const cachedEntry = cacheRef.current.get(cacheKey);
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      setSearchError(null);
+      applyResults(cachedEntry.result);
+      return;
+    }
+
     setIsSearching(true);
+    setSearchError(null);
     try {
-      // Search tracks (which also gives us artists and albums)
-      const [trackResults, directArtistResults, albumResults, playlistResults] = await Promise.all([
-        searchTracks(searchQuery, 30),
-        searchArtists(searchQuery),
-        searchAlbums(searchQuery, 15),
-        searchPlaylists(searchQuery, 15),
-      ]);
-
-      const tracks = trackResults.map(tidalTrackToAppTrack);
-      setTidalTracks(tracks);
-
-      // Seed with dedicated artist search first (higher quality / closer to Monochrome)
-      const artistMap = new Map<number, SearchArtistResult>();
-      for (const a of directArtistResults.slice(0, 16)) {
-        artistMap.set(a.id, {
-          id: a.id,
-          name: a.name,
-          imageUrl: a.picture ? getTidalImageUrl(a.picture, "1080x720") : "",
-        });
-      }
-
-      // Then enrich with artists from track results
-      for (const t of trackResults) {
-        if (t.artist && !artistMap.has(t.artist.id)) {
-          artistMap.set(t.artist.id, {
-            id: t.artist.id,
-            name: t.artist.name,
-            imageUrl: t.artist.picture ? getTidalImageUrl(t.artist.picture, "1080x720") : "",
-          });
-        }
-        // Also add featured artists
-        if (t.artists) {
-          for (const a of t.artists) {
-            if (!artistMap.has(a.id)) {
-              artistMap.set(a.id, {
-                id: a.id,
-                name: a.name,
-                imageUrl: "",
-              });
-            }
-          }
-        }
-      }
-
-      const normalizedQuery = searchQuery.trim().toLowerCase();
-      const rankedArtists = Array.from(artistMap.values()).sort((a, b) => {
-        const aName = a.name.toLowerCase();
-        const bName = b.name.toLowerCase();
-        const aStarts = aName.startsWith(normalizedQuery) ? 1 : 0;
-        const bStarts = bName.startsWith(normalizedQuery) ? 1 : 0;
-        if (aStarts !== bStarts) return bStarts - aStarts;
-
-        const aIncludes = aName.includes(normalizedQuery) ? 1 : 0;
-        const bIncludes = bName.includes(normalizedQuery) ? 1 : 0;
-        if (aIncludes !== bIncludes) return bIncludes - aIncludes;
-
-        const aHasImage = a.imageUrl ? 1 : 0;
-        const bHasImage = b.imageUrl ? 1 : 0;
-        if (aHasImage !== bHasImage) return bHasImage - aHasImage;
-
-        return aName.localeCompare(bName);
+      const { searchTidalReference } = await loadTidalReferenceSearch();
+      const result = await searchTidalReference(trimmedQuery);
+      cacheRef.current.set(cacheKey, {
+        expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+        result,
       });
-
-      setTidalArtists(rankedArtists.slice(0, 12));
-
-      // Albums from dedicated search
-      setTidalAlbums(albumResults.map((a) => ({
-        id: a.id,
-        title: a.title,
-        artist: a.artist?.name || a.artists?.map((ar) => ar.name).join(", ") || "Unknown",
-        coverUrl: getTidalImageUrl(a.cover || "", "320x320"),
-      })));
-
-      setTidalPlaylists(playlistResults.map((p) => ({
-        id: p.uuid,
-        title: p.title,
-        description: p.description || "",
-        trackCount: p.numberOfTracks || 0,
-        coverUrl: getTidalImageUrl(p.squareImage || p.image || "", "320x320"),
-      })));
-    } catch (e) {
-      console.error("Search failed:", e);
+      applyResults(result);
+      rememberQuery(trimmedQuery);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Search is temporarily unavailable.";
+      setSearchError(message);
+      clearResults();
+      pushAppDiagnostic({
+        level: "warn",
+        title: "Search is unavailable",
+        message: "Knobb could not reach the music search service. Try again in a moment.",
+        source: "search",
+        dedupeKey: "search-unavailable",
+      });
+      void reportSearchFailure(error, trimmedQuery);
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  }, [applyResults, clearResults, rememberQuery]);
 
   const onQueryChange = useCallback((value: string) => {
     setQuery(value);
+    setSearchError(null);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      handleSearch(value);
+      void handleSearch(value);
     }, 400);
   }, [handleSearch]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setQuery("");
-    setTidalTracks([]);
-    setTidalArtists([]);
-    setTidalAlbums([]);
-    setTidalPlaylists([]);
-  }, []);
+    setSearchError(null);
+    clearResults();
+  }, [clearResults]);
+
+  const removeRecentQuery = useCallback((value: string) => {
+    persistRecentQueries(recentQueries.filter((queryValue) => queryValue !== value));
+  }, [persistRecentQueries, recentQueries]);
+
+  const clearRecentQueries = useCallback(() => {
+    persistRecentQueries([]);
+  }, [persistRecentQueries]);
 
   return (
     <SearchContext.Provider value={{
       searchOpen, setSearchOpen,
       query, setQuery,
-      searchTab, setSearchTab,
       tidalTracks, tidalArtists, tidalAlbums,
       tidalPlaylists,
       isSearching,
+      searchError,
+      recentQueries,
       handleSearch, onQueryChange,
       closeSearch,
+      removeRecentQuery,
+      clearRecentQueries,
     }}>
       {children}
     </SearchContext.Provider>

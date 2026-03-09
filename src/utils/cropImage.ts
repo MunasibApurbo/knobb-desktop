@@ -16,7 +16,7 @@ export default async function getCroppedImg(
     pixelCrop: { x: number; y: number; width: number; height: number },
     rotation = 0,
     flip = { horizontal: false, vertical: false }
-): Promise<string> {
+): Promise<Blob> {
     const image = await createImage(imageSrc);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -54,9 +54,15 @@ export default async function getCroppedImg(
         throw new Error('No 2d context');
     }
 
-    // Set the size of the cropped canvas
-    croppedCanvas.width = pixelCrop.width;
-    croppedCanvas.height = pixelCrop.height;
+    // Cap exported size so persisted covers stay reasonably small.
+    const maxWidth = 1680;
+    const maxHeight = 720;
+    const scale = Math.min(1, maxWidth / pixelCrop.width, maxHeight / pixelCrop.height);
+    const outputWidth = Math.max(1, Math.round(pixelCrop.width * scale));
+    const outputHeight = Math.max(1, Math.round(pixelCrop.height * scale));
+
+    croppedCanvas.width = outputWidth;
+    croppedCanvas.height = outputHeight;
 
     // Draw the cropped image onto the new canvas
     croppedCtx.drawImage(
@@ -67,15 +73,18 @@ export default async function getCroppedImg(
         pixelCrop.height,
         0,
         0,
-        pixelCrop.width,
-        pixelCrop.height
+        outputWidth,
+        outputHeight
     );
 
-    // As a blob
     return new Promise((resolve, reject) => {
         croppedCanvas.toBlob((file) => {
-            resolve(URL.createObjectURL(file!));
-        }, 'image/jpeg');
+            if (!file) {
+                reject(new Error('Failed to export cropped image'));
+                return;
+            }
+            resolve(file);
+        }, 'image/jpeg', 0.92);
     });
 }
 

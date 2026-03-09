@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { scheduleBackgroundTask } from "@/lib/performanceProfile";
+import { getSupabaseClient } from "@/lib/runtimeModules";
 
 export interface SavedAlbum {
   id: string;
@@ -21,10 +22,6 @@ interface SavedAlbumInput {
   albumYear?: number | null;
 }
 
-const LOCAL_SAVED_ALBUMS_KEY = "nobb.saved-albums";
-
-const buildStorageKey = (userId: string) => `${LOCAL_SAVED_ALBUMS_KEY}:${userId}`;
-
 const normalizeSavedAlbum = (value: unknown): SavedAlbum | null => {
   const raw = value as Partial<SavedAlbum> | null;
   if (!raw) return null;
@@ -38,10 +35,7 @@ const normalizeSavedAlbum = (value: unknown): SavedAlbum | null => {
       : null;
 
   return {
-    id:
-      typeof raw.id === "string" && raw.id.trim()
-        ? raw.id
-        : `local-${albumId}`,
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : `local-${albumId}`,
     album_id: albumId,
     album_title: String(raw.album_title),
     album_artist: String(raw.album_artist || "Unknown Artist"),
@@ -59,70 +53,16 @@ const sortByCreatedAtDesc = (albums: SavedAlbum[]) =>
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
-const readLocalSavedAlbums = (userId: string): SavedAlbum[] => {
-  try {
-    const raw = localStorage.getItem(buildStorageKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return sortByCreatedAtDesc(
-      parsed.map(normalizeSavedAlbum).filter(Boolean) as SavedAlbum[]
-    );
-  } catch (error) {
-    console.error("Failed to read local saved albums", error);
-    return [];
-  }
-};
-
-const writeLocalSavedAlbums = (userId: string, albums: SavedAlbum[]) => {
-  try {
-    localStorage.setItem(buildStorageKey(userId), JSON.stringify(albums));
-  } catch (error) {
-    console.error("Failed to persist local saved albums", error);
-  }
-};
-
-const mergeSavedAlbums = (primary: SavedAlbum[], secondary: SavedAlbum[]) => {
-  const byAlbumId = new Map<number, SavedAlbum>();
-  for (const album of primary) byAlbumId.set(album.album_id, album);
-  for (const album of secondary) {
-    if (!byAlbumId.has(album.album_id)) byAlbumId.set(album.album_id, album);
-  }
-  return sortByCreatedAtDesc(Array.from(byAlbumId.values()));
-};
-
-const isMissingSavedAlbumsTableError = (error: unknown) => {
-  const message =
-    typeof error === "object" && error && "message" in error
-      ? String((error as { message?: unknown }).message || "")
-      : String(error || "");
-  return message.toLowerCase().includes("saved_albums");
-};
-
 export function useSavedAlbums() {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>([]);
   const [loading, setLoading] = useState(false);
   const savedAlbumsRef = useRef<SavedAlbum[]>([]);
-  const remoteUnavailableRef = useRef(false);
 
   useEffect(() => {
     savedAlbumsRef.current = savedAlbums;
   }, [savedAlbums]);
-
-  useEffect(() => {
-    remoteUnavailableRef.current = false;
-  }, [user?.id]);
-
-  const setAndPersist = useCallback(
-    (next: SavedAlbum[]) => {
-      const normalized = sortByCreatedAtDesc(next);
-      savedAlbumsRef.current = normalized;
-      setSavedAlbums(normalized);
-      if (user?.id) writeLocalSavedAlbums(user.id, normalized);
-    },
-    [user?.id]
-  );
 
   const refresh = useCallback(async () => {
     if (!user) {
@@ -131,18 +71,9 @@ export function useSavedAlbums() {
       return;
     }
 
-    const localSavedAlbums = readLocalSavedAlbums(user.id);
-    if (localSavedAlbums.length > 0) {
-      setAndPersist(localSavedAlbums);
-    }
-
-    if (remoteUnavailableRef.current) {
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     try {
+      const supabase = await getSupabaseClient();
       const { data, error } = await supabase
         .from("saved_albums")
         .select("*")
@@ -154,62 +85,63 @@ export function useSavedAlbums() {
         .map(normalizeSavedAlbum)
         .filter(Boolean) as SavedAlbum[];
 
-      const merged = mergeSavedAlbums(remoteSavedAlbums, localSavedAlbums);
-      setAndPersist(merged);
-
-      const remoteIds = new Set(remoteSavedAlbums.map((album) => album.album_id));
-      const unsynced = merged.filter((album) => !remoteIds.has(album.album_id));
-      if (unsynced.length > 0) {
-        await supabase.from("saved_albums").upsert(
-          unsynced.map((album) => ({
-            user_id: user.id,
-            album_id: album.album_id,
-            album_title: album.album_title,
-            album_artist: album.album_artist,
-            album_cover_url: album.album_cover_url,
-            album_year: album.album_year,
-          })),
-          { onConflict: "user_id,album_id" }
-        );
-      }
+      const normalized = sortByCreatedAtDesc(remoteSavedAlbums);
+      savedAlbumsRef.current = normalized;
+      setSavedAlbums(normalized);
     } catch (error) {
       console.error("Failed to fetch saved albums", error);
-      if (isMissingSavedAlbumsTableError(error)) {
-        remoteUnavailableRef.current = true;
-      }
-      if (localSavedAlbums.length === 0) setAndPersist([]);
     } finally {
       setLoading(false);
     }
-  }, [setAndPersist, user]);
+  }, [user]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!user) {
+      void refresh();
+      return;
+    }
+
+    return scheduleBackgroundTask(() => {
+      void refresh();
+    }, 900);
+  }, [refresh, user]);
 
   useEffect(() => {
-    if (!user || remoteUnavailableRef.current) return;
+    if (!userId) return;
 
-    const channel = supabase
-      .channel(`saved-albums:${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "saved_albums",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          void refresh();
-        }
-      )
-      .subscribe();
+    let active = true;
+    let channel: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabaseClient>>["channel"]>> | null = null;
+    const cancel = scheduleBackgroundTask(() => {
+      void (async () => {
+        const supabase = await getSupabaseClient();
+        if (!active) return;
+
+        channel = supabase
+          .channel(`saved-albums:${userId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "saved_albums",
+              filter: `user_id=eq.${userId}`,
+            },
+            () => {
+              void refresh();
+            }
+          )
+          .subscribe();
+      })();
+    }, 1400);
 
     return () => {
-      void supabase.removeChannel(channel);
+      active = false;
+      cancel();
+      if (channel) {
+        void getSupabaseClient().then((supabase) => supabase.removeChannel(channel!));
+      }
     };
-  }, [refresh, user?.id]);
+  }, [refresh, userId]);
 
   const isSaved = useCallback(
     (albumId: number) => savedAlbums.some((album) => album.album_id === albumId),
@@ -242,15 +174,18 @@ export function useSavedAlbums() {
         created_at: existing?.created_at || new Date().toISOString(),
       };
 
+      const previousAlbums = savedAlbumsRef.current;
       const nextSavedAlbums = [
         nextAlbum,
-        ...savedAlbumsRef.current.filter((album) => album.album_id !== albumId),
+        ...previousAlbums.filter((album) => album.album_id !== albumId),
       ];
-      setAndPersist(nextSavedAlbums);
 
-      if (remoteUnavailableRef.current) return true;
+      const normalized = sortByCreatedAtDesc(nextSavedAlbums);
+      savedAlbumsRef.current = normalized;
+      setSavedAlbums(normalized);
 
       try {
+        const supabase = await getSupabaseClient();
         const { error } = await supabase.from("saved_albums").upsert(
           {
             user_id: user.id,
@@ -266,14 +201,15 @@ export function useSavedAlbums() {
         if (error) throw error;
       } catch (error) {
         console.error("Failed to add saved album", error);
-        if (isMissingSavedAlbumsTableError(error)) {
-          remoteUnavailableRef.current = true;
-        }
+
+        // Revert on failure
+        savedAlbumsRef.current = previousAlbums;
+        setSavedAlbums(previousAlbums);
       }
 
       return true;
     },
-    [setAndPersist, user]
+    [user]
   );
 
   const removeSavedAlbum = useCallback(
@@ -283,11 +219,13 @@ export function useSavedAlbums() {
       const nextSavedAlbums = savedAlbumsRef.current.filter(
         (album) => album.album_id !== albumId
       );
-      setAndPersist(nextSavedAlbums);
 
-      if (remoteUnavailableRef.current) return true;
+      const previousAlbums = savedAlbumsRef.current;
+      savedAlbumsRef.current = nextSavedAlbums;
+      setSavedAlbums(nextSavedAlbums);
 
       try {
+        const supabase = await getSupabaseClient();
         const { error } = await supabase
           .from("saved_albums")
           .delete()
@@ -297,14 +235,14 @@ export function useSavedAlbums() {
         if (error) throw error;
       } catch (error) {
         console.error("Failed to remove saved album", error);
-        if (isMissingSavedAlbumsTableError(error)) {
-          remoteUnavailableRef.current = true;
-        }
+        // Revert on failure
+        savedAlbumsRef.current = previousAlbums;
+        setSavedAlbums(previousAlbums);
       }
 
       return true;
     },
-    [setAndPersist, user]
+    [user]
   );
 
   const toggleSavedAlbum = useCallback(
@@ -315,13 +253,16 @@ export function useSavedAlbums() {
     [addSavedAlbum, isSaved, removeSavedAlbum]
   );
 
-  return {
-    savedAlbums,
-    loading,
-    isSaved,
-    addSavedAlbum,
-    removeSavedAlbum,
-    toggleSavedAlbum,
-    refresh,
-  };
+  return useMemo(
+    () => ({
+      savedAlbums,
+      loading,
+      isSaved,
+      addSavedAlbum,
+      removeSavedAlbum,
+      toggleSavedAlbum,
+      refresh,
+    }),
+    [addSavedAlbum, isSaved, loading, refresh, removeSavedAlbum, savedAlbums, toggleSavedAlbum],
+  );
 }

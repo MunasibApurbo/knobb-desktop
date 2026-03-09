@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlaylists } from "@/hooks/usePlaylists";
 import { Track } from "@/types/music";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PlaylistCreateDialog, type PlaylistCreateSubmitPayload } from "@/components/PlaylistCreateDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,13 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Plus, ListMusic, Music } from "lucide-react";
+import { Plus, ListMusic } from "lucide-react";
 import { toast } from "sonner";
 
 interface AddToPlaylistMenuProps {
@@ -28,7 +21,7 @@ interface AddToPlaylistMenuProps {
 
 export function AddToPlaylistMenu({ track, children }: AddToPlaylistMenuProps) {
   const { user } = useAuth();
-  const { playlists, addTrack, createPlaylist } = usePlaylists();
+  const { playlists, addTrack, createPlaylist, getLastPlaylistError } = usePlaylists();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -47,23 +40,27 @@ export function AddToPlaylistMenu({ track, children }: AddToPlaylistMenuProps) {
     toast.error(`Failed to add to ${playlistName}`);
   };
 
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    const id = await createPlaylist(newName.trim());
+  const handleCreate = async (payload: PlaylistCreateSubmitPayload) => {
+    const id = await createPlaylist(payload.name, payload.description, {
+      cover_url: payload.coverUrl || null,
+      visibility: payload.visibility,
+    });
     if (id) {
       const result = await addTrack(id, track);
       if (result.added) {
-        toast.success(`Saved to "${newName.trim()}"`);
+        toast.success(`Saved to "${payload.name}"`);
+        setNewName("");
+        setShowCreate(false);
       } else if (result.reason === "duplicate") {
-        toast.info(`Track already exists in "${newName.trim()}"`);
+        toast.info(`Track already exists in "${payload.name}"`);
+        setNewName("");
+        setShowCreate(false);
       } else {
         toast.error("Playlist created, but failed to add track");
       }
     } else {
-      toast.error("Failed to create playlist");
+      toast.error(getLastPlaylistError() || "Failed to create playlist");
     }
-    setNewName("");
-    setShowCreate(false);
   };
 
   return (
@@ -72,7 +69,7 @@ export function AddToPlaylistMenu({ track, children }: AddToPlaylistMenuProps) {
         <DropdownMenuTrigger asChild>
           {children}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52 bg-card/95 backdrop-blur-xl border-border/30">
+        <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuLabel className="text-xs text-muted-foreground">Add to playlist</DropdownMenuLabel>
           <DropdownMenuItem onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4 mr-2" />
@@ -88,25 +85,14 @@ export function AddToPlaylistMenu({ track, children }: AddToPlaylistMenuProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="bg-card/95 backdrop-blur-xl border-border/30 max-w-xs">
-          <DialogHeader>
-            <DialogTitle>New Playlist</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-4">
-            <Input
-              placeholder="Playlist name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              autoFocus
-              className="bg-background border-border/30"
-            />
-            <Button type="submit" className="w-full" disabled={!newName.trim()}>
-              Create & Add Track
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <PlaylistCreateDialog
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        value={newName}
+        onValueChange={setNewName}
+        onSubmit={handleCreate}
+        submitLabel="Create & Add Track"
+      />
     </>
   );
 }

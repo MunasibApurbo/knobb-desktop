@@ -1,5 +1,8 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState } from "react";
 import { motion } from "framer-motion";
+
+import { useMotionPreferences } from "@/hooks/useMotionPreferences";
+import { MOTION_SPRING } from "@/lib/motion";
 
 interface VolumeBarProps {
   volume: number; // 0-1
@@ -13,6 +16,9 @@ const BAR_COUNT = 16;
 export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }: VolumeBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const { motionEnabled } = useMotionPreferences();
 
   const handleInteraction = useCallback(
     (clientX: number) => {
@@ -27,6 +33,7 @@ export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       draggingRef.current = true;
+      setDragging(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       handleInteraction(e.clientX);
     },
@@ -43,15 +50,24 @@ export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }
 
   const onPointerUp = useCallback(() => {
     draggingRef.current = false;
+    setDragging(false);
   }, []);
 
   return (
-    <div
+    <motion.div
       ref={containerRef}
       className={`flex items-end gap-[2px] cursor-pointer h-5 ${className}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerLeave={() => {
+        draggingRef.current = false;
+        setDragging(false);
+        setHovered(false);
+      }}
+      onPointerEnter={() => setHovered(true)}
+      animate={motionEnabled ? { scaleY: dragging ? 1.08 : hovered ? 1.03 : 1 } : undefined}
+      transition={MOTION_SPRING.control}
     >
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
         const barPosition = (i + 0.5) / BAR_COUNT; // center of bar
@@ -59,13 +75,16 @@ export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }
 
         let heightPct = 0.15;
         if (variant === "straight") {
-          heightPct = 0.2 + (i / (BAR_COUNT - 1)) * 0.8;
+          heightPct = 0.24 + (i / (BAR_COUNT - 1)) * 0.72;
           if (!isActive) heightPct = 0.15;
         } else {
-          // Create a wave-like height pattern
-          const wave = Math.sin((i / BAR_COUNT) * Math.PI * 2 + Date.now() * 0.001);
-          const baseHeight = 0.3 + (i / BAR_COUNT) * 0.7; // grows from left to right
-          heightPct = isActive ? Math.max(0.25, baseHeight) : 0.15;
+          const wave = Math.sin((i / (BAR_COUNT - 1)) * Math.PI);
+          const baseHeight = 0.3 + wave * 0.26 + (i / (BAR_COUNT - 1)) * 0.26;
+          heightPct = isActive ? Math.max(0.3, baseHeight) : hovered ? 0.2 : 0.15;
+        }
+
+        if (isActive && (hovered || dragging)) {
+          heightPct = Math.min(0.98, heightPct + 0.07);
         }
 
         return (
@@ -77,8 +96,8 @@ export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }
               opacity: isActive ? 1 : 0.6,
             }}
             transition={{
-              scaleY: { type: "spring", stiffness: 400, damping: 25 },
-              opacity: { duration: 0.15 },
+              scaleY: MOTION_SPRING.control,
+              opacity: { duration: motionEnabled ? 0.18 : 0 },
             }}
             style={{
               height: "100%",
@@ -89,6 +108,6 @@ export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }
           />
         );
       })}
-    </div>
+    </motion.div>
   );
 }

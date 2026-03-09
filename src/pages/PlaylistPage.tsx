@@ -1,23 +1,43 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getTotalDuration, formatDuration } from "@/lib/utils";
-import { usePlayer } from "@/contexts/PlayerContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { Play, Pause, Shuffle, Heart, Share, AlertCircle, RefreshCw } from "lucide-react";
+import { usePlayer } from "@/contexts/PlayerContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useSettings } from "@/contexts/SettingsContext";
+import { useFavoritePlaylists } from "@/hooks/useFavoritePlaylists";
+import { useEmbedMode } from "@/hooks/useEmbedMode";
+import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail/DetailActionBar";
+import { DetailHero } from "@/components/detail/DetailHero";
+import { PlaylistDragAction } from "@/components/PlaylistDragAction";
+import { TrackListRow } from "@/components/detail/TrackListRow";
+import { Play, Pause, Shuffle, Heart, AlertCircle, RefreshCw, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageTransition } from "@/components/PageTransition";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { motion } from "framer-motion";
-import { getPlaylistWithTracks, getTidalImageUrl, tidalTrackToAppTrack, searchAlbums } from "@/lib/monochromeApi";
+import { PlaylistShareDropdownButton } from "@/components/PlaylistShareDropdownButton";
+import { filterAudioTracks, getPlaylistWithTracks, getTidalImageUrl, tidalTrackToAppTrack } from "@/lib/musicApi";
 import { Track } from "@/types/music";
 import { toast } from "sonner";
-import { PlayingIndicator } from "@/components/PlayingIndicator";
+import { PlaylistLink } from "@/components/PlaylistLink";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
+import { useMainScrollY } from "@/hooks/useMainScrollY";
+import { downloadTracks } from "@/lib/downloadHelpers";
+import { usePageMetadata } from "@/hooks/usePageMetadata";
+import { startPlaylistDrag } from "@/lib/playlistDrag";
+import { isSameTrack } from "@/lib/trackIdentity";
 
 export default function PlaylistPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
+  const isEmbedMode = useEmbedMode();
+  const { user } = useAuth();
+  const { downloadFormat } = useSettings();
+  const { isFavoritePlaylist, toggleFavoritePlaylist } = useFavoritePlaylists();
   const [playlist, setPlaylist] = useState<{
     title: string;
     description: string;
@@ -26,8 +46,31 @@ export default function PlaylistPage() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [scrollY, setScrollY] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const scrollY = useMainScrollY();
   const fetchedRef = useRef<string>("");
+  const playlistId = id ? id.replace(/^tidal-/, "") : "";
+
+  usePageMetadata(playlist ? {
+    title: playlist.title,
+    description:
+      playlist.description.trim() ||
+      `Play ${playlist.title} on Knobb.${tracks.length > 0 ? ` ${tracks.length} tracks in the playlist.` : ""}`,
+    image: playlist.coverUrl || undefined,
+    imageAlt: `${playlist.title} playlist cover`,
+    robots: isEmbedMode ? "noindex, nofollow" : undefined,
+    type: "music.playlist",
+    structuredData: {
+      "@context": "https://schema.org",
+      "@type": "MusicPlaylist",
+      name: playlist.title,
+      numTracks: tracks.length || undefined,
+      image: playlist.coverUrl || undefined,
+      description:
+        playlist.description.trim() || `Play ${playlist.title} on Knobb.`,
+      url: typeof window !== "undefined" ? new URL(window.location.pathname, window.location.origin).toString() : undefined,
+    },
+  } : null);
 
   const loadPlaylist = useCallback(async () => {
     if (!id) return;
@@ -50,10 +93,12 @@ export default function PlaylistPage() {
         coverUrl: getTidalImageUrl(coverId, "750x750"),
       });
 
-      const appTracks = tidalTracks.map((track, index) => ({
-        ...tidalTrackToAppTrack(track),
-        id: `tidal-${track.id}-${index}`,
-      }));
+      const appTracks = filterAudioTracks(
+        tidalTracks.map((track, index) => ({
+          ...tidalTrackToAppTrack(track),
+          id: `tidal-${track.id}-${index}`,
+        })),
+      );
       setTracks(appTracks);
     } catch (e) {
       console.error("Failed to load playlist:", e);
@@ -69,15 +114,7 @@ export default function PlaylistPage() {
     loadPlaylist();
   }, [id, loadPlaylist]);
 
-  useEffect(() => {
-    const scrollContainer = document.querySelector("[data-radix-scroll-area-viewport]");
-    if (!scrollContainer) return;
-    const handleScroll = () => setScrollY(scrollContainer.scrollTop);
-    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
-  }, [loading]);
-
-  if (loading) return <LoadingSkeleton />;
+  if (loading) return <LoadingSkeleton variant="detail" />;
 
   if (error || !playlist) {
     return (
@@ -93,228 +130,247 @@ export default function PlaylistPage() {
 
   const isCurrentPlaylist = currentTrack && tracks.some((t) => t.id === currentTrack.id);
 
-  const openTrackAlbum = async (track: Track) => {
-    const params = new URLSearchParams();
-    if (track.album) params.set("title", track.album);
-    if (track.artist) params.set("artist", track.artist);
+  const handleToggleFavoritePlaylist = async () => {
+    if (!playlist || !playlistId) return;
 
-    if (track.albumId) {
-      navigate(`/album/tidal-${track.albumId}?${params.toString()}`);
+    if (!user) {
+      const from = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      navigate("/auth", { state: { from } });
       return;
     }
 
-    try {
-      const matches = await searchAlbums(`${track.album} ${track.artist}`, 6);
-      const exact = matches.find((a) => a.title?.toLowerCase() === track.album?.toLowerCase()) || matches[0];
-      if (exact) {
-        navigate(`/album/tidal-${exact.id}?${params.toString()}`);
-        return;
-      }
-    } catch (e) {
-      console.warn("Album lookup failed:", e);
-    }
+    const currentlyFavorite = isFavoritePlaylist(playlistId, "tidal");
+    const success = await toggleFavoritePlaylist({
+      source: "tidal",
+      playlistId,
+      playlistTitle: playlist.title,
+      playlistCoverUrl: playlist.coverUrl || null,
+    });
 
-    toast.error("Album not found");
-  };
-
-  const handleSharePlaylist = async () => {
-    const url = window.location.href;
-    const text = `${playlist.title}`.trim();
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: playlist.title, text, url });
-        return;
-      } catch { }
-    }
-    await navigator.clipboard.writeText(url);
-    toast.success("Playlist link copied to clipboard");
-  };
-
-  const handleLikeAll = async () => {
-    const tracksToLike = tracks.filter((track) => !isLiked(track.id));
-    if (tracksToLike.length === 0) {
-      toast.info("All tracks are already in Liked Songs");
+    if (!success) {
+      toast.error("Failed to update playlist library");
       return;
     }
-    for (const track of tracksToLike) {
-      await toggleLike(track);
-    }
-    toast.success(`Added ${tracksToLike.length} track${tracksToLike.length === 1 ? "" : "s"} to Liked Songs`);
+
+    toast.success(
+      currentlyFavorite
+        ? `Removed ${playlist.title} from your library`
+        : `Saved ${playlist.title} to your library`
+    );
   };
 
-  const actionBtnClass =
-    "group rounded-none h-14 justify-start px-4 md:px-6 font-semibold text-base bg-transparent border-0 " +
-    "relative overflow-hidden transition-colors hover:text-[hsl(var(--dynamic-accent-foreground))] " +
-    "before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-0 " +
-    "before:transition-transform before:duration-300 before:ease-out before:bg-[hsl(var(--player-waveform)/0.95)] " +
-    "hover:before:scale-x-100 [&>*]:relative [&>*]:z-10";
+  const handleDownloadPlaylist = async () => {
+    if (tracks.length === 0 || isDownloading) return;
+    const confirmed = window.confirm(`Download all ${tracks.length} tracks from "${playlist.title}"?`);
+    if (!confirmed) return;
+
+    setIsDownloading(true);
+    toast.info(`Downloading ${playlist.title}...`);
+
+    const quality = downloadFormat === "flac" ? "LOSSLESS" : "HIGH";
+    const result = await downloadTracks(tracks, quality);
+
+    setIsDownloading(false);
+
+    if (result.successCount === result.total) {
+      toast.success(`Downloaded ${playlist.title}`);
+      return;
+    }
+
+    if (result.successCount > 0) {
+      toast.warning(`Downloaded ${result.successCount} of ${result.total} tracks from ${playlist.title}`);
+      return;
+    }
+
+    toast.error(`Failed to download ${playlist.title}`);
+  };
+
+  const isSavedPlaylist = playlistId ? isFavoritePlaylist(playlistId, "tidal") : false;
+  const openFullPlaylist = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("embed");
+    window.open(url.toString(), "_blank", "noopener,noreferrer");
+  };
+
+  if (isEmbedMode) {
+    return (
+      <div className="min-h-screen bg-[#050505] p-4 text-white">
+        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_48%),rgba(255,255,255,0.03)] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
+          <div className="grid gap-5 border-b border-white/10 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:p-5">
+            <img src={playlist.coverUrl || "/placeholder.svg"} alt={playlist.title} className="aspect-square w-full rounded-[22px] object-cover" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/45">Knobb Playlist</p>
+              <h1 className="mt-3 truncate text-3xl font-black tracking-tight text-white">{playlist.title}</h1>
+              {playlist.description ? (
+                <p className="mt-3 line-clamp-2 text-sm leading-6 text-white/68">{playlist.description}</p>
+              ) : null}
+              <p className="mt-4 text-xs font-medium uppercase tracking-[0.18em] text-white/45">
+                {tracks.length} tracks {tracks.length > 0 ? `• ${getTotalDuration(tracks)}` : ""}
+              </p>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Button
+                  variant="secondary"
+                  className="rounded-full border border-white/10 bg-white text-black hover:bg-white/90"
+                  onClick={() => {
+                    if (isCurrentPlaylist) togglePlay();
+                    else if (tracks.length > 0) play(tracks[0], tracks);
+                  }}
+                  disabled={tracks.length === 0}
+                >
+                  {isCurrentPlaylist && isPlaying ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
+                  {isCurrentPlaylist && isPlaying ? "Pause" : "Play"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="rounded-full border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.1]"
+                  onClick={openFullPlaylist}
+                >
+                  Open in Knobb
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-white/10">
+            {tracks.slice(0, 5).map((track, index) => (
+              <button
+                key={`${track.id}-${index}`}
+                className="grid w-full grid-cols-[28px_44px_minmax(0,1fr)_56px] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
+                onClick={() => play(track, tracks)}
+              >
+                <span className="text-sm text-white/38">{index + 1}</span>
+                <img src={track.coverUrl} alt="" className="h-11 w-11 rounded-xl object-cover" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">{track.title}</p>
+                  <p className="truncate text-xs text-white/48">{track.artist}</p>
+                </div>
+                <span className="text-right text-xs font-mono text-white/45">{formatDuration(track.duration)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="space-y-0">
-        {(() => {
-          const scrollScale = 1 + scrollY * 0.001;
-          const scrollBlur = Math.min(scrollY * 0.05, 12);
-          const scrollOpacity = Math.max(1 - scrollY * 0.002, 0.4);
-          const coverUrl = playlist.coverUrl || "/placeholder.svg";
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+        <DetailHero
+          artworkUrl={playlist.coverUrl || "/placeholder.svg"}
+          dragPayload={tracks.length > 0 ? {
+            label: playlist.title,
+            source: "playlist",
+            tracks,
+          } : undefined}
+          label="Playlist"
+          scrollY={scrollY}
+          title={<PlaylistLink title={playlist.title} playlistId={playlistId} className="text-inherit" />}
+          body={playlist.description ? <p>{playlist.description}</p> : undefined}
+          meta={
+            <>
+              <span className="detail-chip">
+                <span>Tracks</span>
+                <strong>{tracks.length}</strong>
+              </span>
+              {tracks.length > 0 ? (
+                <span className="detail-chip">
+                  <span>Runtime</span>
+                  <strong>{getTotalDuration(tracks)}</strong>
+                </span>
+              ) : null}
+            </>
+          }
+        />
 
-          return (
-            <div className="relative overflow-hidden mb-0 border border-white/10 border-b-0" style={{ height: "400px" }}>
-              <div
-                className="absolute inset-0 z-[1]"
-                style={{
-                  background: `linear-gradient(to right, hsl(var(--dynamic-accent) / 0.35) 0%, hsl(var(--dynamic-accent) / 0.1) 60%, transparent 85%),
-                               linear-gradient(to top, hsl(var(--background)) 0%, transparent 40%)`,
-                }}
-              />
-              <img
-                src={coverUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover transition-[filter] duration-100"
-                style={{
-                  opacity: 0.4,
-                  transform: `scale(${scrollScale + 0.5})`,
-                  filter: `blur(${40 + scrollBlur}px)`,
-                }}
-              />
-              <div className="relative h-full z-[2] flex items-end">
-                <div className="absolute top-0 right-0 bottom-0 w-full sm:w-[65%] shrink-0 z-0">
-                  <img
-                    src={coverUrl}
-                    alt={playlist.title}
-                    className="h-full w-full object-cover object-top transition-[filter,transform] duration-100"
-                    style={{
-                      transform: `scale(${scrollScale})`,
-                      filter: `blur(${scrollBlur}px)`,
-                      maskImage: "linear-gradient(to left, black 20%, transparent 90%), linear-gradient(to top, transparent 0%, black 25%)",
-                      WebkitMaskImage: "linear-gradient(to left, black 20%, transparent 90%), linear-gradient(to top, transparent 0%, black 25%)",
-                      maskComposite: "intersect",
-                      WebkitMaskComposite: "source-in",
-                    }}
-                  />
-                </div>
-                <div className="relative z-10 w-full sm:w-[60%] flex flex-col justify-end px-8 md:px-10 pb-8 min-w-0 pointer-events-none">
-                  <div className="pointer-events-auto">
-                    <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 mb-2">Playlist</p>
-                    <h1
-                      className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-2 leading-tight tracking-tight"
-                      style={{ opacity: scrollOpacity, textShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
-                    >
-                      {playlist.title}
-                    </h1>
-                    {playlist.description && <p className="text-sm font-medium text-foreground/80 mb-1" style={{ opacity: scrollOpacity }}>{playlist.description}</p>}
-                    <div className="text-xs font-medium text-foreground/60 tracking-wide uppercase mt-1" style={{ opacity: scrollOpacity }}>
-                      {tracks.length} TRACK{tracks.length !== 1 ? "S" : ""} {tracks.length > 0 ? `(${getTotalDuration(tracks)})` : ""}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        <section className="grid grid-cols-2 md:grid-cols-4 border border-white/10 divide-x divide-y md:divide-y-0 divide-white/10 bg-white/[0.02]">
+        <DetailActionBar columns={6}>
           <Button
             variant="secondary"
-            className={actionBtnClass}
+            className={DETAIL_ACTION_BUTTON_CLASS}
             onClick={() => {
               if (isCurrentPlaylist) togglePlay();
               else if (tracks.length > 0) play(tracks[0], tracks);
             }}
           >
             {isCurrentPlaylist && isPlaying ? (
-              <Pause className="w-4 h-4 mr-2 fill-current" />
+              <Pause className="hero-action-icon w-4 h-4 mr-2 fill-current" />
             ) : (
-              <Play className="w-4 h-4 mr-2 fill-current" />
+              <Play className="hero-action-icon w-4 h-4 mr-2 fill-current" />
             )}
-            <span className="relative z-10">Play</span>
+            <span className="hero-action-label relative z-10">Play</span>
           </Button>
-          <Button variant="secondary" className={actionBtnClass}>
-            <Shuffle className="w-4 h-4 mr-2" />
-            <span className="relative z-10">Shuffle</span>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={() => {
+              if (tracks.length === 0) return;
+              const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+              play(shuffled[0], shuffled);
+            }}
+          >
+            <Shuffle className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">Shuffle</span>
           </Button>
-          <Button variant="secondary" className={actionBtnClass} onClick={handleLikeAll}>
-            <Heart className="w-4 h-4 mr-2" />
-            <span className="relative z-10">Add</span>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={() => void handleDownloadPlaylist()}
+            disabled={tracks.length === 0 || isDownloading}
+          >
+            <Download className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">{isDownloading ? "Downloading..." : "Download"}</span>
           </Button>
-          <Button variant="secondary" className={actionBtnClass} onClick={handleSharePlaylist}>
-            <Share className="w-4 h-4 mr-2" />
-            <span className="relative z-10">Share</span>
+          <Button variant="secondary" className={DETAIL_ACTION_BUTTON_CLASS} onClick={handleToggleFavoritePlaylist}>
+            <Heart className={`hero-action-icon w-4 h-4 mr-2 ${isSavedPlaylist ? "fill-current" : ""}`} />
+            <span className="hero-action-label relative z-10">{isSavedPlaylist ? "Saved" : "Add"}</span>
           </Button>
-        </section>
+          <PlaylistShareDropdownButton
+            title={playlist.title}
+            kind="tidal"
+            playlistId={playlistId}
+            className={DETAIL_ACTION_BUTTON_CLASS}
+          />
+          <PlaylistDragAction
+            disabled={tracks.length === 0}
+            payload={{
+              label: playlist.title,
+              source: "playlist",
+              tracks,
+            }}
+          />
+        </DetailActionBar>
 
         {tracks.length > 0 && (
           <section className="border border-white/10 bg-white/[0.02]">
-            <div>
-              {tracks.map((track, i) => {
-                const isCurrent = currentTrack?.id === track.id;
+            <VirtualizedTrackList
+              items={tracks}
+              getItemKey={(track, index) => `${track.id}-${index}`}
+              rowHeight={86}
+              renderRow={(track, i) => {
+                const isCurrent = isSameTrack(currentTrack, track);
                 return (
-                  <button
-                    key={`${track.id}-${i}`}
-                    className={`group relative overflow-hidden w-full grid grid-cols-[36px_48px_minmax(0,1fr)_36px_72px] md:grid-cols-[36px_48px_minmax(0,1fr)_minmax(0,0.8fr)_36px_72px] gap-3 px-4 py-2.5 items-center text-left border-b last:border-b-0 border-white/10 ${isCurrent ? "" : "transition-colors duration-200"}`}
-                    style={isCurrent ? { backgroundColor: "hsl(var(--player-waveform) / 0.95)" } : undefined}
-                    onClick={() => play(track, tracks)}
-                  >
-                    {!isCurrent && (
-                      <span
-                        className="absolute inset-0 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300 ease-out pointer-events-none"
-                        style={{ backgroundColor: "hsl(var(--player-waveform) / 0.95)" }}
-                      />
-                    )}
-                    <span className={`relative z-10 text-sm w-[20px] tabular-nums text-center ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))] flex items-center justify-center h-4" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>
-                      {isCurrent ? <PlayingIndicator isPaused={!isPlaying} /> : `${i + 1}.`}
-                    </span>
-                    <img src={track.coverUrl} alt="" className="relative z-10 w-12 h-12 object-cover" />
-                    <div className="relative z-10 min-w-0">
-                      <p className={`text-sm truncate ${isCurrent ? "font-semibold text-[hsl(var(--dynamic-accent-foreground))]" : "font-medium group-hover:text-[hsl(var(--dynamic-accent-foreground))]"}`}>{track.title}</p>
-                      <p className={`text-xs truncate ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground)/0.82)]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.85)] transition-colors duration-200"}`}>{track.artist}</p>
-                    </div>
-                    <span className="hidden md:block relative z-10 min-w-0">
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        className={`text-sm truncate block ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground)/0.92)]" : "text-muted-foreground hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          void openTrackAlbum(track);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void openTrackAlbum(track);
-                          }
-                        }}
-                      >
-                        {track.album}
-                      </span>
-                    </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      aria-label={isLiked(track.id) ? "Remove from liked songs" : "Add to liked songs"}
-                      className="relative z-10 flex items-center justify-center w-8 h-8 rounded-none opacity-0 invisible group-hover:opacity-100 group-hover:visible focus-visible:opacity-100 focus-visible:visible transition-opacity duration-200"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleLike(track);
+                  <TrackContextMenu key={`${track.id}-${i}`} track={track} tracks={tracks}>
+                    <TrackListRow
+                      dragHandleLabel={`Drag ${track.title} to a playlist`}
+                      index={i}
+                      isCurrent={isCurrent}
+                      isLiked={isLiked(track.id)}
+                      isPlaying={isPlaying}
+                      onDragHandleStart={(event) => {
+                        startPlaylistDrag(event.dataTransfer, {
+                          label: track.title,
+                          source: "track",
+                          tracks: [track],
+                        });
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleLike(track);
-                        }
-                      }}
-                    >
-                      <Heart className={`w-4 h-4 ${isLiked(track.id) ? "fill-current text-[hsl(var(--dynamic-accent-foreground))]" : isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`} />
-                    </span>
-                    <span className={`relative z-10 text-sm text-right font-mono tabular-nums ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>{formatDuration(track.duration)}</span>
-                  </button>
+                      onPlay={() => play(track, tracks)}
+                      onToggleLike={() => toggleLike(track)}
+                      track={track}
+                    />
+                  </TrackContextMenu>
                 );
-              })}
-            </div>
+              }}
+            />
           </section>
         )}
 

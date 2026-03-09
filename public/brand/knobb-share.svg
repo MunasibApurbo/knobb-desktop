@@ -1,0 +1,55 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="silver" x1="0" y1="132" x2="0" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" />
+      <stop offset="0.45" stop-color="#F2F2F2" />
+      <stop offset="0.72" stop-color="#D0D0D0" />
+      <stop offset="1" stop-color="#919191" />
+    </linearGradient>
+    <linearGradient id="yellow" x1="0" y1="186" x2="0" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF68A" />
+      <stop offset="0.35" stop-color="#FFF200" />
+      <stop offset="1" stop-color="#C9A000" />
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="252" x2="0" y2="502" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B85EFF" />
+      <stop offset="0.34" stop-color="#7A16FF" />
+      <stop offset="1" stop-color="#21003B" />
+    </linearGradient>
+    <style>
+      .word {
+        font-family: Arial Black, Impact, sans-serif;
+        font-size: 248px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        text-anchor: middle;
+      }
+    </style>
+  </defs>
+
+  <rect width="1200" height="630" fill="#000000" />
+
+  <g opacity="0.92">
+    <path
+      d="M84 74H144V171.212L234.283 74H270L169.404 186.645L279 314H224.092L144 201.092V314H84V74Z"
+      fill="url(#silver)"
+    />
+  </g>
+
+  <g opacity="0.14" stroke="#FFFFFF" stroke-width="8">
+    <text class="word" x="545" y="265" fill="none">KNOBB</text>
+    <text class="word" x="590" y="310" fill="none">KNOBB</text>
+    <text class="word" x="635" y="355" fill="none">KNOBB</text>
+  </g>
+
+  <g stroke="#070707" stroke-width="18" paint-order="stroke fill">
+    <text class="word" x="545" y="265" fill="url(#silver)">KNOBB</text>
+    <text class="word" x="590" y="310" fill="url(#yellow)">KNOBB</text>
+    <text class="word" x="635" y="355" fill="url(#purple)">KNOBB</text>
+  </g>
+
+  <g opacity="0.45">
+    <path d="M274 279H926" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" />
+    <path d="M302 322H954" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="2" stroke-linecap="round" />
+  </g>
+</svg>

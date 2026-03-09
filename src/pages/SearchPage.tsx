@@ -1,539 +1,621 @@
-import { useState, useMemo, useCallback } from "react";
-import { Search, Play, Loader2, Mic2, Heart } from "lucide-react";
+import { FormEvent, forwardRef, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Track } from "@/types/music";
-import { formatDuration } from "@/lib/utils";
+import { TrackListRow } from "@/components/detail/TrackListRow";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useLikedSongs } from "@/contexts/LikedSongsContext";
+import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSavedAlbums } from "@/hooks/useSavedAlbums";
-import { useNavigate } from "react-router-dom";
-import {
-  searchTracks,
-  searchArtists,
-  searchAlbums,
-  searchPlaylists,
-  tidalTrackToAppTrack,
-  getTidalImageUrl,
-  TidalArtist,
-  TidalAlbum,
-  TidalPlaylist,
-} from "@/lib/monochromeApi";
-import { ArtistLink } from "@/components/ArtistLink";
+import { searchTidalReference } from "@/lib/tidalReferenceSearch";
+import { Track } from "@/types/music";
 import { motion } from "framer-motion";
+import { PlayingIndicator } from "@/components/PlayingIndicator";
+import { Play, Heart } from "lucide-react";
+import { ArtistsLink } from "@/components/ArtistsLink";
+import { PlaylistLink } from "@/components/PlaylistLink";
+import { AlbumContextMenu } from "@/components/AlbumContextMenu";
+import { ArtistContextMenu } from "@/components/ArtistContextMenu";
+import { PlaylistContextMenu } from "@/components/PlaylistContextMenu";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { useResolvedArtistImage } from "@/hooks/useResolvedArtistImage";
+import { warmArtistPageData } from "@/lib/musicApi";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { startPlaylistDrag } from "@/lib/playlistDrag";
+import {
+  TidalReferenceAlbumResult,
+  TidalReferenceArtistResult,
+  TidalReferencePlaylistResult,
+} from "@/lib/tidalReferenceMappers";
+import { isSameTrack } from "@/lib/trackIdentity";
 import { toast } from "sonner";
 
-type TabType = "all" | "tracks" | "artists" | "albums" | "playlists" | "library";
+type TabKey = "top" | "profiles" | "tracks" | "albums" | "playlists";
 
-const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
-const fadeUp = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
+type SearchResultsState = {
+  tracks: Track[];
+  artists: TidalReferenceArtistResult[];
+  albums: TidalReferenceAlbumResult[];
+  playlists: TidalReferencePlaylistResult[];
+};
 
-export default function SearchPage() {
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<TabType>("all");
-  const [tidalResults, setTidalResults] = useState<Track[]>([]);
-  const [artistResults, setArtistResults] = useState<TidalArtist[]>([]);
-  const [albumResults, setAlbumResults] = useState<TidalAlbum[]>([]);
-  const [playlistResults, setPlaylistResults] = useState<TidalPlaylist[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const { play, playAlbum, currentTrack } = usePlayer();
-  const { user } = useAuth();
-  const { savedAlbums, isSaved, toggleSavedAlbum } = useSavedAlbums();
-  const navigate = useNavigate();
-  const q = query.toLowerCase();
+const EMPTY_RESULTS: SearchResultsState = {
+  tracks: [],
+  artists: [],
+  albums: [],
+  playlists: [],
+};
 
-  const handleSearch = useCallback(async (searchQuery: string) => {
-    if (!searchQuery.trim()) {
-      setTidalResults([]);
-      setArtistResults([]);
-      setAlbumResults([]);
-      setPlaylistResults([]);
-      return;
-    }
-    setIsSearching(true);
-    try {
-      const [tracks, artists, fetchedAlbums, fetchedPlaylists] = await Promise.all([
-        searchTracks(searchQuery),
-        searchArtists(searchQuery),
-        searchAlbums(searchQuery, 12),
-        searchPlaylists(searchQuery, 12),
-      ]);
-      setTidalResults(tracks.map(tidalTrackToAppTrack));
-      setArtistResults(artists.slice(0, 8));
-      setAlbumResults(fetchedAlbums);
-      setPlaylistResults(fetchedPlaylists);
-    } catch (e) {
-      console.error("Search failed:", e);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
+const TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "top", label: "Top Results" },
+  { key: "profiles", label: "Profiles" },
+  { key: "tracks", label: "Tracks" },
+  { key: "albums", label: "Albums" },
+  { key: "playlists", label: "Playlists" },
+];
 
-  const searchTimeoutRef = useState<ReturnType<typeof setTimeout> | null>(null);
-  const onQueryChange = useCallback((value: string) => {
-    setQuery(value);
-    if (searchTimeoutRef[0]) clearTimeout(searchTimeoutRef[0]);
-    searchTimeoutRef[0] = setTimeout(() => handleSearch(value), 400);
-  }, [handleSearch]);
-
-  const { likedSongs } = useLikedSongs();
-
-  const filteredTracks = useMemo(
-    () => (q ? likedSongs.filter((t) => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)) : likedSongs),
-    [q, likedSongs]
+function SearchTabButton({
+  active,
+  label,
+  onClick,
+  className,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "menu-sweep-hover relative inline-flex h-11 min-w-0 items-center justify-center overflow-hidden rounded-[var(--mobile-control-radius)] border border-white/10 px-3 text-center font-semibold text-[10px] uppercase tracking-[0.16em] transition-colors md:h-14 md:min-w-0 md:rounded-none md:border-0 md:border-r md:px-4 md:text-base md:normal-case md:tracking-normal last:md:border-r-0 " +
+        (active ? "text-black" : "text-muted-foreground") +
+        (className ? ` ${className}` : "")
+      }
+      style={active ? { backgroundColor: "hsl(var(--player-waveform))" } : undefined}
+    >
+      <span>{label}</span>
+    </button>
   );
+}
 
-  const filteredLibraryAlbums = useMemo(
-    () =>
-      q
-        ? savedAlbums.filter(
-          (a) =>
-            a.album_title.toLowerCase().includes(q) ||
-            a.album_artist.toLowerCase().includes(q)
-        )
-        : savedAlbums,
-    [q, savedAlbums]
-  );
+type SearchRowProps = {
+  index: number;
+  imageUrl?: string;
+  artistId?: number;
+  artistName?: string;
+  title: string | React.ReactNode;
+  subtitle?: string | React.ReactNode;
+  middleLabel?: string | React.ReactNode;
+  trailing?: string;
+  onSelect: () => void;
+  roundedImage?: boolean;
+  isCurrent?: boolean;
+  onPlay?: () => void;
+  onLike?: () => void;
+  isLiked?: boolean;
+  onRowMouseEnter?: () => void;
+  onRowFocus?: () => void;
+  onRowPointerDown?: () => void;
+} & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onMouseEnter" | "onFocus" | "onPointerDown">;
 
-  const openAuthForSave = () => {
-    const from = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    navigate("/auth", { state: { from } });
-  };
-
-  const handleToggleSavedAlbum = async (
-    album: TidalAlbum,
-    event?: React.MouseEvent<HTMLButtonElement>
-  ) => {
-    event?.preventDefault();
-    event?.stopPropagation();
-
-    if (!user) {
-      openAuthForSave();
-      return;
-    }
-
-    const currentlySaved = isSaved(album.id);
-    const success = await toggleSavedAlbum({
-      albumId: album.id,
-      albumTitle: album.title,
-      albumArtist: album.artist?.name || album.artists?.map((a) => a.name).join(", ") || "Unknown Artist",
-      albumCoverUrl: getTidalImageUrl(album.cover || "", "480x480"),
-      albumYear: album.releaseDate ? new Date(album.releaseDate).getFullYear() : null,
-    });
-
-    if (!success) {
-      toast.error("Failed to update album library");
-      return;
-    }
-
-    toast.success(currentlySaved ? `Removed ${album.title} from library` : `Saved ${album.title} to library`);
-  };
-
-  const tabs: { key: TabType; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "tracks", label: "Songs" },
-    { key: "artists", label: "Artists" },
-    { key: "albums", label: "Albums" },
-    { key: "playlists", label: "Playlists" },
-    { key: "library", label: "Library" },
-  ];
-
-  const hasResults = tidalResults.length > 0 || artistResults.length > 0 || albumResults.length > 0 || playlistResults.length > 0;
-  const CARD_GRID = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4";
+const SearchRow = forwardRef<HTMLDivElement, SearchRowProps>(function SearchRow({
+  index,
+  imageUrl,
+  artistId,
+  artistName,
+  title,
+  subtitle,
+  middleLabel,
+  trailing,
+  onSelect,
+  roundedImage = false,
+  isCurrent = false,
+  onPlay,
+  onLike,
+  isLiked,
+  onRowMouseEnter,
+  onRowFocus,
+  onRowPointerDown,
+  onClick,
+  onMouseEnter,
+  onFocus,
+  onPointerDown,
+  ...buttonProps
+}, ref) {
+  const resolvedImageUrl = useResolvedArtistImage(artistId, imageUrl, artistName);
+  const displayImageUrl = artistId ? resolvedImageUrl : imageUrl;
 
   return (
-    <div>
-      {/* Search input */}
-      <div className="relative mb-6 max-w-md">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-        <Input
-          placeholder="What do you want to listen to?"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch(query);
-          }}
-          className="pl-12 bg-foreground text-background placeholder:text-background/50 border-0  h-12 text-sm font-medium"
-          autoFocus
+    <div
+      ref={ref}
+      role="button"
+      tabIndex={0}
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) {
+          onSelect();
+        }
+      }}
+      onMouseEnter={(event) => {
+        onMouseEnter?.(event);
+        onRowMouseEnter?.();
+      }}
+      onFocus={(event) => {
+        onFocus?.(event);
+        onRowFocus?.();
+      }}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        onRowPointerDown?.();
+      }}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect();
+      }}
+      className={`content-visibility-list group relative flex w-full items-center gap-2.5 overflow-hidden border-b border-white/10 px-3 py-2.5 text-left last:border-b-0 md:gap-3 md:px-4 md:py-3 ${isCurrent ? "" : "transition-colors duration-200"}`}
+      style={isCurrent ? { backgroundColor: "hsl(var(--dynamic-accent) / 0.94)" } : undefined}
+      {...buttonProps}
+    >
+      {!isCurrent && (
+        <span
+          className="absolute inset-0 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300 ease-out pointer-events-none"
+          style={{ backgroundColor: "hsl(var(--player-waveform) / 0.95)" }}
         />
-        {isSearching && (
-          <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-background/50 animate-spin" />
+      )}
+
+      <span
+        className={`relative z-10 hidden w-4 shrink-0 items-center justify-center text-center text-xs tabular-nums md:flex md:w-[20px] md:text-sm ${isCurrent
+          ? "h-4 text-black"
+          : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"
+          }`}
+      >
+        {isCurrent ? <PlayingIndicator isPaused={false} /> : `${index + 1}.`}
+      </span>
+
+      <div className={`relative z-10 shrink-0 overflow-hidden bg-white/10 group/img ${roundedImage ? "website-avatar h-11 w-11 rounded-full md:h-12 md:w-12" : "h-11 w-11 rounded-[calc(var(--mobile-control-radius)-4px)] md:h-12 md:w-12 md:rounded-[var(--cover-radius)]"}`}>
+        {displayImageUrl ? (
+          <img
+            src={displayImageUrl}
+            alt={typeof title === "string" ? title : "Result"}
+            loading="lazy"
+            decoding="async"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover/img:scale-110"
+            onError={(event) => {
+              (event.target as HTMLImageElement).src = "/placeholder.svg";
+            }}
+          />
+        ) : null}
+        {(onPlay || onLike) && (
+          <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/40 opacity-100 transition-opacity md:opacity-0 md:group-hover/img:opacity-100">
+            {onPlay && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onPlay(); }}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-[hsl(var(--dynamic-accent))] text-foreground transition-transform hover:scale-110"
+              >
+                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+              </button>
+            )}
+            {onLike && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onLike(); }}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-black/50 text-white hover:scale-110 transition-transform"
+              >
+                <Heart className={`w-3.5 h-3.5 ${isLiked ? "fill-current text-[hsl(var(--dynamic-accent))]" : ""}`} />
+              </button>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2  text-sm font-semibold transition-all ${tab === t.key ? "bg-foreground text-background" : "bg-accent text-foreground hover:bg-accent/80"
-              }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="relative z-10 min-w-0 flex-1">
+        <p className={`truncate text-[13px] md:text-sm ${isCurrent ? "font-semibold text-black" : "font-medium group-hover:text-[hsl(var(--dynamic-accent-foreground))]"}`}>
+          {title}
+        </p>
+        {subtitle ? (
+          <p className={`truncate text-[11px] md:text-xs ${isCurrent ? "text-black/78" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.85)] transition-colors duration-200"}`}>
+            {subtitle}
+          </p>
+        ) : null}
       </div>
 
-      {/* Empty state */}
-      {!hasResults && !isSearching && (tab === "all" || tab === "tracks" || tab === "artists" || tab === "albums" || tab === "playlists") && (
-        <div className="text-center py-16">
-          <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground text-lg font-medium">Search for songs, artists, albums, and playlists</p>
-          <p className="text-muted-foreground/60 text-sm mt-1">Start typing to discover music</p>
-        </div>
-      )}
+      <span className={`relative z-10 hidden w-[min(28vw,11rem)] shrink-0 text-sm truncate md:block ${isCurrent ? "text-black/82" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>
+        {middleLabel || ""}
+      </span>
 
-      {/* ALL tab */}
-      {tab === "all" && hasResults && (
-        <div>
-          {/* Top Result + Songs side by side */}
-          {(tidalResults.length > 0 || artistResults.length > 0) && (
-            <div className="grid grid-cols-1 md:grid-cols-[380px_1fr] gap-6 mb-8">
-              {/* Top Result Card */}
-              {artistResults.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-bold text-foreground mb-3">Top result</h3>
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    className="relative group cursor-pointer transition-opacity hover:opacity-80 h-[220px] flex flex-col justify-end"
-                    onClick={() => navigate(`/artist/${artistResults[0].id}?name=${encodeURIComponent(artistResults[0].name)}`)}
-                  >
-                    <img
-                      src={artistResults[0].picture ? getTidalImageUrl(artistResults[0].picture, "1080x720") : "/placeholder.svg"}
-                      alt={artistResults[0].name}
-                      className="w-full h-32 object-cover shadow-xl mb-3"
-                    />
-                    <p className="text-xl font-black text-foreground truncate">{artistResults[0].name}</p>
-                    <p className="text-xs text-muted-foreground/80 font-medium uppercase">Artist</p>
-                  </motion.div>
-                </div>
-              )}
-
-              {/* Top Songs */}
-              {tidalResults.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-bold text-foreground mb-3">Songs</h3>
-                  <motion.div variants={stagger} initial="hidden" animate="show">
-                    {tidalResults.slice(0, 4).map((track) => {
-                      const isCurrent = currentTrack?.id === track.id;
-                      return (
-                        <motion.div
-                          key={track.id}
-                          variants={fadeUp}
-                          className={`flex items-center gap-4 px-4 py-2.5 cursor-pointer  transition-colors group
-                            ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
-                          onClick={() => play(track, tidalResults)}
-                        >
-                          <img src={track.coverUrl} alt="" className="w-10 h-10 object-cover" />
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${isCurrent ? "font-semibold" : "font-medium"}`}
-                              style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
-                              {track.title}
-                            </p>
-                            <p className="text-sm text-muted-foreground truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-sm" /></p>
-                          </div>
-                          <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
-                        </motion.div>
-                      );
-                    })}
-                  </motion.div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Artists row */}
-          {artistResults.length > 1 && (
-            <div className="mb-8">
-              <h3 className="text-lg font-bold text-foreground mb-3">Artists</h3>
-              <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-                {artistResults.slice(0, 6).map((a) => (
-                  <motion.div
-                    key={a.id}
-                    variants={fadeUp}
-                    className="relative group cursor-pointer transition-opacity hover:opacity-80"
-                    onClick={() => navigate(`/artist/${a.id}?name=${encodeURIComponent(a.name)}`)}
-                  >
-                    <div className="relative mb-2 overflow-hidden aspect-[3/2] shadow-sm mx-auto">
-                      <img
-                        src={a.picture ? getTidalImageUrl(a.picture, "1080x720") : "/placeholder.svg"}
-                        alt={a.name}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
-                    </div>
-                    <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground text-center truncate">{a.name}</p>
-                    <div className="flex items-center justify-center gap-1">
-                      <Mic2 className="w-[14px] h-[14px] text-muted-foreground/80" />
-                      <p className="text-xs text-muted-foreground/80">Artist</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </motion.div>
-            </div>
-          )}
-
-          {/* Albums row */}
-          {albumResults.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-lg font-bold text-foreground mb-3">Albums</h3>
-              <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-                {albumResults.slice(0, 6).map((album) => (
-                  <motion.div
-                    key={album.id}
-                    variants={fadeUp}
-                    className="relative group cursor-pointer transition-opacity hover:opacity-80"
-                    onClick={() => navigate(`/album/tidal-${album.id}`)}
-                  >
-                    <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
-                      <img
-                        src={getTidalImageUrl(album.cover, "480x480")}
-                        alt={album.title}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      />
-                      <button
-                        type="button"
-                        className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-black/45 hover:bg-black/70 text-white transition-colors z-10"
-                        onClick={(e) => handleToggleSavedAlbum(album, e)}
-                        title={isSaved(album.id) ? "Remove from library" : "Save to library"}
-                      >
-                        <Heart className={`w-4 h-4 ${isSaved(album.id) ? "fill-current text-[hsl(var(--dynamic-accent))]" : ""}`} />
-                      </button>
-                      <div
-                        className="absolute bottom-2 right-2 w-11 h-11  flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 z-10 hover:scale-105"
-                        style={{ background: `hsl(var(--dynamic-accent))` }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playAlbum(album);
-                        }}
-                      >
-                        <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
-                      </div>
-                    </div>
-                    <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground truncate">{album.title}</p>
-                    <p className="text-xs text-muted-foreground/80 truncate">{album.artist?.name || "Various Artists"}</p>
-                  </motion.div>
-                ))}
-              </motion.div>
-            </div>
-          )}
-
-          {/* Playlists row */}
-          {playlistResults.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-lg font-bold text-foreground mb-3">Playlists</h3>
-              <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-                {playlistResults.slice(0, 6).map((playlist) => (
-                  <motion.div
-                    key={playlist.uuid}
-                    variants={fadeUp}
-                    className="relative group cursor-pointer transition-opacity hover:opacity-80"
-                    onClick={() => navigate(`/playlist/${playlist.uuid}`)}
-                  >
-                    <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
-                      <img
-                        src={getTidalImageUrl(playlist.squareImage || playlist.image || "", "480x480")}
-                        alt={playlist.title}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      />
-                    </div>
-                    <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground truncate">{playlist.title}</p>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{playlist.numberOfTracks || 0} songs</p>
-                  </motion.div>
-                ))}
-              </motion.div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TRACKS tab */}
-      {tab === "tracks" && (
-        <motion.div variants={stagger} initial="hidden" animate="show">
-          {tidalResults.map((track) => {
-            const isCurrent = currentTrack?.id === track.id;
-            return (
-              <motion.div
-                key={track.id}
-                variants={fadeUp}
-                className={`flex items-center gap-4 px-4 py-2.5 cursor-pointer  transition-colors group
-                  ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
-                onClick={() => play(track, tidalResults)}
-              >
-                <img src={track.coverUrl} alt="" className="w-10 h-10 object-cover" />
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${isCurrent ? "font-semibold" : "font-medium"}`}
-                    style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
-                    {track.title}
-                  </p>
-                  <p className="text-sm text-muted-foreground truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-sm" /> · {track.album}</p>
-                </div>
-                <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
-                <Play className="w-4 h-4 text-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-              </motion.div>
-            );
-          })}
-        </motion.div>
-      )}
-
-      {/* ARTISTS tab */}
-      {tab === "artists" && (
-        <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-          {artistResults.map((a) => (
-            <motion.div
-              key={a.id}
-              variants={fadeUp}
-              className="relative group cursor-pointer transition-opacity hover:opacity-80"
-              onClick={() => navigate(`/artist/${a.id}?name=${encodeURIComponent(a.name)}`)}
-            >
-              <div className="relative mb-2 overflow-hidden aspect-[3/2] shadow-sm mx-auto">
-                <img
-                  src={a.picture ? getTidalImageUrl(a.picture, "1080x720") : "/placeholder.svg"}
-                  alt={a.name}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                />
-              </div>
-              <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground text-center truncate">{a.name}</p>
-              <div className="flex items-center justify-center gap-1">
-                <Mic2 className="w-[14px] h-[14px] text-muted-foreground/80" />
-                <p className="text-xs text-muted-foreground/80">Artist · Popularity {a.popularity}%</p>
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
-
-      {/* ALBUMS tab */}
-      {tab === "albums" && (
-        <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-          {albumResults.map((album) => (
-            <motion.div
-              key={album.id}
-              variants={fadeUp}
-              className="relative group cursor-pointer transition-opacity hover:opacity-80"
-              onClick={() => navigate(`/album/tidal-${album.id}`)}
-            >
-              <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
-                <img
-                  src={getTidalImageUrl(album.cover, "480x480")}
-                  alt={album.title}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-                <button
-                  type="button"
-                  className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-black/45 hover:bg-black/70 text-white transition-colors z-10"
-                  onClick={(e) => handleToggleSavedAlbum(album, e)}
-                  title={isSaved(album.id) ? "Remove from library" : "Save to library"}
-                >
-                  <Heart className={`w-4 h-4 ${isSaved(album.id) ? "fill-current text-[hsl(var(--dynamic-accent))]" : ""}`} />
-                </button>
-                <div
-                  className="absolute bottom-2 right-2 w-11 h-11  flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300"
-                  style={{ background: `hsl(var(--dynamic-accent))` }}
-                >
-                  <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
-                </div>
-              </div>
-              <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground truncate">{album.title}</p>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">{album.artist?.name || "Various Artists"}</p>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
-
-      {/* PLAYLISTS tab */}
-      {tab === "playlists" && (
-        <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-          {playlistResults.map((playlist) => (
-            <motion.div
-              key={playlist.uuid}
-              variants={fadeUp}
-              className="relative group cursor-pointer transition-opacity hover:opacity-80"
-              onClick={() => navigate(`/playlist/${playlist.uuid}`)}
-            >
-              <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
-                <img
-                  src={getTidalImageUrl(playlist.squareImage || playlist.image || "", "480x480")}
-                  alt={playlist.title}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-              </div>
-              <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground truncate">{playlist.title}</p>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">{playlist.numberOfTracks || 0} songs</p>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
-
-      {/* LIBRARY tab */}
-      {tab === "library" && (
-        <div className="space-y-8">
-          {filteredLibraryAlbums.length > 0 && (
-            <div>
-              <h3 className="text-lg font-bold text-foreground mb-3">Saved Albums</h3>
-              <motion.div variants={stagger} initial="hidden" animate="show" className={CARD_GRID}>
-                {filteredLibraryAlbums.map((album) => {
-                  const params = new URLSearchParams();
-                  if (album.album_title) params.set("title", album.album_title);
-                  if (album.album_artist) params.set("artist", album.album_artist);
-
-                  return (
-                    <motion.div
-                      key={album.id}
-                      variants={fadeUp}
-                      className="relative group cursor-pointer transition-opacity hover:opacity-80"
-                      onClick={() => navigate(`/album/tidal-${album.album_id}?${params.toString()}`)}
-                    >
-                      <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
-                        <img
-                          src={album.album_cover_url || "/placeholder.svg"}
-                          alt={album.album_title}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                      </div>
-                      <p className="text-sm font-medium leading-tight mt-1 mb-[2px] text-foreground truncate">
-                        {album.album_title}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{album.album_artist}</p>
-                    </motion.div>
-                  );
-                })}
-              </motion.div>
-            </div>
-          )}
-
-          <motion.div variants={stagger} initial="hidden" animate="show">
-            {filteredTracks.map((track) => {
-              const isCurrent = currentTrack?.id === track.id;
-              return (
-                <motion.div
-                  key={track.id}
-                  variants={fadeUp}
-                  className={`flex items-center gap-4 px-4 py-2.5 cursor-pointer  transition-colors group
-                    ${isCurrent ? "bg-accent/30" : "hover:bg-accent/15"}`}
-                  onClick={() => play(track, filteredTracks)}
-                >
-                  <img src={track.coverUrl} alt="" className="w-10 h-10 object-cover" />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${isCurrent ? "font-semibold" : "font-medium"}`}
-                      style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
-                      {track.title}
-                    </p>
-                    <p className="text-sm text-muted-foreground truncate"><ArtistLink name={track.artist} artistId={track.artistId} className="text-sm" /> · {track.album}</p>
-                  </div>
-                  <span className="text-sm text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
-                </motion.div>
-              );
-            })}
-          </motion.div>
-
-          {filteredTracks.length === 0 && filteredLibraryAlbums.length === 0 && (
-            <p className="text-center text-muted-foreground text-sm py-10">
-              No matching library songs or albums found.
-            </p>
-          )}
-        </div>
+      {trailing ? (
+        <span className={`relative z-10 w-14 shrink-0 text-right font-mono text-sm tabular-nums ${isCurrent ? "text-black" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>
+          {trailing}
+        </span>
+      ) : (
+        <span className="relative z-10" />
       )}
     </div>
+  );
+});
+
+export default function SearchPage() {
+  const isMobile = useIsMobile();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { play, currentTrack, isPlaying, playArtist } = usePlayer();
+  const { user } = useAuth();
+  const { isFavorite, toggleFavorite } = useFavoriteArtists();
+  const initialQuery = searchParams.get("q") || "";
+  const [query, setQuery] = useState(initialQuery);
+  const [results, setResults] = useState<SearchResultsState>(EMPTY_RESULTS);
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>("top");
+
+  useEffect(() => {
+    const q = searchParams.get("q") || "";
+    setQuery(q);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setResults(EMPTY_RESULTS);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const next = await searchTidalReference(trimmed);
+        setResults({
+          tracks: next.tracks,
+          artists: next.artists,
+          albums: next.albums,
+          playlists: next.playlists,
+        });
+      } catch (error) {
+        console.error("Search failed:", error);
+        setResults(EMPTY_RESULTS);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 260);
+
+    return () => clearTimeout(timeout);
+  }, [query]);
+
+  const hasAnyResults = useMemo(
+    () =>
+      results.tracks.length > 0 ||
+      results.artists.length > 0 ||
+      results.albums.length > 0 ||
+      results.playlists.length > 0,
+    [results],
+  );
+
+  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const next = query.trim();
+    if (!next) {
+      setSearchParams({});
+      return;
+    }
+    setSearchParams({ q: next });
+  };
+
+  const openAlbum = (album: TidalReferenceAlbumResult) => {
+    const params = new URLSearchParams();
+    params.set("title", album.title);
+    if (album.artist) params.set("artist", album.artist);
+    navigate(`/album/tidal-${album.id}?${params.toString()}`);
+  };
+
+  const prefetchArtist = (artistId: number) => {
+    void warmArtistPageData(artistId);
+  };
+
+  const handleToggleFavoriteArtist = async (artist: TidalReferenceArtistResult) => {
+    if (!user) {
+      navigate("/auth", { state: { from: `${window.location.pathname}${window.location.search}` } });
+      return;
+    }
+
+    const success = await toggleFavorite({
+      artistId: artist.id,
+      artistName: artist.name,
+      artistImageUrl: artist.imageUrl,
+    });
+
+    if (!success) {
+      toast.error("Failed to update favorite");
+    }
+  };
+
+  const renderTrackResultRow = (track: Track, index: number, tracks: Track[]) => {
+    const isCurrent = isSameTrack(currentTrack, track);
+
+    return (
+      <TrackContextMenu key={`search-track-${track.id}-${index}`} track={track} tracks={tracks}>
+        <TrackListRow
+          className="px-3 py-2.5 md:px-4 md:py-3"
+          dragHandleLabel={`Drag ${track.title} to a playlist`}
+          index={index}
+          isCurrent={isCurrent}
+          isPlaying={isPlaying}
+          onDragHandleStart={(event) => {
+            startPlaylistDrag(event.dataTransfer, {
+              label: track.title,
+              source: "track",
+              tracks: [track],
+            });
+          }}
+          onPlay={() => play(track, tracks)}
+          track={track}
+        />
+      </TrackContextMenu>
+    );
+  };
+
+  const renderTopResults = () => (
+    <div>
+      {isMobile && results.artists[0] ? (
+        <ArtistContextMenu
+          artistId={results.artists[0].id}
+          artistName={results.artists[0].name}
+          artistImageUrl={results.artists[0].imageUrl}
+        >
+          <button
+            type="button"
+            className="relative m-3 overflow-hidden rounded-[var(--mobile-panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(61,223,179,0.14),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(63,191,255,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-3.5 text-left"
+            onClick={() => navigate(`/artist/${results.artists[0].id}?name=${encodeURIComponent(results.artists[0].name)}`)}
+          >
+            <div className="flex items-center gap-3">
+              <img
+                src={results.artists[0].imageUrl || "/placeholder.svg"}
+                alt={results.artists[0].name}
+                className="website-avatar h-16 w-16 rounded-full object-cover"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/48">Top result</p>
+                <p className="mt-1.5 truncate text-xl font-black tracking-tight text-white">{results.artists[0].name}</p>
+                <p className="mt-1.5 text-[12px] leading-5 text-white/58">Open the profile, start radio, or favorite this artist.</p>
+              </div>
+            </div>
+          </button>
+        </ArtistContextMenu>
+      ) : null}
+      {!isMobile && results.artists[0] ? (
+        <ArtistContextMenu
+          artistId={results.artists[0].id}
+          artistName={results.artists[0].name}
+          artistImageUrl={results.artists[0].imageUrl}
+        >
+          <SearchRow
+            index={0}
+            imageUrl={results.artists[0].imageUrl}
+            artistId={results.artists[0].id}
+            artistName={results.artists[0].name}
+            roundedImage
+            title={results.artists[0].name}
+            subtitle="Profile"
+            middleLabel="Artist Profile"
+            onSelect={() => navigate(`/artist/${results.artists[0].id}?name=${encodeURIComponent(results.artists[0].name)}`)}
+            onRowMouseEnter={() => prefetchArtist(results.artists[0].id)}
+            onRowFocus={() => prefetchArtist(results.artists[0].id)}
+            onRowPointerDown={() => prefetchArtist(results.artists[0].id)}
+            onPlay={() => playArtist(results.artists[0].id, results.artists[0].name)}
+            onLike={() => void handleToggleFavoriteArtist(results.artists[0])}
+            isLiked={isFavorite(results.artists[0].id)}
+          />
+        </ArtistContextMenu>
+      ) : null}
+      {results.tracks
+        .slice(0, 10)
+        .map((track, i) => renderTrackResultRow(track, (results.artists[0] ? 1 : 0) + i, results.tracks))}
+      {results.albums.slice(0, 6).map((album, i) => (
+        <AlbumContextMenu
+          key={`top-album-${album.id}`}
+          albumId={album.id}
+          title={album.title}
+          artist={album.artist}
+          coverUrl={album.coverUrl}
+        >
+          <SearchRow
+            index={(results.artists[0] ? 1 : 0) + Math.min(10, results.tracks.length) + i}
+            imageUrl={album.coverUrl}
+            title={album.title}
+            subtitle={
+              <span className="flex items-center gap-1">
+                <span>Album ·</span>
+                <ArtistsLink name={album.artist} className="text-xs" onClick={(e) => e.stopPropagation()} />
+              </span>
+            }
+            middleLabel={<ArtistsLink name={album.artist} className="text-sm" onClick={(e) => e.stopPropagation()} />}
+            onSelect={() => openAlbum(album)}
+          />
+        </AlbumContextMenu>
+      ))}
+      {results.playlists.slice(0, 4).map((playlist, i) => (
+        <PlaylistContextMenu
+          key={`top-playlist-${playlist.id}`}
+          title={playlist.title}
+          playlistId={playlist.id}
+          coverUrl={playlist.coverUrl}
+          kind="tidal"
+        >
+          <SearchRow
+            index={(results.artists[0] ? 1 : 0) + Math.min(10, results.tracks.length) + Math.min(6, results.albums.length) + i}
+            imageUrl={playlist.coverUrl}
+            title={<PlaylistLink title={playlist.title} playlistId={playlist.id} className="text-inherit" />}
+            subtitle={`Playlist · ${playlist.trackCount} songs`}
+            middleLabel="Playlist"
+            onSelect={() => navigate(`/playlist/${playlist.id}`)}
+          />
+        </PlaylistContextMenu>
+      ))}
+    </div>
+  );
+
+  const renderRowsByTab = () => {
+    if (activeTab === "top") return renderTopResults();
+    if (activeTab === "profiles") {
+      return (
+        <div>
+          {results.artists.map((artist, i) => (
+            <ArtistContextMenu
+              key={`artist-${artist.id}`}
+              artistId={artist.id}
+              artistName={artist.name}
+              artistImageUrl={artist.imageUrl}
+            >
+              <SearchRow
+                index={i}
+                imageUrl={artist.imageUrl}
+                artistId={artist.id}
+                artistName={artist.name}
+                roundedImage
+                title={artist.name}
+                subtitle="Profile"
+                middleLabel="Artist Profile"
+                onSelect={() => navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`)}
+                onRowMouseEnter={() => prefetchArtist(artist.id)}
+                onRowFocus={() => prefetchArtist(artist.id)}
+                onRowPointerDown={() => prefetchArtist(artist.id)}
+                onPlay={() => playArtist(artist.id, artist.name)}
+                onLike={() => void handleToggleFavoriteArtist(artist)}
+                isLiked={isFavorite(artist.id)}
+              />
+            </ArtistContextMenu>
+          ))}
+        </div>
+      );
+    }
+    if (activeTab === "tracks") {
+      return (
+        <div>{results.tracks.map((track, i) => renderTrackResultRow(track, i, results.tracks))}</div>
+      );
+    }
+    if (activeTab === "albums") {
+      return (
+        <div>
+          {results.albums.map((album, i) => (
+            <AlbumContextMenu
+              key={`album-${album.id}`}
+              albumId={album.id}
+              title={album.title}
+              artist={album.artist}
+              coverUrl={album.coverUrl}
+            >
+              <SearchRow
+                index={i}
+                imageUrl={album.coverUrl}
+                title={album.title}
+                subtitle={
+                  <span className="flex items-center gap-1">
+                    <span>Album ·</span>
+                    <ArtistsLink name={album.artist} className="text-xs" onClick={(e) => e.stopPropagation()} />
+                  </span>
+                }
+                middleLabel={<ArtistsLink name={album.artist} className="text-sm" onClick={(e) => e.stopPropagation()} />}
+                onSelect={() => openAlbum(album)}
+              />
+            </AlbumContextMenu>
+          ))}
+        </div>
+      );
+    }
+    if (activeTab === "playlists") {
+      return (
+        <div>
+          {results.playlists.map((playlist, i) => (
+            <PlaylistContextMenu
+              key={`playlist-${playlist.id}`}
+              title={playlist.title}
+              playlistId={playlist.id}
+              coverUrl={playlist.coverUrl}
+              kind="tidal"
+            >
+              <SearchRow
+                index={i}
+                imageUrl={playlist.coverUrl}
+                title={<PlaylistLink title={playlist.title} playlistId={playlist.id} className="text-inherit" />}
+                subtitle={`Playlist · ${playlist.trackCount} songs`}
+                middleLabel={`${playlist.trackCount} songs`}
+                onSelect={() => navigate(`/playlist/${playlist.id}`)}
+              />
+            </PlaylistContextMenu>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      className="mobile-page-shell hover-desaturate-page"
+    >
+      <div className="mobile-page-sticky-stack sticky top-0 z-20">
+      <section className="mobile-page-panel border border-white/10 border-b-0 seekbar-tone-box backdrop-blur-xl">
+        <form onSubmit={submitSearch} className="h-14 px-4 flex items-center gap-3">
+          <Search className="w-5 h-5 text-muted-foreground shrink-0" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={isMobile ? "Search artists, tracks, albums..." : "Search artists, tracks, albums, playlists"}
+            className="h-10 min-w-0 border-0 bg-transparent px-0 text-base font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-lg md:text-xl placeholder:text-muted-foreground/85"
+            autoFocus
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setSearchParams({});
+              }}
+              className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          ) : (
+            <span className="w-5 h-5" />
+          )}
+        </form>
+      </section>
+
+      <section className="mobile-page-panel border border-white/10 bg-white/[0.02] backdrop-blur-xl">
+        <div className="grid grid-cols-2 gap-2 px-3 py-3 md:grid-cols-6 md:gap-0 md:px-0 md:py-0">
+          {TABS.map((tab, index) => (
+            <SearchTabButton
+              key={tab.key}
+              active={activeTab === tab.key}
+              label={tab.label}
+              onClick={() => setActiveTab(tab.key)}
+              className={index === TABS.length - 1 ? "col-span-2 md:col-span-1" : ""}
+            />
+          ))}
+        </div>
+      </section>
+      </div>
+
+
+      <section className="mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
+
+        {isSearching ? (
+          <div className="py-12 text-center text-muted-foreground md:py-20">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
+            Searching...
+          </div>
+        ) : !query.trim() ? (
+          <div className="py-12 px-6 text-center text-muted-foreground md:py-20">Type a name to search.</div>
+        ) : !hasAnyResults ? (
+          <div className="py-12 px-6 text-center text-muted-foreground md:py-20">No results found.</div>
+        ) : (
+          renderRowsByTab()
+        )}
+      </section>
+    </motion.div>
   );
 }

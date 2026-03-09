@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { scheduleBackgroundTask } from "@/lib/performanceProfile";
+import { getSupabaseClient } from "@/lib/runtimeModules";
 
 export interface FavoritePlaylist {
   id: string;
@@ -26,6 +27,7 @@ const sortByCreatedAtDesc = (rows: FavoritePlaylist[]) =>
 
 export function useFavoritePlaylists() {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [favoritePlaylists, setFavoritePlaylists] = useState<FavoritePlaylist[]>([]);
   const [loading, setLoading] = useState(false);
   const favoritesRef = useRef<FavoritePlaylist[]>([]);
@@ -43,13 +45,16 @@ export function useFavoritePlaylists() {
 
     setLoading(true);
     try {
+      const supabase = await getSupabaseClient();
       const { data, error } = await supabase
         .from("favorite_playlists")
         .select("*")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setFavoritePlaylists(sortByCreatedAtDesc((data || []) as FavoritePlaylist[]));
+      const normalized = sortByCreatedAtDesc((data || []) as FavoritePlaylist[]);
+      favoritesRef.current = normalized;
+      setFavoritePlaylists(normalized);
     } catch (error) {
       console.error("Failed to fetch favorite playlists", error);
     } finally {
@@ -58,32 +63,52 @@ export function useFavoritePlaylists() {
   }, [user]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!user) {
+      void refresh();
+      return;
+    }
+
+    return scheduleBackgroundTask(() => {
+      void refresh();
+    }, 900);
+  }, [refresh, user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
 
-    const channel = supabase
-      .channel(`favorite-playlists:${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "favorite_playlists",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          void refresh();
-        }
-      )
-      .subscribe();
+    let active = true;
+    let channel: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabaseClient>>["channel"]>> | null = null;
+    const cancel = scheduleBackgroundTask(() => {
+      void (async () => {
+        const supabase = await getSupabaseClient();
+        if (!active) return;
+
+        channel = supabase
+          .channel(`favorite-playlists:${userId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "favorite_playlists",
+              filter: `user_id=eq.${userId}`,
+            },
+            () => {
+              void refresh();
+            }
+          )
+          .subscribe();
+      })();
+    }, 1400);
 
     return () => {
-      void supabase.removeChannel(channel);
+      active = false;
+      cancel();
+      if (channel) {
+        void getSupabaseClient().then((supabase) => supabase.removeChannel(channel!));
+      }
     };
-  }, [refresh, user?.id]);
+  }, [refresh, userId]);
 
   const isFavoritePlaylist = useCallback(
     (playlistId: string, source = "tidal") =>
@@ -121,6 +146,7 @@ export function useFavoritePlaylists() {
         ])
       );
 
+      const supabase = await getSupabaseClient();
       const { error } = await supabase.from("favorite_playlists").upsert(
         {
           user_id: user.id,
@@ -155,6 +181,7 @@ export function useFavoritePlaylists() {
         )
       );
 
+      const supabase = await getSupabaseClient();
       const { error } = await supabase
         .from("favorite_playlists")
         .delete()
@@ -184,13 +211,24 @@ export function useFavoritePlaylists() {
     [addFavoritePlaylist, isFavoritePlaylist, removeFavoritePlaylist]
   );
 
-  return {
-    favoritePlaylists,
-    loading,
-    isFavoritePlaylist,
-    addFavoritePlaylist,
-    removeFavoritePlaylist,
-    toggleFavoritePlaylist,
-    refresh,
-  };
+  return useMemo(
+    () => ({
+      favoritePlaylists,
+      loading,
+      isFavoritePlaylist,
+      addFavoritePlaylist,
+      removeFavoritePlaylist,
+      toggleFavoritePlaylist,
+      refresh,
+    }),
+    [
+      addFavoritePlaylist,
+      favoritePlaylists,
+      isFavoritePlaylist,
+      loading,
+      refresh,
+      removeFavoritePlaylist,
+      toggleFavoritePlaylist,
+    ],
+  );
 }

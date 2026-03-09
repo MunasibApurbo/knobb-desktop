@@ -5,7 +5,10 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Disc3, User, Calendar, Music2, ShieldCheck } from "lucide-react";
+import { ArtistLink } from "@/components/ArtistLink";
+import { AlbumLink } from "@/components/AlbumLink";
+import { Disc3, User, Music2 } from "lucide-react";
+import { formatAudioQualityLabel } from "@/lib/audioQuality";
 
 interface CreditsDialogProps {
     track: Track;
@@ -16,7 +19,7 @@ interface CreditsDialogProps {
 export function CreditsDialog({ track, isOpen, onClose }: CreditsDialogProps) {
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="bg-background/95 backdrop-blur-xl border-border/30 max-w-md">
+            <DialogContent className="max-w-md">
                 <DialogHeader>
                     <DialogTitle className="text-xl font-bold">Track Credits</DialogTitle>
                 </DialogHeader>
@@ -26,7 +29,7 @@ export function CreditsDialog({ track, isOpen, onClose }: CreditsDialogProps) {
                         <img src={track.coverUrl} alt="" className="w-16 h-16  object-cover shadow-lg" />
                         <div>
                             <h4 className="font-bold text-foreground">{track.title}</h4>
-                            <p className="text-sm text-muted-foreground">{track.artist}</p>
+                            <ArtistLink name={track.artist} artistId={track.artistId} className="text-sm text-muted-foreground" />
                         </div>
                     </div>
 
@@ -35,7 +38,7 @@ export function CreditsDialog({ track, isOpen, onClose }: CreditsDialogProps) {
                             <User className="w-4 h-4 mt-1 text-muted-foreground" />
                             <div>
                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Main Artist</p>
-                                <p className="text-sm text-foreground">{track.artist}</p>
+                                <ArtistLink name={track.artist} artistId={track.artistId} className="text-sm !text-foreground" />
                             </div>
                         </div>
 
@@ -43,39 +46,28 @@ export function CreditsDialog({ track, isOpen, onClose }: CreditsDialogProps) {
                             <Disc3 className="w-4 h-4 mt-1 text-muted-foreground" />
                             <div>
                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Album</p>
-                                <p className="text-sm text-foreground">{track.album}</p>
-                            </div>
-                        </div>
-
-                        <div className="flex items-start gap-3">
-                            <Calendar className="w-4 h-4 mt-1 text-muted-foreground" />
-                            <div>
-                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Release Year</p>
-                                <p className="text-sm text-foreground">{track.year}</p>
+                                <AlbumLink title={track.album} albumId={track.albumId} artistName={track.artist} className="text-sm !text-foreground" />
                             </div>
                         </div>
 
                         <div className="flex items-start gap-3">
                             <Music2 className="w-4 h-4 mt-1 text-muted-foreground" />
                             <div>
-                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Audio Quality</p>
+                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Playback Quality</p>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-[2px] leading-none tracking-tighter ${track.audioQuality === "MAX" ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20" : "bg-cyan-500/10 text-cyan-500 border border-cyan-500/20"
-                                        }`}>
-                                        {track.audioQuality || "HIGH"}
+                                    <span
+                                        className={`text-[10px] font-black px-1.5 py-0.5 rounded-[2px] leading-none tracking-tighter border ${track.audioQuality === "MAX" ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" : ""}`}
+                                        style={track.audioQuality === "MAX"
+                                            ? undefined
+                                            : {
+                                                color: "hsl(var(--player-waveform))",
+                                                borderColor: "hsl(var(--player-waveform) / 0.2)",
+                                                backgroundColor: "hsl(var(--player-waveform) / 0.1)",
+                                            }}
+                                    >
+                                        {formatAudioQualityLabel(track.audioQuality)}
                                     </span>
-                                    <p className="text-xs text-muted-foreground">
-                                        {track.audioQuality === "MAX" ? "24-bit, 192 kHz (FLAC)" : track.audioQuality === "LOSSLESS" ? "16-bit, 44.1 kHz (FLAC)" : "320 kbps (AAC)"}
-                                    </p>
                                 </div>
-                            </div>
-                        </div>
-
-                        <div className="flex items-start gap-3">
-                            <ShieldCheck className="w-4 h-4 mt-1 text-muted-foreground" />
-                            <div>
-                                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Source</p>
-                                <p className="text-sm text-foreground">Verified Streaming Master</p>
                             </div>
                         </div>
                     </div>

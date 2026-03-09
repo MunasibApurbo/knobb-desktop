@@ -1,0 +1,22 @@
+{
+  "name": "KNOBB",
+  "short_name": "KNOBB",
+  "description": "KNOBB is a modern music app for playlists, discovery, shared listening, and direct-source archives.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#120022",
+  "theme_color": "#1d0834",
+  "icons": [
+    {
+      "src": "/brand/logo-k-black-square-256.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/logo-k-black-square-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

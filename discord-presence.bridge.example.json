@@ -1,0 +1,11 @@
+{
+  "clientId": "YOUR_DISCORD_APPLICATION_CLIENT_ID",
+  "port": 32145,
+  "appName": "Knobb",
+  "siteUrl": "https://your-knobb-site.example.com",
+  "assets": {
+    "largeImageKey": "knobb",
+    "playImageKey": "play",
+    "pauseImageKey": "pause"
+  }
+}

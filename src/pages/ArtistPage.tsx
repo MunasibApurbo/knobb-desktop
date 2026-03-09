@@ -1,211 +1,769 @@
+import {
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { useState, useEffect, useRef } from "react";
-import { searchArtists, searchTracks, searchAlbums, getArtistTopTracks, getArtistAlbums, getArtistBio, getRecommendations, getTidalImageUrl, tidalTrackToAppTrack, TidalArtist, TidalAlbum } from "@/lib/monochromeApi";
-import { Track } from "@/types/music";
-import { formatDuration } from "@/lib/utils";
+import { getTidalImageUrl } from "@/lib/musicApiTransforms";
+import type { TidalAlbum } from "@/lib/musicApiTypes";
+import { useArtistPageData } from "@/hooks/useArtistPageData";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useFavoriteArtists } from "@/hooks/useFavoriteArtists";
+import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { Play, Pause, Shuffle, Heart, Loader2, Share } from "lucide-react";
+import { Play, Pause, Shuffle, Heart, Share, Music, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TrackListSkeleton } from "@/components/LoadingSkeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { PlayingIndicator } from "@/components/PlayingIndicator";
+import { ArtistCard } from "@/components/ArtistCard";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
+import { HomeAlbumCard } from "@/components/home/HomeMediaCards";
+import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail/DetailActionBar";
+import { DetailHero } from "@/components/detail/DetailHero";
+import { TrackListRow } from "@/components/detail/TrackListRow";
+import { useResolvedArtistImage } from "@/hooks/useResolvedArtistImage";
+import { useSavedAlbums } from "@/hooks/useSavedAlbums";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Track } from "@/types/music";
+import { buildArtistMixPath, copyPlainTextToClipboard } from "@/lib/mediaNavigation";
+import { useSettings } from "@/contexts/SettingsContext";
+import { useResponsiveMediaCardCount } from "@/hooks/useResponsiveMediaCardCount";
+import type { HomeAlbum } from "@/hooks/useHomeFeeds";
+import { PageTransition } from "@/components/PageTransition";
+import { usePageMetadata } from "@/hooks/usePageMetadata";
+import { startPlaylistDrag } from "@/lib/playlistDrag";
+import { isSameTrack } from "@/lib/trackIdentity";
 
-function AlbumCard({ album, navigate, playAlbum }: { album: TidalAlbum; navigate: any; playAlbum: any }) {
-  const typeLabel = album.type === "EP" ? "EP" : album.type === "SINGLE" ? "Single" : null;
+type PlayTrackHandler = ReturnType<typeof usePlayer>["play"];
+type IsTrackLikedHandler = ReturnType<typeof useLikedSongs>["isLiked"];
+type ToggleLikeHandler = ReturnType<typeof useLikedSongs>["toggleLike"];
+type BioLinkType = "artist" | "album" | "track" | "playlist";
+
+const BIO_LINK_TYPES: BioLinkType[] = ["artist", "album", "track", "playlist"];
+const CARD_ROW_FRAME = "artist-page-grid home-section-grid hover-desaturate-grid home-section-carousel-frame border-l border-t border-white/10";
+
+function getCarouselTransform(pageIndex: number, dragOffset = 0) {
+  return `translate3d(calc(${-pageIndex * 100}% + ${dragOffset}px), 0, 0)`;
+}
+
+function ArtistSectionHeader({
+  title,
+  showPager,
+  onPageBack,
+  onPageForward,
+  canPageBack,
+  canPageForward,
+}: {
+  title: string;
+  showPager?: boolean;
+  onPageBack?: () => void;
+  onPageForward?: () => void;
+  canPageBack?: boolean;
+  canPageForward?: boolean;
+}) {
   return (
-    <div
-      className="hover-desaturate-card relative group cursor-pointer border-r border-b border-white/10 transition-colors hover:bg-white/[0.03] flex flex-col"
-      onClick={() => {
-        const artistName = album.artists?.[0]?.name || album.artist?.name || "";
-        const params = new URLSearchParams();
-        if (album.title) params.set("title", album.title);
-        if (artistName) params.set("artist", artistName);
-        navigate(`/album/tidal-${album.id}?${params.toString()}`);
-      }}
-    >
-      <div className="relative overflow-hidden aspect-square shadow-sm w-full">
-        <img
-          src={getTidalImageUrl(album.cover, "320x320")}
-          alt={album.title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
-        />
-        {typeLabel && (
-          <div className="absolute top-2 left-2 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-tight bg-black/60 text-white backdrop-blur-sm">
-            {typeLabel}
-          </div>
+    <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center justify-between border border-white/10 border-b-0 px-4 py-3">
+      <h2 className="text-xl font-bold text-foreground">{title}</h2>
+      <div className="flex items-center gap-3">
+        {showPager && (
+          <>
+            <button
+              type="button"
+              onClick={onPageBack}
+              disabled={!canPageBack}
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-muted-foreground"
+              aria-label={`Previous ${title}`}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onPageForward}
+              disabled={!canPageForward}
+              className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-muted-foreground"
+              aria-label={`Next ${title}`}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
         )}
-        <div
-          className="absolute bottom-3 right-3 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-300 z-20 hover:scale-110"
-          style={{ background: `hsl(var(--dynamic-accent))` }}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            playAlbum(album);
-          }}
-        >
-          <Play className="w-5 h-5 text-foreground ml-0.5 fill-current" />
-        </div>
-      </div>
-      <div className="min-h-[3.2rem] p-3 pt-2 md:p-4 md:pt-3 flex-1 flex flex-col justify-center">
-        <p className="text-sm font-semibold leading-tight text-foreground line-clamp-2 break-words">{album.title}</p>
-        <p className="text-xs text-muted-foreground/80 truncate mt-1">
-          {album.releaseDate ? new Date(album.releaseDate).getFullYear() : ""}
-          {album.numberOfTracks ? ` · ${album.numberOfTracks} track${album.numberOfTracks !== 1 ? "s" : ""}` : ""}
-        </p>
       </div>
     </div>
   );
 }
 
-const INITIAL_CARD_COUNT = 5;
+function stripArtistBioMarkup(value: string) {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\[wimpLink[^\]]*\]/gi, "")
+    .replace(/\[(artist|album|track|playlist):[^\]]+\]/gi, "")
+    .replace(/\[\/wimpLink\]/gi, "")
+    .replace(/\[\/(artist|album|track|playlist)\]/gi, "")
+    .replace(/\[\[(.*?)\|(.*?)\]\]/g, "$1")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizeArtistBio(value: string) {
+  return stripArtistBioMarkup(value);
+}
+
+function parseWimpLinkAttributes(value: string) {
+  for (const type of BIO_LINK_TYPES) {
+    const match = value.match(new RegExp(`${type}Id="([^"]+)"`, "i"));
+    if (match?.[1]) {
+      return { type, id: match[1] };
+    }
+  }
+
+  return null;
+}
+
+function normalizeArtistBioToHtml(value: string) {
+  if (!value) return "";
+
+  let parsed = value;
+
+  parsed = parsed.replace(/\[wimpLink ([^\]]+)\]([\s\S]*?)\[\/wimpLink\]/gi, (_match, attrs, label) => {
+    const resolved = parseWimpLinkAttributes(String(attrs));
+    if (!resolved) return String(label);
+    return `<a data-bio-type="${resolved.type}" data-bio-id="${resolved.id}">${label}</a>`;
+  });
+
+  parsed = parsed.replace(
+    /\[(artist|album|track|playlist):([^\]]+)\]([\s\S]*?)\[\/\1\]/gi,
+    (_match, type, id, label) => `<a data-bio-type="${String(type).toLowerCase()}" data-bio-id="${id}">${label}</a>`,
+  );
+
+  parsed = parsed.replace(
+    /\[\[(.*?)\|(.*?)\]\]/g,
+    (_match, label, id) => `<a data-bio-type="artist" data-bio-id="${id}">${label}</a>`,
+  );
+
+  return parsed.replace(/\n/g, "<br />");
+}
+
+function renderArtistBioContent(
+  value: string,
+  onInternalLinkClick: (type: BioLinkType, id: string, label: string) => void,
+): ReactNode[] {
+  if (!value) return [];
+  if (typeof window === "undefined") return [sanitizeArtistBio(value)];
+
+  const html = normalizeArtistBioToHtml(value);
+  const parsed = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+  const root = parsed.body.firstElementChild;
+  if (!root) return [sanitizeArtistBio(value)];
+
+  const renderNodes = (nodes: Node[], keyPrefix: string): ReactNode[] =>
+    nodes.map((node, index) => {
+      const key = `${keyPrefix}-${index}`;
+
+      if (node.nodeType === 3) {
+        return node.textContent;
+      }
+
+      if (node.nodeType !== 1) {
+        return null;
+      }
+
+      const element = node as HTMLElement;
+      const children = renderNodes(Array.from(element.childNodes), key);
+      const tagName = element.tagName.toLowerCase();
+
+      if (tagName === "br") {
+        return <br key={key} />;
+      }
+
+      if (tagName === "a") {
+        const bioType = element.getAttribute("data-bio-type") as BioLinkType | null;
+        const bioId = element.getAttribute("data-bio-id");
+        const label = element.textContent?.trim() || "";
+        const href = element.getAttribute("href");
+
+        if (bioType && bioId) {
+          return (
+            <button
+              key={key}
+              type="button"
+              className="cursor-pointer text-left text-[#f3a79f] underline underline-offset-4 transition-colors hover:text-white"
+              onClick={() => onInternalLinkClick(bioType, bioId, label)}
+            >
+              {children}
+            </button>
+          );
+        }
+
+        if (href) {
+          return (
+            <a
+              key={key}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#f3a79f] underline underline-offset-4 transition-colors hover:text-white"
+            >
+              {children}
+            </a>
+          );
+        }
+      }
+
+      if (tagName === "strong" || tagName === "b") {
+        return <strong key={key}>{children}</strong>;
+      }
+
+      if (tagName === "em" || tagName === "i") {
+        return <em key={key}>{children}</em>;
+      }
+
+      if (tagName === "p") {
+        return <p key={key}>{children}</p>;
+      }
+
+      return <span key={key}>{children}</span>;
+    });
+
+  return renderNodes(Array.from(root.childNodes), "bio");
+}
+
+function mapArtistAlbumToHomeAlbum(album: TidalAlbum): HomeAlbum {
+  const artistName = album.artists?.map((artist) => artist.name).filter(Boolean).join(", ")
+    || album.artist?.name
+    || "Various Artists";
+
+  return {
+    id: album.id,
+    title: album.title,
+    artist: artistName,
+    artistId: album.artist?.id ?? album.artists?.[0]?.id,
+    coverUrl: album.cover ? getTidalImageUrl(album.cover, "750x750") : "/placeholder.svg",
+    releaseDate: album.releaseDate,
+  };
+}
+
+function ArtistTrackSection({
+  title,
+  tracks,
+  currentTrack,
+  isPlaying,
+  loading,
+  play,
+  isLiked,
+  toggleLike,
+  initialVisibleCount,
+  showAll,
+  onToggleShowAll,
+}: {
+  title: string;
+  tracks: Track[];
+  currentTrack: Track | null;
+  isPlaying: boolean;
+  loading: boolean;
+  play: PlayTrackHandler;
+  isLiked: IsTrackLikedHandler;
+  toggleLike: ToggleLikeHandler;
+  initialVisibleCount: number;
+  showAll: boolean;
+  onToggleShowAll: () => void;
+}) {
+  if (loading && tracks.length === 0) {
+    return (
+      <section className="artist-page-section border border-white/10 border-t-0 bg-white/[0.02]">
+        <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center border-b border-white/10 px-4 py-3">
+          <h2 className="text-lg font-bold text-foreground">{title}</h2>
+        </div>
+        <TrackListSkeleton count={5} />
+      </section>
+    );
+  }
+
+  if (tracks.length === 0) {
+    return null;
+  }
+
+  const displayedTracks = showAll ? tracks : tracks.slice(0, initialVisibleCount);
+
+  return (
+    <section className="artist-page-section border border-white/10 border-t-0 bg-white/[0.02]">
+      <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <h2 className="text-lg font-bold text-foreground">{title}</h2>
+        {tracks.length > initialVisibleCount && (
+          <button
+            type="button"
+            className="relative z-10 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            onClick={onToggleShowAll}
+          >
+            {showAll ? "Show less" : "See more"}
+          </button>
+        )}
+      </div>
+      <VirtualizedTrackList
+        items={displayedTracks}
+        getItemKey={(track) => track.id}
+        rowHeight={86}
+        renderRow={(track, i) => {
+          const isCurrent = isSameTrack(currentTrack, track);
+
+          return (
+            <TrackContextMenu key={track.id} track={track} tracks={tracks}>
+              <TrackListRow
+                dragHandleLabel={`Drag ${track.title} to a playlist`}
+                index={i}
+                isCurrent={isCurrent}
+                isLiked={isLiked(track.id)}
+                isPlaying={isPlaying}
+                mobileMeta={track.album || undefined}
+                onDragHandleStart={(event) => {
+                  startPlaylistDrag(event.dataTransfer, {
+                    label: track.title,
+                    source: "track",
+                    tracks: [track],
+                  });
+                }}
+                onPlay={() => play(track, tracks)}
+                onToggleLike={() => toggleLike(track)}
+                track={track}
+              />
+            </TrackContextMenu>
+          );
+        }}
+      />
+    </section>
+  );
+}
+
+function ArtistPageSkeleton({ artistName }: { artistName: string }) {
+  const hasName = artistName.trim().length > 0;
+
+  return (
+    <div className="artist-page-shell mobile-page-shell hover-desaturate-page animate-fade-in">
+      <DetailHero
+        artworkUrl="/placeholder.svg"
+        label="Artist"
+        title={
+          hasName ? (
+            artistName
+          ) : (
+            <Skeleton className="h-14 w-[18rem] max-w-full bg-white/10 md:h-16" />
+          )
+        }
+        body={
+          <div className="max-w-3xl space-y-2">
+            <Skeleton className="h-4 w-[18rem] max-w-full bg-white/10" />
+            <Skeleton className="h-4 w-[24rem] max-w-full bg-white/10" />
+          </div>
+        }
+        meta={
+          <>
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-10 w-24 rounded-full bg-white/10" />
+            ))}
+          </>
+        }
+      />
+
+      <DetailActionBar columns={5}>
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="flex h-14 items-center px-4 md:px-6">
+            <Skeleton className="h-4 w-24 bg-white/10" />
+          </div>
+        ))}
+      </DetailActionBar>
+
+      <section className="artist-page-section border border-white/10 bg-white/[0.02]">
+        <div className="px-4 h-14 border-b border-white/10 flex items-center">
+          <h2 className="text-lg font-bold text-foreground">Popular</h2>
+        </div>
+        <TrackListSkeleton count={5} />
+      </section>
+    </div>
+  );
+}
 
 export default function ArtistPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const artistName = searchParams.get("name") || "";
   const navigate = useNavigate();
-  const { play, playAlbum, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { cardSize } = useSettings();
+  const { containerRef, collapsedCount: initialVisibleCount } = useResponsiveMediaCardCount(cardSize);
+  const isMobile = useIsMobile();
   const { user } = useAuth();
   const { isFavorite, toggleFavorite } = useFavoriteArtists();
   const { isLiked, toggleLike } = useLikedSongs();
-
-  const [artist, setArtist] = useState<TidalArtist | null>(null);
-  const [topTracks, setTopTracks] = useState<Track[]>([]);
-  const [albums, setAlbums] = useState<TidalAlbum[]>([]);
-  const [relatedArtists, setRelatedArtists] = useState<{ id: number; name: string; picture: string }[]>([]);
-  const [bio, setBio] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [showAllTracks, setShowAllTracks] = useState(false);
-  const [showAllRelated, setShowAllRelated] = useState(false);
-  const [showAllAlbums, setShowAllAlbums] = useState(false);
-  const [scrollY, setScrollY] = useState(0);
-  const prevIdRef = useRef<string | undefined>();
+  const { isSaved: isAlbumSaved, toggleSavedAlbum } = useSavedAlbums();
+  const {
+    albums,
+    artist,
+    bio,
+    loading,
+    relatedArtists,
+    scrollY,
+    setShowAllTracks,
+    showAllTracks,
+    singlesAndEps,
+    topTracks,
+    tracksLoading,
+  } = useArtistPageData({ artistName, id, includeRadio: false });
+  const [bioDialogOpen, setBioDialogOpen] = useState(false);
+  const [sectionPageIndexes, setSectionPageIndexes] = useState<Record<string, number>>({});
+  const [draggingSections, setDraggingSections] = useState<Record<string, boolean>>({});
+  const frameRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const trackRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const sectionItemCountsRef = useRef<Record<string, number>>({});
+  const dragSessionsRef = useRef<Record<string, { pointerId: number; startX: number; lastOffset: number; moved: boolean }>>({});
+  const dragAnimationFramesRef = useRef<Record<string, number | undefined>>({});
+  const pendingTransformsRef = useRef<Record<string, { pageIndex: number; dragOffset: number } | undefined>>({});
+  const clickSuppressionRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
-    const scrollContainer = document.querySelector('[data-radix-scroll-area-viewport]');
-    if (!scrollContainer) return;
-    const handleScroll = () => setScrollY(scrollContainer.scrollTop);
-    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
-  }, []);
+    setBioDialogOpen(false);
+  }, [artistName, id]);
 
-  useEffect(() => {
-    // Only reset fully if the artist ID actually changed
-    const isNew = prevIdRef.current !== id;
-    prevIdRef.current = id;
+  const getPageCount = (itemsLength: number) =>
+    Math.max(1, Math.ceil(itemsLength / Math.max(1, initialVisibleCount)));
 
-    if (isNew) {
-      setLoading(true);
-      setShowAllTracks(false);
-      setShowAllAlbums(false);
+  const getCurrentPage = (section: string, itemsLength: number) =>
+    Math.min(sectionPageIndexes[section] ?? 0, getPageCount(itemsLength) - 1);
+
+  function getSectionPages<T>(items: T[]) {
+    const pageSize = Math.max(1, initialVisibleCount);
+    const pages: T[][] = [];
+
+    for (let index = 0; index < items.length; index += pageSize) {
+      pages.push(items.slice(index, index + pageSize));
     }
 
-    let cancelled = false;
+    return pages;
+  }
 
-    (async () => {
-      try {
-        const artistId = parseInt(id || "0");
-        const searchQuery = artistName || id || "";
+  const moveSectionPage = (section: string, itemsLength: number, direction: -1 | 1) => {
+    setSectionPageIndexes((previous) => {
+      const pageCount = getPageCount(itemsLength);
+      const currentPage = Math.min(previous[section] ?? 0, pageCount - 1);
+      const nextPage = Math.max(0, Math.min(pageCount - 1, currentPage + direction));
+      if (nextPage === currentPage) return previous;
+      return { ...previous, [section]: nextPage };
+    });
+  };
 
-        const artists = await searchArtists(searchQuery);
-        if (cancelled) return;
-        let found = artists.find((a) => a.id === artistId) || artists[0] || null;
+  const shouldShowPager = (_section: string, itemsLength: number) =>
+    getPageCount(itemsLength) > 1;
 
-        if (!found && artistName) {
-          const trackResults = await searchTracks(artistName, 5);
-          if (cancelled) return;
-          if (trackResults.length > 0) {
-            const fa = trackResults[0].artist;
-            found = { id: fa.id, name: fa.name, picture: fa.picture, popularity: 0, url: "" };
-          }
-        }
+  const rowStyle = {
+    "--home-row-columns": Math.max(1, initialVisibleCount),
+  } as CSSProperties;
 
-        if (found && !cancelled) {
-          setArtist(found);
-          // Immediately show what we have, then load rest
-          if (isNew) setLoading(false);
+  const setFrameRef = (section: string) => (node: HTMLDivElement | null) => {
+    frameRefs.current[section] = node;
+  };
 
-          // Fetch tracks, albums, bio, and related artists in parallel
-          const [tracks, allAlbumsList, artistBio] = await Promise.all([
-            getArtistTopTracks(found.id, 25).catch(() => searchTracks(found!.name, 25)),
-            getArtistAlbums(found.id).catch(() => [] as TidalAlbum[]),
-            getArtistBio(found.id),
-          ]);
+  const setTrackRef = (section: string) => (node: HTMLDivElement | null) => {
+    trackRefs.current[section] = node;
+  };
 
-          if (cancelled) return;
+  const getTrackedItemsLength = (section: string) => sectionItemCountsRef.current[section] ?? 0;
 
-          if (!cancelled) {
-            const appTracks = tracks.map(tidalTrackToAppTrack);
-            setTopTracks(appTracks);
-            setBio(artistBio);
+  const snapSectionTransform = (section: string, pageIndex: number, dragOffset = 0) => {
+    const track = trackRefs.current[section];
+    if (!track) return;
+    track.style.transform = getCarouselTransform(pageIndex, dragOffset);
+  };
 
-            // Filter albums by type from the single fetched list
-            const hasTypes = allAlbumsList.some(a => !!a.type);
-            if (hasTypes) {
-              setAlbums(allAlbumsList.filter(a => !a.type || a.type === "ALBUM"));
-            } else {
-              setAlbums(allAlbumsList);
-            }
+  const flushSectionTransform = (section: string) => {
+    const pendingTransform = pendingTransformsRef.current[section];
+    const track = trackRefs.current[section];
+    dragAnimationFramesRef.current[section] = undefined;
 
-            // Extract related artists from track results
-            const relatedMap = new Map<number, { id: number; name: string; picture: string }>();
-            for (const t of tracks) {
-              if (t.artists) {
-                for (const a of t.artists) {
-                  if (a.id !== found!.id && !relatedMap.has(a.id) && a.name !== found!.name) {
-                    relatedMap.set(a.id, {
-                      id: a.id,
-                      name: a.name,
-                      picture: (a as any).picture ? getTidalImageUrl((a as any).picture, "320x320") : "",
-                    });
-                  }
-                }
-              }
-            }
+    if (!pendingTransform || !track) return;
 
-            // Also try recommendations for related artists
-            if (appTracks.length > 0 && appTracks[0].tidalId) {
-              try {
-                const recs = await getRecommendations(appTracks[0].tidalId);
-                if (!cancelled) {
-                  for (const r of recs) {
-                    if (r.artist && r.artist.id !== found!.id && !relatedMap.has(r.artist.id)) {
-                      relatedMap.set(r.artist.id, {
-                        id: r.artist.id,
-                        name: r.artist.name,
-                        picture: r.artist.picture ? getTidalImageUrl(r.artist.picture, "320x320") : "",
-                      });
-                    }
-                  }
-                }
-              } catch { }
-            }
+    track.style.transform = getCarouselTransform(pendingTransform.pageIndex, pendingTransform.dragOffset);
+  };
 
-            if (!cancelled) setRelatedArtists(Array.from(relatedMap.values()).slice(0, 8));
-            setLoading(false);
-          }
-        } else {
-          setLoading(false);
-        }
-      } catch (e) {
-        console.error("Failed to load artist:", e);
-        if (!cancelled) setLoading(false);
+  const scheduleSectionTransform = (section: string, pageIndex: number, dragOffset: number) => {
+    pendingTransformsRef.current[section] = { pageIndex, dragOffset };
+
+    if (dragAnimationFramesRef.current[section] != null) return;
+
+    dragAnimationFramesRef.current[section] = window.requestAnimationFrame(() => {
+      flushSectionTransform(section);
+    });
+  };
+
+  const clearSectionAnimationFrame = (section: string) => {
+    const frame = dragAnimationFramesRef.current[section];
+    if (frame == null) return;
+    window.cancelAnimationFrame(frame);
+    dragAnimationFramesRef.current[section] = undefined;
+  };
+
+  useEffect(() => {
+    const activeFrames = dragAnimationFramesRef.current;
+    return () => {
+      Object.keys(activeFrames).forEach((section) => {
+        const frame = activeFrames[section];
+        if (frame == null) return;
+        window.cancelAnimationFrame(frame);
+      });
+    };
+  }, []);
+
+  const setSectionDragging = (section: string, next: boolean) => {
+    setDraggingSections((previous) => {
+      if (!!previous[section] === next) return previous;
+      if (!next && !previous[section]) return previous;
+      if (!next) {
+        const rest = { ...previous };
+        delete rest[section];
+        return rest;
       }
-    })();
+      return { ...previous, [section]: true };
+    });
+  };
 
-    return () => { cancelled = true; };
-  }, [id, artistName]);
+  const cancelCarouselDrag = (
+    section: string,
+    currentTarget?: HTMLDivElement,
+    pointerId?: number,
+  ) => {
+    const session = dragSessionsRef.current[section];
+    if (!session) return;
 
-  if (loading && !artist) {
+    delete dragSessionsRef.current[section];
+    clearSectionAnimationFrame(section);
+    pendingTransformsRef.current[section] = undefined;
+
+    if (currentTarget && pointerId != null && currentTarget.hasPointerCapture(pointerId)) {
+      currentTarget.releasePointerCapture(pointerId);
+    }
+
+    setSectionDragging(section, false);
+    snapSectionTransform(section, getCurrentPage(section, getTrackedItemsLength(section)));
+  };
+
+  const cancelCarouselDragRef = useRef(cancelCarouselDrag);
+  cancelCarouselDragRef.current = cancelCarouselDrag;
+
+  const handleCarouselPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    section: string,
+    itemsLength: number,
+  ) => {
+    if (getPageCount(itemsLength) <= 1) return;
+    if (event.button !== 0) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, select, [role='button'], [data-no-carousel-drag='true']")) {
+      return;
+    }
+
+    dragSessionsRef.current[section] = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      lastOffset: 0,
+      moved: false,
+    };
+
+    clearSectionAnimationFrame(section);
+    pendingTransformsRef.current[section] = undefined;
+  };
+
+  const handleCarouselPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    section: string,
+    itemsLength: number,
+  ) => {
+    const session = dragSessionsRef.current[section];
+    if (!session || session.pointerId !== event.pointerId) return;
+
+    if (event.buttons === 0) {
+      cancelCarouselDrag(section, event.currentTarget, event.pointerId);
+      return;
+    }
+
+    const pageCount = getPageCount(itemsLength);
+    const currentPage = getCurrentPage(section, itemsLength);
+    const rawDelta = event.clientX - session.startX;
+    const isOverscrollingStart = currentPage === 0 && rawDelta > 0;
+    const isOverscrollingEnd = currentPage === pageCount - 1 && rawDelta < 0;
+    const nextOffset = (isOverscrollingStart || isOverscrollingEnd ? rawDelta * 0.28 : rawDelta * 0.94);
+
+    session.lastOffset = nextOffset;
+    if (Math.abs(rawDelta) > 6) {
+      if (!session.moved) {
+        session.moved = true;
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        setSectionDragging(section, true);
+      }
+    }
+
+    if (!session.moved) return;
+
+    scheduleSectionTransform(section, currentPage, nextOffset);
+  };
+
+  const finishCarouselDrag = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    section: string,
+    itemsLength: number,
+  ) => {
+    const session = dragSessionsRef.current[section];
+    if (!session || session.pointerId !== event.pointerId) return;
+
+    delete dragSessionsRef.current[section];
+    clearSectionAnimationFrame(section);
+    pendingTransformsRef.current[section] = undefined;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!session.moved) return;
+
+    setSectionDragging(section, false);
+
+    const frameWidth = frameRefs.current[section]?.clientWidth ?? event.currentTarget.clientWidth;
+    const threshold = Math.max(56, frameWidth * 0.14);
+
+    if (Math.abs(session.lastOffset) >= threshold) {
+      moveSectionPage(section, itemsLength, session.lastOffset < 0 ? 1 : -1);
+    }
+
+    clickSuppressionRef.current[section] = Date.now() + 220;
+  };
+
+  const handleCarouselClickCapture = (event: MouseEvent<HTMLDivElement>, section: string) => {
+    const suppressUntil = clickSuppressionRef.current[section];
+    if (!suppressUntil || suppressUntil < Date.now()) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    delete clickSuppressionRef.current[section];
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const cancelAllCarouselDrags = () => {
+      Object.keys(dragSessionsRef.current).forEach((section) => {
+        cancelCarouselDragRef.current(section);
+      });
+    };
+
+    window.addEventListener("blur", cancelAllCarouselDrags);
+    document.addEventListener("visibilitychange", cancelAllCarouselDrags);
+
+    return () => {
+      window.removeEventListener("blur", cancelAllCarouselDrags);
+      document.removeEventListener("visibilitychange", cancelAllCarouselDrags);
+    };
+  }, []);
+
+  function renderArtistSectionRow<T>(
+    items: T[],
+    section: string,
+    renderItem: (item: T, index: number) => ReactNode,
+  ) {
+    sectionItemCountsRef.current[section] = items.length;
+
+    if (isMobile) {
+      return (
+        <div
+          className="overflow-x-auto border-l border-r border-b border-white/10 scrollbar-hide"
+          style={{ ["--home-row-columns" as string]: 1.16 }}
+        >
+          <div className="home-section-inline-row scrollbar-hide">
+            {items.map((item, index) => (
+              <div key={`${section}-${index}`} className="home-section-inline-item">
+                {renderItem(item, index)}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const pages = getSectionPages(items);
+    const currentPage = getCurrentPage(section, items.length);
+    const isDragging = !!draggingSections[section];
+
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <div
+        ref={setFrameRef(section)}
+        className={`${CARD_ROW_FRAME} ${isDragging ? "is-dragging" : ""}`}
+        style={rowStyle}
+        onDragStart={(event) => event.preventDefault()}
+        onPointerDown={(event) => handleCarouselPointerDown(event, section, items.length)}
+        onPointerMove={(event) => handleCarouselPointerMove(event, section, items.length)}
+        onPointerUp={(event) => finishCarouselDrag(event, section, items.length)}
+        onPointerCancel={(event) => cancelCarouselDrag(section, event.currentTarget, event.pointerId)}
+        onLostPointerCapture={(event) => cancelCarouselDrag(section, event.currentTarget, event.pointerId)}
+        onClickCapture={(event) => handleCarouselClickCapture(event, section)}
+      >
+        <div
+          ref={setTrackRef(section)}
+          className={`home-section-carousel-track ${isDragging ? "is-dragging" : ""}`}
+          style={{
+            transform: getCarouselTransform(currentPage),
+          }}
+        >
+          {pages.map((pageItems, pageIndex) => (
+            <div key={`${section}-page-${pageIndex}`} className="home-section-carousel-page">
+              {pageItems.map((item, itemIndex) => renderItem(item, pageIndex * initialVisibleCount + itemIndex))}
+            </div>
+          ))}
+        </div>
       </div>
     );
+  }
+
+  const artistImageUrl = useResolvedArtistImage(
+    artist?.id,
+    artist?.picture ? getTidalImageUrl(artist.picture, "750x750") : topTracks[0]?.coverUrl || "",
+    artist?.name || artistName,
+  );
+  const artistDescription = artist
+    ? sanitizeArtistBio(bio) ||
+      sanitizeArtistBio(artist.bio || "") ||
+      `Discover popular tracks, albums and related artists from ${artist.name}.`
+    : "";
+
+  usePageMetadata(artist ? {
+    title: artist.name,
+    description: artistDescription,
+    image: artistImageUrl || topTracks[0]?.coverUrl || undefined,
+    imageAlt: `${artist.name} artist image`,
+    type: "profile",
+    structuredData: {
+      "@context": "https://schema.org",
+      "@type": "MusicGroup",
+      name: artist.name,
+      description: artistDescription,
+      image: artistImageUrl || topTracks[0]?.coverUrl || undefined,
+      url:
+        typeof window !== "undefined"
+          ? new URL(window.location.pathname, window.location.origin).toString()
+          : undefined,
+    },
+  } : null);
+
+  if (loading && !artist) {
+    return <ArtistPageSkeleton artistName={artistName} />;
   }
 
   if (!artist) {
@@ -213,10 +771,7 @@ export default function ArtistPage() {
   }
 
   const isCurrentArtist = currentTrack && topTracks.some((t) => t.id === currentTrack.id);
-  const displayedTracks = showAllTracks ? topTracks : topTracks.slice(0, 5);
-  const artistImageUrl = artist.picture
-    ? getTidalImageUrl(artist.picture, "1080x720")
-    : topTracks[0]?.coverUrl || "";
+  const hasArtistMix = Boolean(artist.mixes?.ARTIST_MIX);
   const favorite = isFavorite(artist.id);
 
   const handleToggleFavorite = async () => {
@@ -239,350 +794,293 @@ export default function ArtistPage() {
     toast.success(favorite ? `Removed ${artist.name} from favorites` : `Added ${artist.name} to favorites`);
   };
 
-  // Strip HTML from bio
-  const cleanBio = bio.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-
-  const handleShareArtist = async () => {
-    const url = window.location.href;
-    const text = `${artist.name}${cleanBio ? ` — ${cleanBio}` : ""}`.trim();
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: artist.name, text, url });
-        return;
-      } catch {
-        // Fall back to clipboard
-      }
-    }
-    await navigator.clipboard.writeText(url);
-    toast.success("Artist link copied to clipboard");
-  };
-
-  const openTrackAlbum = async (track: Track) => {
-    const params = new URLSearchParams();
-    if (track.album) params.set("title", track.album);
-    if (track.artist) params.set("artist", track.artist);
-
-    if (track.albumId) {
-      navigate(`/album/tidal-${track.albumId}?${params.toString()}`);
+  const handleToggleSavedAlbum = async (album: TidalAlbum) => {
+    if (!user) {
+      const from = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      navigate("/auth", { state: { from } });
       return;
     }
 
-    try {
-      const matches = await searchAlbums(`${track.album} ${track.artist}`, 6);
-      const exact = matches.find((a) => a.title?.toLowerCase() === track.album?.toLowerCase()) || matches[0];
-      if (exact) {
-        navigate(`/album/tidal-${exact.id}?${params.toString()}`);
-        return;
-      }
-    } catch (e) {
-      console.warn("Album lookup failed:", e);
+    const albumArtist = album.artists?.[0]?.name || album.artist?.name || artist.name;
+    const albumCoverUrl = getTidalImageUrl(album.cover, "320x320");
+    const albumYear = album.releaseDate ? new Date(album.releaseDate).getFullYear() : null;
+    const wasSaved = isAlbumSaved(album.id);
+
+    const success = await toggleSavedAlbum({
+      albumId: album.id,
+      albumTitle: album.title,
+      albumArtist,
+      albumCoverUrl,
+      albumYear,
+    });
+
+    if (!success) {
+      toast.error("Failed to update saved album");
+      return;
     }
 
-    toast.error("Album not found");
+    toast.success(wasSaved ? `Removed ${album.title} from saved albums` : `Saved ${album.title}`);
   };
 
-  const artistActionBtnClass =
-    "group rounded-none h-14 justify-start px-4 md:px-6 font-semibold text-base bg-transparent border-0 " +
-    "relative overflow-hidden transition-colors hover:text-[hsl(var(--dynamic-accent-foreground))] " +
-    "before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-0 " +
-    "before:transition-transform before:duration-300 before:ease-out before:bg-[hsl(var(--player-waveform)/0.95)] " +
-    "hover:before:scale-x-100 [&>*]:relative [&>*]:z-10";
+  const cleanBio = sanitizeArtistBio(bio);
+  const rawHeroBio = bio || artist.bio || "";
+  const fallbackDescription = `Discover popular tracks, albums and related artists from ${artist.name}.`;
+  const heroBio = cleanBio || sanitizeArtistBio(artist.bio || "") || fallbackDescription;
+  const hasDedicatedBiography = rawHeroBio.trim().length > 0;
 
-  const artistSectionHeaderClass =
-    "px-4 h-14 border-b border-white/10 flex items-center justify-between";
-  const artistSectionTitleClass = "text-lg font-bold text-foreground";
+  const handleBioLinkClick = (type: BioLinkType, targetId: string, label: string) => {
+    setBioDialogOpen(false);
+
+    if (type === "artist") {
+      navigate(`/artist/${targetId}?name=${encodeURIComponent(label)}`);
+      return;
+    }
+
+    if (type === "album") {
+      const params = new URLSearchParams();
+      if (label) params.set("title", label);
+      const query = params.toString();
+      navigate(`/album/tidal-${targetId}${query ? `?${query}` : ""}`);
+      return;
+    }
+
+    if (type === "playlist") {
+      navigate(`/playlist/${targetId}`);
+      return;
+    }
+
+    navigate(`/search?q=${encodeURIComponent(label || targetId)}`);
+  };
+
+  const biographyContent = hasDedicatedBiography
+    ? renderArtistBioContent(rawHeroBio, handleBioLinkClick)
+    : [];
+
+  const heroBody = (
+    <div className="max-w-3xl">
+      <p
+        className="overflow-hidden text-sm leading-7 text-white/84 md:text-[15px] md:leading-8"
+        style={{
+          display: "-webkit-box",
+          WebkitBoxOrient: "vertical",
+          WebkitLineClamp: isMobile ? 4 : 3,
+        }}
+      >
+        {heroBio}
+      </p>
+      {hasDedicatedBiography ? (
+        <button
+          type="button"
+          className="mt-4 text-sm font-semibold text-white underline underline-offset-4 transition-colors hover:text-white/80"
+          onClick={() => setBioDialogOpen(true)}
+        >
+          Read more
+        </button>
+      ) : null}
+    </div>
+  );
+
+  const heroMeta = (
+    <>
+      <span className="detail-chip">
+        <span>Top tracks</span>
+        <strong>{topTracks.length}</strong>
+      </span>
+      {albums.length > 0 ? (
+        <span className="detail-chip">
+          <span>Albums</span>
+          <strong>{albums.length}</strong>
+        </span>
+      ) : null}
+      {singlesAndEps.length > 0 ? (
+        <span className="detail-chip">
+          <span>Singles</span>
+          <strong>{singlesAndEps.length}</strong>
+        </span>
+      ) : null}
+      {relatedArtists.length > 0 ? (
+        <span className="detail-chip">
+          <span>Related</span>
+          <strong>{relatedArtists.length}</strong>
+        </span>
+      ) : null}
+    </>
+  );
+
+  const handleShareArtist = async () => {
+    const url = window.location.href;
+    await copyPlainTextToClipboard(url);
+    toast.success("Artist link copied to clipboard");
+  };
+
+  const handleShuffleArtist = () => {
+    if (topTracks.length === 0) return;
+    const shuffledTracks = [...topTracks].sort(() => Math.random() - 0.5);
+    play(shuffledTracks[0], shuffledTracks);
+  };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="hover-desaturate-page space-y-0"
-    >
-      {/* Hero Banner - scroll parallax zoom + blur */}
-      {(() => {
-        const scrollScale = 1 + scrollY * 0.001;
-        const scrollBlur = Math.min(scrollY * 0.05, 12);
-        const scrollOpacity = Math.max(1 - scrollY * 0.002, 0.4);
+    <PageTransition>
+      <div ref={containerRef} className="artist-page-shell mobile-page-shell hover-desaturate-page">
+        <DetailHero
+          artworkUrl={artistImageUrl || topTracks[0]?.coverUrl || "/placeholder.svg"}
+          body={heroBody}
+          dragPayload={topTracks.length > 0 ? {
+            label: artist.name,
+            source: "selection",
+            tracks: topTracks,
+          } : undefined}
+          label="Artist"
+          meta={heroMeta}
+          scrollY={scrollY}
+          title={artist.name}
+        />
 
-        const artistImgUrl = artist.picture
-          ? getTidalImageUrl(artist.picture, "1080x720")
-          : topTracks[0]?.coverUrl || "/placeholder.svg";
-
-        return (
-          <div className="relative overflow-hidden mb-0 border border-white/10 border-b-0" style={{ height: "400px" }}>
-            <div
-              className="absolute inset-0 z-[1]"
-              style={{
-                background: `linear-gradient(to right, hsl(var(--dynamic-accent) / 0.35) 0%, hsl(var(--dynamic-accent) / 0.1) 60%, transparent 85%),
-                             linear-gradient(to top, hsl(var(--background)) 0%, transparent 40%)`,
-              }}
-            />
-
-            <img
-              src={artistImgUrl}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover transition-[filter] duration-100"
-              style={{
-                opacity: 0.4,
-                transform: `scale(${scrollScale + 0.5})`,
-                filter: `blur(${40 + scrollBlur}px)`,
-              }}
-            />
-
-            <div className="relative h-full z-[2] flex items-end">
-              <div className="absolute top-0 right-0 bottom-0 w-full sm:w-[65%] shrink-0 z-0">
-                <img
-                  src={artistImgUrl}
-                  alt={artist.name}
-                  className="h-full w-full object-cover object-top transition-[filter,transform] duration-100"
-                  style={{
-                    transform: `scale(${scrollScale})`,
-                    filter: `blur(${scrollBlur}px)`,
-                    maskImage: "linear-gradient(to left, black 20%, transparent 90%), linear-gradient(to top, transparent 0%, black 25%)",
-                    WebkitMaskImage: "linear-gradient(to left, black 20%, transparent 90%), linear-gradient(to top, transparent 0%, black 25%)",
-                    maskComposite: "intersect",
-                    WebkitMaskComposite: "source-in",
-                  }}
-                />
-              </div>
-
-              <div className="relative z-10 w-full sm:w-[60%] flex flex-col justify-end px-8 md:px-10 pb-8 min-w-0 pointer-events-none">
-                <div className="pointer-events-auto">
-                  <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 mb-2">Artist</p>
-                  <h1
-                    className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-2 leading-tight tracking-tight"
-                    style={{ opacity: scrollOpacity, textShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
-                  >
-                    {artist.name}
-                  </h1>
-                  <p className="text-sm font-medium text-foreground/80 max-w-prose">
-                    {cleanBio
-                      ? `${cleanBio.slice(0, 180)}${cleanBio.length > 180 ? "..." : ""}`
-                      : `Discover top tracks, albums and related artists from ${artist.name}.`}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      <section className="grid grid-cols-2 md:grid-cols-4 border border-white/10 divide-x divide-y md:divide-y-0 divide-white/10 bg-white/[0.02]">
+        <DetailActionBar columns={5}>
         <Button
           variant="secondary"
-          className={artistActionBtnClass}
+          className={DETAIL_ACTION_BUTTON_CLASS}
           onClick={() => {
             if (isCurrentArtist) togglePlay();
             else if (topTracks.length) play(topTracks[0], topTracks);
           }}
         >
           {isCurrentArtist && isPlaying ? (
-            <Pause className="w-4 h-4 mr-2 fill-current" />
+            <Pause className="hero-action-icon w-4 h-4 mr-2 fill-current" />
           ) : (
-            <Play className="w-4 h-4 mr-2 fill-current" />
+            <Play className="hero-action-icon w-4 h-4 mr-2 fill-current" />
           )}
-          <span className="relative z-10">Play</span>
+          <span className="hero-action-label relative z-10">Play</span>
         </Button>
         <Button
           variant="secondary"
-          className={artistActionBtnClass}
+          className={DETAIL_ACTION_BUTTON_CLASS}
+          onClick={handleShuffleArtist}
         >
-          <Shuffle className="w-4 h-4 mr-2" />
-          <span className="relative z-10">Shuffle</span>
+          <Shuffle className="hero-action-icon w-4 h-4 mr-2" />
+          <span className="hero-action-label relative z-10">Shuffle</span>
         </Button>
         <Button
           variant="secondary"
-          className={artistActionBtnClass}
+          className={DETAIL_ACTION_BUTTON_CLASS}
+          onClick={() => navigate(buildArtistMixPath(artist.id, artist.name))}
+        >
+          <Music className="hero-action-icon w-4 h-4 mr-2" />
+          <span className="hero-action-label relative z-10">{hasArtistMix ? "Mix" : "Radio"}</span>
+        </Button>
+        <Button
+          variant="secondary"
+          className={DETAIL_ACTION_BUTTON_CLASS}
           onClick={handleToggleFavorite}
         >
           <Heart
-            className={`w-4 h-4 mr-2 transition-colors ${favorite
+            className={`hero-action-icon w-4 h-4 mr-2 transition-colors ${favorite
               ? "fill-current text-[hsl(var(--player-waveform))] group-hover:text-[hsl(var(--dynamic-accent-foreground))]"
               : ""
               }`}
           />
-          <span className="relative z-10">{favorite ? "Favorited" : "Add"}</span>
+          <span className="hero-action-label relative z-10">{favorite ? "Favorited" : "Add"}</span>
         </Button>
         <Button
           variant="secondary"
-          className={artistActionBtnClass}
+          className={DETAIL_ACTION_BUTTON_CLASS}
           onClick={handleShareArtist}
         >
-          <Share className="w-4 h-4 mr-2" />
-          <span className="relative z-10">Share</span>
+          <Share className="hero-action-icon w-4 h-4 mr-2" />
+          <span className="hero-action-label relative z-10">Share</span>
         </Button>
-      </section>
+        </DetailActionBar>
 
-      {/* Popular Tracks */}
-      {loading && topTracks.length === 0 && (
-        <div className="flex items-center gap-3 py-8">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Loading tracks…</span>
-        </div>
-      )}
+      <ArtistTrackSection
+        title="Popular"
+        tracks={topTracks}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        loading={tracksLoading}
+        play={play}
+        isLiked={isLiked}
+        toggleLike={toggleLike}
+        initialVisibleCount={initialVisibleCount}
+        showAll={showAllTracks}
+        onToggleShowAll={() => setShowAllTracks((prev) => !prev)}
+      />
 
-      {topTracks.length > 0 && (
-        <section className="border border-white/10 bg-white/[0.02]">
-          <div className={artistSectionHeaderClass}>
-            <h2 className={artistSectionTitleClass}>Popular</h2>
-            {topTracks.length > 5 && (
-              <button
-                type="button"
-                className="relative z-10 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setShowAllTracks((prev) => !prev)}
-              >
-                {showAllTracks ? "Show less" : "See more"}
-              </button>
-            )}
-          </div>
-          <div>
-            {displayedTracks.map((track, i) => {
-              const isCurrent = currentTrack?.id === track.id;
-              return (
-                <button
-                  key={track.id}
-                  className={`group relative overflow-hidden w-full grid grid-cols-[36px_48px_minmax(0,1fr)_36px_72px] md:grid-cols-[36px_48px_minmax(0,1fr)_minmax(0,0.8fr)_36px_72px] gap-3 px-4 py-2.5 items-center text-left border-b last:border-b-0 border-white/10 ${isCurrent ? "" : "transition-colors duration-200"}`}
-                  style={isCurrent ? { backgroundColor: "hsl(var(--player-waveform) / 0.95)" } : undefined}
-                  onClick={() => play(track, topTracks)}
-                >
-                  {!isCurrent && (
-                    <span
-                      className="absolute inset-0 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300 ease-out pointer-events-none"
-                      style={{ backgroundColor: "hsl(var(--player-waveform) / 0.95)" }}
-                    />
-                  )}
-
-                  <span className={`relative z-10 text-sm w-[20px] tabular-nums text-center ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))] flex items-center justify-center h-4" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>
-                    {isCurrent ? <PlayingIndicator isPaused={!isPlaying} /> : `${i + 1}.`}
-                  </span>
-                  <img src={track.coverUrl} alt="" className="relative z-10 w-12 h-12 object-cover" />
-                  <div className="relative z-10 min-w-0">
-                    <p
-                      className={`text-sm truncate ${isCurrent ? "font-semibold text-[hsl(var(--dynamic-accent-foreground))]" : "font-medium group-hover:text-[hsl(var(--dynamic-accent-foreground))]"}`}
-                    >
-                      {track.title}
-                    </p>
-                    <p className={`text-xs truncate ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground)/0.82)]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.85)] transition-colors duration-200"}`}>
-                      {track.artist}
-                    </p>
-                  </div>
-                  <span className="hidden md:block relative z-10 min-w-0">
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className={`text-sm truncate block ${isCurrent ? "" : "transition-colors duration-200"} ${isCurrent
-                        ? "text-[hsl(var(--dynamic-accent-foreground)/0.92)]"
-                        : "text-muted-foreground hover:text-[hsl(var(--dynamic-accent-foreground))]"
-                        }`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void openTrackAlbum(track);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          void openTrackAlbum(track);
-                        }
-                      }}
-                    >
-                      {track.album}
-                    </span>
-                  </span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    aria-label={isLiked(track.id) ? "Remove from liked songs" : "Add to liked songs"}
-                    className="relative z-10 flex items-center justify-center w-8 h-8 rounded-none opacity-0 invisible group-hover:opacity-100 group-hover:visible focus-visible:opacity-100 focus-visible:visible transition-opacity duration-200"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      toggleLike(track);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleLike(track);
-                      }
-                    }}
-                  >
-                    <Heart
-                      className={`w-4 h-4 ${isCurrent ? "" : "transition-colors duration-200"} ${isLiked(track.id)
-                        ? "fill-current text-[hsl(var(--dynamic-accent-foreground))]"
-                        : isCurrent
-                          ? "text-[hsl(var(--dynamic-accent-foreground))]"
-                          : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))]"
-                        }`}
-                    />
-                  </span>
-                  <span className={`relative z-10 text-sm text-right font-mono tabular-nums ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>{formatDuration(track.duration)}</span>
-                </button>
-              );
-            })}
-          </div>
+      {albums.length > 0 && (
+        <section>
+          <ArtistSectionHeader
+            title="Albums"
+            showPager={!isMobile && shouldShowPager("albums", albums.length)}
+            onPageBack={() => moveSectionPage("albums", albums.length, -1)}
+            onPageForward={() => moveSectionPage("albums", albums.length, 1)}
+            canPageBack={getCurrentPage("albums", albums.length) > 0}
+            canPageForward={getCurrentPage("albums", albums.length) < getPageCount(albums.length) - 1}
+          />
+          {renderArtistSectionRow(albums, "albums", (album) => (
+            <HomeAlbumCard
+              key={album.id}
+              album={mapArtistAlbumToHomeAlbum(album)}
+              saved={isAlbumSaved(album.id)}
+              onToggleSave={() => void handleToggleSavedAlbum(album)}
+            />
+          ))}
         </section>
       )}
 
-      {albums.length > 0 && (
-        <section className="border border-white/10 border-t-0 bg-white/[0.02]">
-          <div className={artistSectionHeaderClass}>
-            <h2 className={artistSectionTitleClass}>Albums</h2>
-            {albums.length > INITIAL_CARD_COUNT && (
-              <button
-                type="button"
-                className="relative z-10 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setShowAllAlbums((prev) => !prev)}
-              >
-                {showAllAlbums ? "Show less" : "See more"}
-              </button>
-            )}
-          </div>
-          <div className="hover-desaturate-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-0 border-l border-t border-white/10">
-            {albums.slice(0, showAllAlbums ? undefined : INITIAL_CARD_COUNT).map((album) => (
-              <AlbumCard key={album.id} album={album} navigate={navigate} playAlbum={playAlbum} />
-            ))}
-          </div>
+      {singlesAndEps.length > 0 && (
+        <section>
+          <ArtistSectionHeader
+            title="Singles & EPs"
+            showPager={!isMobile && shouldShowPager("singles-and-eps", singlesAndEps.length)}
+            onPageBack={() => moveSectionPage("singles-and-eps", singlesAndEps.length, -1)}
+            onPageForward={() => moveSectionPage("singles-and-eps", singlesAndEps.length, 1)}
+            canPageBack={getCurrentPage("singles-and-eps", singlesAndEps.length) > 0}
+            canPageForward={getCurrentPage("singles-and-eps", singlesAndEps.length) < getPageCount(singlesAndEps.length) - 1}
+          />
+          {renderArtistSectionRow(singlesAndEps, "singles-and-eps", (album) => (
+            <HomeAlbumCard
+              key={album.id}
+              album={mapArtistAlbumToHomeAlbum(album)}
+              saved={isAlbumSaved(album.id)}
+              onToggleSave={() => void handleToggleSavedAlbum(album)}
+            />
+          ))}
         </section>
       )}
 
       {relatedArtists.length > 0 && (
-        <section className="pb-4 border border-white/10 border-t-0 bg-white/[0.02]">
-          <div className={artistSectionHeaderClass}>
-            <h2 className={artistSectionTitleClass}>Related Artists</h2>
-            {relatedArtists.length > INITIAL_CARD_COUNT && (
-              <button
-                type="button"
-                onClick={() => setShowAllRelated((prev) => !prev)}
-                className="relative z-10 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showAllRelated ? "Show less" : "See more"}
-              </button>
-            )}
-          </div>
-          <div className="hover-desaturate-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-0 border-l border-t border-white/10">
-            {(showAllRelated ? relatedArtists : relatedArtists.slice(0, INITIAL_CARD_COUNT)).map((ra) => (
-              <button
-                key={ra.id}
-                className="hover-desaturate-card relative group cursor-pointer text-left border-r border-b border-white/10 p-3 transition-colors hover:bg-white/[0.03]"
-                onClick={() => navigate(`/artist/${ra.id}?name=${encodeURIComponent(ra.name)}`)}
-              >
-                <div className="relative mb-2 overflow-hidden aspect-[4/3] border border-white/10">
-                  <img
-                    src={ra.picture || "/placeholder.svg"}
-                    alt={ra.name}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
-                  />
-                </div>
-                <p className="text-sm font-semibold truncate text-foreground">{ra.name}</p>
-              </button>
-            ))}
-          </div>
+        <section>
+          <ArtistSectionHeader
+            title="Related Artists"
+            showPager={!isMobile && shouldShowPager("related-artists", relatedArtists.length)}
+            onPageBack={() => moveSectionPage("related-artists", relatedArtists.length, -1)}
+            onPageForward={() => moveSectionPage("related-artists", relatedArtists.length, 1)}
+            canPageBack={getCurrentPage("related-artists", relatedArtists.length) > 0}
+            canPageForward={getCurrentPage("related-artists", relatedArtists.length) < getPageCount(relatedArtists.length) - 1}
+          />
+          {renderArtistSectionRow(relatedArtists, "related-artists", (relatedArtist) => (
+            <ArtistCard
+              key={relatedArtist.id}
+              id={relatedArtist.id}
+              name={relatedArtist.name}
+              imageUrl={relatedArtist.picture}
+            />
+          ))}
         </section>
       )}
-    </motion.div>
+
+      <Dialog open={bioDialogOpen} onOpenChange={setBioDialogOpen}>
+        <DialogContent className="w-[min(1120px,calc(100vw-32px))] max-w-[1120px] p-0">
+          <DialogHeader className="border-b border-white/10 px-8 py-6">
+            <DialogTitle className="text-2xl font-bold tracking-tight">Artist Biography</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[72vh] overflow-y-auto px-8 py-8">
+            <div className="space-y-6 text-[1.05rem] leading-[1.95] text-white/92">
+              {biographyContent}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      </div>
+    </PageTransition>
   );
 }

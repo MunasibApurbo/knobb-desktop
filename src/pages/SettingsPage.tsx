@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Download, ExternalLink, HelpCircle, Loader2, RotateCcw, Search, Shield } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, HelpCircle, Loader2, Search, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { DiscordConnectDialog } from "@/components/DiscordConnectDialog";
 import { Input } from "@/components/ui/input";
 import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
+import { SettingsEqualizer } from "@/components/SettingsEqualizer";
 import { Switch } from "@/components/ui/switch";
 import { PageTransition } from "@/components/PageTransition";
 import {
@@ -230,7 +231,13 @@ export default function SettingsPage() {
     toggleNormalization,
     equalizerEnabled,
     toggleEqualizer,
+    eqGains,
+    eqPreset,
+    setEqBandGain,
+    applyEqPreset,
     resetEqualizer,
+    preampDb,
+    setPreampDb,
     preservePitch,
     setPreservePitch,
   } = usePlayer();
@@ -1017,24 +1024,16 @@ export default function SettingsPage() {
               />
             ) : null}
             {audioQualitySectionTitleMatch || equalizerRowMatch ? (
-              <Row
-                title={t("settings.equalizer")}
-                description={t("settings.equalizerDescription")}
-                action={
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={cn(SETTINGS_ACTION_BUTTON_CLASS, "px-4")}
-                      onClick={resetEqualizer}
-                      disabled={!equalizerEnabled}
-                    >
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      Reset
-                    </Button>
-                    <ToggleControl checked={equalizerEnabled} onCheckedChange={() => toggleEqualizer()} />
-                  </div>
-                }
+              <SettingsEqualizer
+                enabled={equalizerEnabled}
+                gains={eqGains}
+                preset={eqPreset}
+                preampDb={preampDb}
+                onToggleEnabled={() => toggleEqualizer()}
+                onSetBandGain={setEqBandGain}
+                onApplyPreset={applyEqPreset}
+                onReset={resetEqualizer}
+                onSetPreampDb={setPreampDb}
               />
             ) : null}
             {audioQualitySectionTitleMatch || pitchRowMatch ? (

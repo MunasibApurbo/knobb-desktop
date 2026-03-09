@@ -1,20 +1,31 @@
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Track } from "@/types/music";
-import { getTotalDuration, formatDuration } from "@/lib/utils";
-import { getAlbumWithTracks, searchAlbumTracksByName, searchAlbums, getTidalImageUrl, tidalTrackToAppTrack, hexToHsl } from "@/lib/monochromeApi";
+import { getTotalDuration } from "@/lib/utils";
+import { filterAudioTracks, getAlbumWithTracks, searchAlbumTracksByName, getTidalImageUrl, tidalTrackToAppTrack, hexToHsl } from "@/lib/musicApi";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useSavedAlbums } from "@/hooks/useSavedAlbums";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { Play, Pause, Shuffle, Heart, AlertCircle, RefreshCw, User, Share } from "lucide-react";
+import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail/DetailActionBar";
+import { DetailHero } from "@/components/detail/DetailHero";
+import { TrackListRow } from "@/components/detail/TrackListRow";
+import { Play, Pause, Shuffle, Heart, AlertCircle, RefreshCw, Share, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ArtistLink } from "@/components/ArtistLink";
 import { PageTransition } from "@/components/PageTransition";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { PlayingIndicator } from "@/components/PlayingIndicator";
+import { ArtistsLink } from "@/components/ArtistsLink";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { useMainScrollY } from "@/hooks/useMainScrollY";
+import { downloadTracks } from "@/lib/downloadHelpers";
+import { copyPlainTextToClipboard, getTrackShareIdentifier } from "@/lib/mediaNavigation";
+import { usePageMetadata } from "@/hooks/usePageMetadata";
+import { startPlaylistDrag } from "@/lib/playlistDrag";
+import { getReleaseYear } from "@/lib/releaseDates";
+import { isSameTrack } from "@/lib/trackIdentity";
 
 export default function AlbumPage() {
   const { id } = useParams();
@@ -22,11 +33,13 @@ export default function AlbumPage() {
   const navigate = useNavigate();
   const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
   const { user } = useAuth();
+  const { downloadFormat } = useSettings();
   const { isSaved, toggleSavedAlbum } = useSavedAlbums();
   const { isLiked, toggleLike } = useLikedSongs();
 
   const urlTitle = searchParams.get("title") || "";
   const urlArtist = searchParams.get("artist") || "";
+  const sharedTrackId = searchParams.get("trackId");
   const tidalAlbumId = id ? parseInt(id.replace("tidal-", "")) : null;
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -35,15 +48,39 @@ export default function AlbumPage() {
     artist: string;
     artistId?: number;
     coverUrl: string;
-    year: number;
+    year: number | null;
     canvasColor: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [scrollY, setScrollY] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const scrollY = useMainScrollY();
   const fetchedRef = useRef<string>("");
+  const sharedTrackScrollRef = useRef<string | null>(null);
 
-  const loadAlbum = () => {
+  usePageMetadata(albumInfo ? {
+    title: `${albumInfo.title} - ${albumInfo.artist}`,
+    description: `Stream ${albumInfo.title} by ${albumInfo.artist} on Knobb.${tracks.length > 0 ? ` ${tracks.length} tracks ready to play.` : ""}`,
+    image: albumInfo.coverUrl || undefined,
+    imageAlt: `${albumInfo.title} album cover`,
+    type: "music.album",
+    structuredData: {
+      "@context": "https://schema.org",
+      "@type": "MusicAlbum",
+      name: albumInfo.title,
+      byArtist: {
+        "@type": "MusicGroup",
+        name: albumInfo.artist,
+      },
+      datePublished: albumInfo.year ? String(albumInfo.year) : undefined,
+      image: albumInfo.coverUrl || undefined,
+      numTracks: tracks.length || undefined,
+      url: typeof window !== "undefined" ? window.location.href : undefined,
+      description: `Stream ${albumInfo.title} by ${albumInfo.artist} on Knobb.`,
+    },
+  } : null);
+
+  const loadAlbum = useCallback(() => {
     if (!tidalAlbumId || !id) return;
     fetchedRef.current = id;
     setError(false);
@@ -63,7 +100,7 @@ export default function AlbumPage() {
           finalTracks = await searchAlbumTracksByName(knownTitle, knownArtist);
         }
 
-        const appTracks = finalTracks.map(tidalTrackToAppTrack);
+        const appTracks = filterAudioTracks(finalTracks.map(t => tidalTrackToAppTrack(t)));
         setTracks(appTracks);
 
         const title = album?.title || urlTitle || finalTracks[0]?.album?.title || "Unknown Album";
@@ -73,7 +110,7 @@ export default function AlbumPage() {
           || "Unknown";
         const artistId = album?.artist?.id || finalTracks[0]?.artist?.id;
         const cover = album?.cover || finalTracks[0]?.album?.cover || "";
-        const year = album?.releaseDate ? new Date(album.releaseDate).getFullYear() : new Date().getFullYear();
+        const year = getReleaseYear(album?.releaseDate, appTracks[0]?.year) || null;
         const color = album?.vibrantColor ? hexToHsl(album.vibrantColor) : appTracks[0]?.canvasColor || "220 70% 55%";
 
         setAlbumInfo({
@@ -91,21 +128,25 @@ export default function AlbumPage() {
         setLoading(false);
       }
     })();
-  };
+  }, [id, tidalAlbumId, urlArtist, urlTitle]);
 
   useEffect(() => {
     if (fetchedRef.current !== id) loadAlbum();
-  }, [id]);
+  }, [id, loadAlbum]);
 
   useEffect(() => {
-    const scrollContainer = document.querySelector("[data-radix-scroll-area-viewport]");
-    if (!scrollContainer) return;
-    const handleScroll = () => setScrollY(scrollContainer.scrollTop);
-    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
-  }, [loading]);
+    if (!sharedTrackId || tracks.length === 0 || sharedTrackScrollRef.current === sharedTrackId) return;
 
-  if (loading) return <LoadingSkeleton />;
+    const target = document.getElementById(`track-${sharedTrackId}`);
+    if (!target) return;
+
+    sharedTrackScrollRef.current = sharedTrackId;
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [sharedTrackId, tracks]);
+
+  if (loading) return <LoadingSkeleton variant="detail" />;
 
   if (error || !albumInfo) {
     return (
@@ -122,40 +163,9 @@ export default function AlbumPage() {
   const isCurrentAlbum = currentTrack && tracks.some((t) => t.id === currentTrack.id);
   const albumIsSaved = tidalAlbumId ? isSaved(tidalAlbumId) : false;
 
-  const openTrackAlbum = async (track: Track) => {
-    const params = new URLSearchParams();
-    if (track.album) params.set("title", track.album);
-    if (track.artist) params.set("artist", track.artist);
-
-    if (track.albumId) {
-      navigate(`/album/tidal-${track.albumId}?${params.toString()}`);
-      return;
-    }
-
-    try {
-      const matches = await searchAlbums(`${track.album} ${track.artist}`, 6);
-      const exact = matches.find((a) => a.title?.toLowerCase() === track.album?.toLowerCase()) || matches[0];
-      if (exact) {
-        navigate(`/album/tidal-${exact.id}?${params.toString()}`);
-        return;
-      }
-    } catch (e) {
-      console.warn("Album lookup failed:", e);
-    }
-
-    toast.error("Album not found");
-  };
-
   const handleShareAlbum = async () => {
     const url = window.location.href;
-    const text = `${albumInfo.title} — ${albumInfo.artist}`.trim();
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: albumInfo.title, text, url });
-        return;
-      } catch { }
-    }
-    await navigator.clipboard.writeText(url);
+    await copyPlainTextToClipboard(url);
     toast.success("Album link copied to clipboard");
   };
 
@@ -187,179 +197,153 @@ export default function AlbumPage() {
     );
   };
 
-  const actionBtnClass =
-    "group rounded-none h-14 justify-start px-4 md:px-6 font-semibold text-base bg-transparent border-0 " +
-    "relative overflow-hidden transition-colors hover:text-[hsl(var(--dynamic-accent-foreground))] " +
-    "before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-0 " +
-    "before:transition-transform before:duration-300 before:ease-out before:bg-[hsl(var(--player-waveform)/0.95)] " +
-    "hover:before:scale-x-100 [&>*]:relative [&>*]:z-10";
+  const handleDownloadAlbum = async () => {
+    if (tracks.length === 0 || isDownloading) return;
+    const confirmed = window.confirm(`Download all ${tracks.length} tracks from "${albumInfo.title}"?`);
+    if (!confirmed) return;
+
+    setIsDownloading(true);
+    toast.info(`Downloading ${albumInfo.title}...`);
+
+    const quality = downloadFormat === "flac" ? "LOSSLESS" : "HIGH";
+    const result = await downloadTracks(tracks, quality);
+
+    setIsDownloading(false);
+
+    if (result.successCount === result.total) {
+      toast.success(`Downloaded ${albumInfo.title}`);
+      return;
+    }
+
+    if (result.successCount > 0) {
+      toast.warning(`Downloaded ${result.successCount} of ${result.total} tracks from ${albumInfo.title}`);
+      return;
+    }
+
+    toast.error(`Failed to download ${albumInfo.title}`);
+  };
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="space-y-0">
-        {(() => {
-          const scrollScale = 1 + scrollY * 0.001;
-          const scrollBlur = Math.min(scrollY * 0.05, 12);
-          const scrollOpacity = Math.max(1 - scrollY * 0.002, 0.4);
-          const coverImageUrl = albumInfo.coverUrl || "/placeholder.svg";
-
-          return (
-            <div className="relative overflow-hidden mb-0 border border-white/10 border-b-0" style={{ height: "400px" }}>
-              <div
-                className="absolute inset-0 z-[1]"
-                style={{
-                  background: `linear-gradient(to right, hsl(var(--dynamic-accent) / 0.35) 0%, hsl(var(--dynamic-accent) / 0.1) 60%, transparent 85%),
-                               linear-gradient(to top, hsl(var(--background)) 0%, transparent 40%)`,
-                }}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+        <DetailHero
+          accentColor={albumInfo.canvasColor}
+          artworkUrl={albumInfo.coverUrl || "/placeholder.svg"}
+          dragPayload={tracks.length > 0 ? {
+            label: albumInfo.title,
+            source: "album",
+            tracks,
+          } : undefined}
+          label="Album"
+          scrollY={scrollY}
+          title={albumInfo.title}
+          body={(
+            <div className="flex items-center gap-2">
+              <ArtistsLink
+                name={albumInfo.artist}
+                artists={[{ id: albumInfo.artistId, name: albumInfo.artist }]}
+                className="text-sm font-semibold text-foreground/90 hover:underline"
               />
-              <img
-                src={coverImageUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover transition-[filter] duration-100"
-                style={{
-                  opacity: 0.4,
-                  transform: `scale(${scrollScale + 0.5})`,
-                  filter: `blur(${40 + scrollBlur}px)`,
-                }}
-              />
-              <div className="relative h-full z-[2] flex items-end">
-                <div className="absolute top-0 right-0 bottom-0 w-full sm:w-[65%] shrink-0 z-0">
-                  <img
-                    src={coverImageUrl}
-                    alt={albumInfo.title}
-                    className="h-full w-full object-cover object-top transition-[filter,transform] duration-100"
-                    style={{
-                      transform: `scale(${scrollScale})`,
-                      filter: `blur(${scrollBlur}px)`,
-                      maskImage: "linear-gradient(to left, black 20%, transparent 90%), linear-gradient(to top, transparent 0%, black 25%)",
-                      WebkitMaskImage: "linear-gradient(to left, black 20%, transparent 90%), linear-gradient(to top, transparent 0%, black 25%)",
-                      maskComposite: "intersect",
-                      WebkitMaskComposite: "source-in",
-                    }}
-                  />
-                </div>
-                <div className="relative z-10 w-full sm:w-[60%] flex flex-col justify-end px-8 md:px-10 pb-8 min-w-0 pointer-events-none">
-                  <div className="pointer-events-auto">
-                    <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 mb-2">Album</p>
-                    <h1
-                      className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-2 leading-tight tracking-tight"
-                      style={{ opacity: scrollOpacity, textShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
-                    >
-                      {albumInfo.title}
-                    </h1>
-                    <div className="flex items-center gap-2" style={{ opacity: scrollOpacity }}>
-                      <ArtistLink name={albumInfo.artist} artistId={albumInfo.artistId} className="text-sm font-semibold text-foreground/90 hover:underline" />
-                    </div>
-                    <div className="flex flex-col gap-1 text-xs font-medium text-foreground/60 tracking-wide uppercase mt-2" style={{ opacity: scrollOpacity }}>
-                      <span>{tracks.length} TRACK{tracks.length !== 1 ? "S" : ""} {tracks.length > 0 ? `(${getTotalDuration(tracks)})` : ""}</span>
-                      <span>{albumInfo.year}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
-          );
-        })()}
+          )}
+          meta={
+            <>
+              <span className="detail-chip">
+                <span>Tracks</span>
+                <strong>{tracks.length}</strong>
+              </span>
+              {tracks.length > 0 ? (
+                <span className="detail-chip">
+                  <span>Runtime</span>
+                  <strong>{getTotalDuration(tracks)}</strong>
+                </span>
+              ) : null}
+              {albumInfo.year ? (
+                <span className="detail-chip">
+                  <span>Year</span>
+                  <strong>{albumInfo.year}</strong>
+                </span>
+              ) : null}
+            </>
+          }
+        />
 
-        <section className="grid grid-cols-2 md:grid-cols-4 border border-white/10 divide-x divide-y md:divide-y-0 divide-white/10 bg-white/[0.02]">
+        <DetailActionBar columns={5}>
           <Button
             variant="secondary"
-            className={actionBtnClass}
+            className={DETAIL_ACTION_BUTTON_CLASS}
             onClick={() => {
               if (isCurrentAlbum) togglePlay();
               else if (tracks.length) play(tracks[0], tracks);
             }}
           >
             {isCurrentAlbum && isPlaying ? (
-              <Pause className="w-4 h-4 mr-2 fill-current" />
+              <Pause className="hero-action-icon w-4 h-4 mr-2 fill-current" />
             ) : (
-              <Play className="w-4 h-4 mr-2 fill-current" />
+              <Play className="hero-action-icon w-4 h-4 mr-2 fill-current" />
             )}
-            <span className="relative z-10">Play</span>
+            <span className="hero-action-label relative z-10">Play</span>
           </Button>
-          <Button variant="secondary" className={actionBtnClass}>
-            <Shuffle className="w-4 h-4 mr-2" />
-            <span className="relative z-10">Shuffle</span>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={() => {
+              if (tracks.length === 0) return;
+              const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+              play(shuffled[0], shuffled);
+            }}
+          >
+            <Shuffle className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">Shuffle</span>
           </Button>
-          <Button variant="secondary" className={actionBtnClass} onClick={handleToggleSavedAlbum}>
-            <Heart className={`w-4 h-4 mr-2 ${albumIsSaved ? "fill-current text-[hsl(var(--player-waveform))] group-hover:text-[hsl(var(--dynamic-accent-foreground))]" : ""}`} />
-            <span className="relative z-10">{albumIsSaved ? "Saved" : "Add"}</span>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={() => void handleDownloadAlbum()}
+            disabled={tracks.length === 0 || isDownloading}
+          >
+            <Download className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">{isDownloading ? "Downloading..." : "Download"}</span>
           </Button>
-          <Button variant="secondary" className={actionBtnClass} onClick={handleShareAlbum}>
-            <Share className="w-4 h-4 mr-2" />
-            <span className="relative z-10">Share</span>
+          <Button variant="secondary" className={DETAIL_ACTION_BUTTON_CLASS} onClick={handleToggleSavedAlbum}>
+            <Heart className={`hero-action-icon w-4 h-4 mr-2 ${albumIsSaved ? "fill-current text-[hsl(var(--player-waveform))] group-hover:text-[hsl(var(--dynamic-accent-foreground))]" : ""}`} />
+            <span className="hero-action-label relative z-10">{albumIsSaved ? "Saved" : "Add"}</span>
           </Button>
-        </section>
+          <Button variant="secondary" className={DETAIL_ACTION_BUTTON_CLASS} onClick={handleShareAlbum}>
+            <Share className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">Share</span>
+          </Button>
+        </DetailActionBar>
 
         {tracks.length > 0 && (
           <section className="border border-white/10 bg-white/[0.02]">
             <div>
               {tracks.map((track, i) => {
-                const isCurrent = currentTrack?.id === track.id;
+                const isCurrent = isSameTrack(currentTrack, track);
+                const trackShareId = getTrackShareIdentifier(track);
+                const isSharedTrack = sharedTrackId !== null && sharedTrackId === trackShareId;
                 return (
-                  <button
-                    key={track.id}
-                    className={`group relative overflow-hidden w-full grid grid-cols-[36px_48px_minmax(0,1fr)_36px_72px] md:grid-cols-[36px_48px_minmax(0,1fr)_minmax(0,0.8fr)_36px_72px] gap-3 px-4 py-2.5 items-center text-left border-b last:border-b-0 border-white/10 ${isCurrent ? "" : "transition-colors duration-200"}`}
-                    style={isCurrent ? { backgroundColor: "hsl(var(--player-waveform) / 0.95)" } : undefined}
-                    onClick={() => play(track, tracks)}
-                  >
-                    {!isCurrent && (
-                      <span
-                        className="absolute inset-0 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-300 ease-out pointer-events-none"
-                        style={{ backgroundColor: "hsl(var(--player-waveform) / 0.95)" }}
-                      />
-                    )}
-                    <span className={`relative z-10 text-sm w-[20px] tabular-nums text-center ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))] flex items-center justify-center h-4" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>
-                      {isCurrent ? <PlayingIndicator isPaused={!isPlaying} /> : `${i + 1}.`}
-                    </span>
-                    <img src={track.coverUrl} alt="" className="relative z-10 w-12 h-12 object-cover" />
-                    <div className="relative z-10 min-w-0">
-                      <p className={`text-sm truncate ${isCurrent ? "font-semibold text-[hsl(var(--dynamic-accent-foreground))]" : "font-medium group-hover:text-[hsl(var(--dynamic-accent-foreground))]"}`}>{track.title}</p>
-                      <p className={`text-xs truncate ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground)/0.82)]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.85)] transition-colors duration-200"}`}>{track.artist}</p>
-                    </div>
-                    <span className="hidden md:block relative z-10 min-w-0">
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        className={`text-sm truncate block ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground)/0.92)]" : "text-muted-foreground hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          void openTrackAlbum(track);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void openTrackAlbum(track);
-                          }
-                        }}
-                      >
-                        {track.album}
-                      </span>
-                    </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      aria-label={isLiked(track.id) ? "Remove from liked songs" : "Add to liked songs"}
-                      className="relative z-10 flex items-center justify-center w-8 h-8 rounded-none opacity-0 invisible group-hover:opacity-100 group-hover:visible focus-visible:opacity-100 focus-visible:visible transition-opacity duration-200"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleLike(track);
+                  <TrackContextMenu key={track.id} track={track} tracks={tracks}>
+                    <TrackListRow
+                      id={trackShareId ? `track-${trackShareId}` : undefined}
+                      className={isSharedTrack && !isCurrent ? "bg-[hsl(var(--player-waveform)/0.1)]" : undefined}
+                      dragHandleLabel={`Drag ${track.title} to a playlist`}
+                      index={i}
+                      isCurrent={isCurrent}
+                      isLiked={isLiked(track.id)}
+                      isPlaying={isPlaying}
+                      onDragHandleStart={(event) => {
+                        startPlaylistDrag(event.dataTransfer, {
+                          label: track.title,
+                          source: "track",
+                          tracks: [track],
+                        });
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleLike(track);
-                        }
-                      }}
-                    >
-                      <Heart className={`w-4 h-4 ${isLiked(track.id) ? "fill-current text-[hsl(var(--dynamic-accent-foreground))]" : isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`} />
-                    </span>
-                    <span className={`relative z-10 text-sm text-right font-mono tabular-nums ${isCurrent ? "text-[hsl(var(--dynamic-accent-foreground))]" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))] transition-colors duration-200"}`}>{formatDuration(track.duration)}</span>
-                  </button>
+                      onPlay={() => play(track, tracks)}
+                      onToggleLike={() => toggleLike(track)}
+                      track={track}
+                    />
+                  </TrackContextMenu>
                 );
               })}
             </div>

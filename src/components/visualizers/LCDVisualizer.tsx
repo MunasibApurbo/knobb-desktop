@@ -9,7 +9,7 @@ interface LCDVisualizerProps {
 export function LCDVisualizer({ className = "" }: LCDVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
-  const { isPlaying, currentTrack } = usePlayer();
+  const { isPlaying } = usePlayer();
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;

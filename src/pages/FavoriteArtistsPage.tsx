@@ -1,19 +1,10 @@
-import { useNavigate } from "react-router-dom";
-import { Star, Loader2, UserRoundX } from "lucide-react";
-import { useFavoriteArtists } from "@/hooks/useFavoriteArtists";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { Star, Loader2 } from "lucide-react";
+import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
+import { ArtistCard } from "@/components/ArtistCard";
 import { motion } from "framer-motion";
 
 export default function FavoriteArtistsPage() {
-  const navigate = useNavigate();
-  const { favoriteArtists, loading, removeFavorite } = useFavoriteArtists();
-
-  const handleRemove = async (artistId: number, artistName: string) => {
-    const removed = await removeFavorite(artistId);
-    if (removed) toast.success(`Removed ${artistName} from favorites`);
-    else toast.error(`Failed to remove ${artistName}`);
-  };
+  const { favoriteArtists, loading } = useFavoriteArtists();
 
   if (loading) {
     return (
@@ -24,7 +15,12 @@ export default function FavoriteArtistsPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      className="hover-desaturate-page space-y-6"
+    >
       {/* Hero Banner */}
       <div
         className="flex items-end gap-6 pb-8 -mt-16 px-6 pt-20"
@@ -49,39 +45,22 @@ export default function FavoriteArtistsPage() {
           <p className="text-muted-foreground/60 text-sm mt-1">Open any artist page and tap Add</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {favoriteArtists.map((artist) => (
-            <div key={artist.id} className="relative group">
-              <button
-                className="relative w-full text-left overflow-hidden border border-white/10 hover:border-white/20 transition-colors h-44 sm:h-52 lg:h-56"
-                onClick={() => navigate(`/artist/${artist.artist_id}?name=${encodeURIComponent(artist.artist_name)}`)}
-              >
-                <img
-                  src={artist.artist_image_url || "/placeholder.svg"}
-                  alt={artist.artist_name}
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                  onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
-                />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/45 to-black/20" />
-                <div className="absolute inset-y-0 left-0 w-[58%] bg-gradient-to-r from-amber-900/50 via-amber-800/20 to-transparent" />
-                <div className="relative z-10 h-full flex flex-col justify-end p-5 sm:p-6">
-                  <h2 className="text-white font-black tracking-tight leading-[0.95] text-3xl sm:text-4xl max-w-[70%] break-words">
-                    {artist.artist_name}
-                  </h2>
-                </div>
-              </button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-3 right-3 w-9 h-9 bg-black/45 hover:bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => handleRemove(artist.artist_id, artist.artist_name)}
-              >
-                <UserRoundX className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
+        <section className="border border-white/10 bg-white/[0.02]">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+            <h2 className="text-lg font-bold text-foreground">Saved Artists</h2>
+            <p className="text-sm text-muted-foreground">{favoriteArtists.length} artists</p>
+          </div>
+          <div className="hover-desaturate-grid media-card-grid gap-0 border-l border-t border-white/10">
+            {favoriteArtists.map((artist) => (
+              <ArtistCard
+                key={artist.id}
+                id={artist.artist_id}
+                name={artist.artist_name}
+                imageUrl={artist.artist_image_url}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </motion.div>
   );

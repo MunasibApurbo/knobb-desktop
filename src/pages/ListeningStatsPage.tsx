@@ -1,20 +1,43 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { usePlayer } from "@/contexts/PlayerContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { PlayHistoryEntry, usePlayHistory } from "@/hooks/usePlayHistory";
-import { Track } from "@/types/music";
 import { BarChart3, Clock, Music, Disc3, Loader2, TrendingUp } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import { StatsRange, computeListeningStats, filterHistoryByRange } from "@/lib/listeningIntelligence";
+import { ArtistLink } from "@/components/ArtistLink";
+import { ArtistContextMenu } from "@/components/ArtistContextMenu";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
 
-type StatsRange = "7d" | "30d" | "all";
+function formatListenedMinutes(listenedSeconds: number) {
+  return `${Math.max(1, Math.round(listenedSeconds / 60))} min`;
+}
+
+function formatPeakHour(hour: number) {
+  const normalizedHour = ((hour % 24) + 24) % 24;
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(2026, 0, 1, normalizedHour, 0, 0));
+}
 
 export default function ListeningStatsPage() {
   const { user } = useAuth();
+  const { scrobblePercent } = useSettings();
   const { getHistory } = usePlayHistory();
+  const { play } = usePlayer();
   const navigate = useNavigate();
   const [history, setHistory] = useState<PlayHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<StatsRange>("30d");
+
+  const parsedScrobblePercent = Number.parseInt(scrobblePercent, 10);
+  const normalizedScrobblePercent = Number.isFinite(parsedScrobblePercent)
+    ? Math.min(95, Math.max(5, parsedScrobblePercent))
+    : 50;
 
   useEffect(() => {
     if (!user) {
@@ -25,42 +48,16 @@ export default function ListeningStatsPage() {
     getHistory(1000).then(setHistory).finally(() => setLoading(false));
   }, [user, getHistory]);
 
-  const filteredHistory = useMemo(() => {
-    if (range === "all") return history;
+  const filteredHistory = useMemo(
+    () => filterHistoryByRange(history, range),
+    [history, range]
+  );
 
-    const cutoffDays = range === "7d" ? 7 : 30;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - cutoffDays);
-    return history.filter((entry) => new Date(entry.playedAt) >= cutoff);
-  }, [history, range]);
-
-  const stats = useMemo(() => {
-    const totalListenedSeconds = filteredHistory.reduce((s, t) => s + t.listenedSeconds, 0);
-    const totalMinutes = Math.round(totalListenedSeconds / 60);
-    const artistCounts: Record<string, number> = {};
-    const trackCounts: Record<string, { track: Track; count: number }> = {};
-    const hourCounts = new Array(24).fill(0);
-
-    filteredHistory.forEach((t) => {
-      artistCounts[t.artist] = (artistCounts[t.artist] || 0) + 1;
-      if (!trackCounts[t.id]) trackCounts[t.id] = { track: t, count: 0 };
-      trackCounts[t.id].count++;
-      const hour = new Date(t.playedAt).getHours();
-      hourCounts[hour]++;
-    });
-
-    const topArtists = Object.entries(artistCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5);
-
-    const topTracks = Object.values(trackCounts)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    const peakHour = hourCounts.indexOf(Math.max(...hourCounts));
-
-    return { totalMinutes, totalTracks: filteredHistory.length, topArtists, topTracks, peakHour, hourCounts };
-  }, [filteredHistory]);
+  const stats = useMemo(
+    () => computeListeningStats(filteredHistory, normalizedScrobblePercent),
+    [filteredHistory, normalizedScrobblePercent]
+  );
+  const topTracksQueue = useMemo(() => stats.topTracks.map(({ track }) => track), [stats.topTracks]);
 
   if (!user) {
     return (
@@ -98,11 +95,10 @@ export default function ListeningStatsPage() {
             <button
               key={option.value}
               onClick={() => setRange(option.value as StatsRange)}
-              className={`px-2.5 py-1 text-xs font-semibold transition-colors ${
-                range === option.value
+              className={`px-2.5 py-1 text-xs font-semibold transition-colors ${range === option.value
                   ? "text-foreground bg-accent/30"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/20"
-              }`}
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                }`}
             >
               {option.label}
             </button>
@@ -113,14 +109,27 @@ export default function ListeningStatsPage() {
       {/* Overview cards */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { icon: Music, label: "Tracks Played", value: stats.totalTracks.toString() },
+          { icon: Music, label: "Counted Plays", value: stats.totalCountedPlays.toString() },
           { icon: Clock, label: "Minutes Listened", value: stats.totalMinutes.toString() },
-          { icon: TrendingUp, label: "Peak Hour", value: `${String(stats.peakHour).padStart(2, "0")}:00` },
+          { icon: TrendingUp, label: "Peak Hour", value: formatPeakHour(stats.peakHour) },
         ].map(({ icon: Icon, label, value }) => (
-          <div key={label} className="glass-heavy  p-4 text-center space-y-1">
-            <Icon className="w-5 h-5 mx-auto text-muted-foreground" />
-            <p className="text-xl font-bold text-foreground">{value}</p>
-            <p className="text-xs text-muted-foreground">{label}</p>
+          <div
+            key={label}
+            className="glass-heavy group relative isolate cursor-pointer overflow-hidden p-4 text-center"
+          >
+            <span
+              className="absolute inset-0 origin-left scale-x-0 bg-[hsl(var(--player-waveform)/0.95)] transition-transform duration-300 ease-out group-hover:scale-x-100"
+              aria-hidden="true"
+            />
+            <span
+              className="absolute inset-0 bg-white/0 transition-colors duration-300 group-hover:bg-white/[0.04]"
+              aria-hidden="true"
+            />
+            <div className="relative z-10 space-y-1">
+              <Icon className="mx-auto h-5 w-5 text-muted-foreground transition-colors duration-300 group-hover:text-[hsl(var(--dynamic-accent-foreground))]" />
+              <p className="text-xl font-bold text-foreground transition-colors duration-300 group-hover:text-[hsl(var(--dynamic-accent-foreground))]">{value}</p>
+              <p className="text-xs text-muted-foreground transition-colors duration-300 group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.82)]">{label}</p>
+            </div>
           </div>
         ))}
       </div>
@@ -160,14 +169,20 @@ export default function ListeningStatsPage() {
           <p className="text-sm text-muted-foreground">No data yet.</p>
         ) : (
           <div className="space-y-2">
-            {stats.topArtists.map(([artist, count], i) => (
-              <div key={artist} className="flex items-center gap-3">
-                <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate text-foreground">{artist}</p>
-                </div>
-                <span className="text-xs text-muted-foreground">{count} plays</span>
-              </div>
+            {stats.topArtists.map(({ artist, listenedSeconds }, i) => (
+              <ArtistContextMenu key={artist} artistName={artist}>
+                <button type="button" onClick={() => navigate(`/search?q=${encodeURIComponent(artist)}`)} className="flex w-full items-center gap-3 p-1 text-left transition-colors hover:bg-white/[0.06]">
+                  <span className="w-5 text-right text-xs font-mono text-muted-foreground">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <ArtistLink
+                      name={artist}
+                      className="block truncate text-sm font-semibold text-foreground"
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground">{formatListenedMinutes(listenedSeconds)}</span>
+                </button>
+              </ArtistContextMenu>
             ))}
           </div>
         )}
@@ -183,16 +198,27 @@ export default function ListeningStatsPage() {
           <p className="text-sm text-muted-foreground">No data yet.</p>
         ) : (
           <div className="space-y-2">
-            {stats.topTracks.map(({ track, count }, i) => (
-              <div key={track.id} className="flex items-center gap-3">
-                <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}</span>
-                <img src={track.coverUrl} alt="" className="w-9 h-9 object-cover shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate text-foreground">{track.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
-                </div>
-                <span className="text-xs text-muted-foreground">{count} plays</span>
-              </div>
+            {stats.topTracks.map(({ track, listenedSeconds }, i) => (
+              <TrackContextMenu key={track.id} track={track} tracks={topTracksQueue}>
+                <button
+                  type="button"
+                  onClick={() => play(track, topTracksQueue)}
+                  className="content-visibility-list w-full flex items-center gap-3 text-left p-1 transition-colors hover:bg-white/[0.06]"
+                >
+                  <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}</span>
+                  <img src={track.coverUrl} alt="" loading="lazy" decoding="async" className="w-9 h-9 object-cover shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate text-foreground">{track.title}</p>
+                    <ArtistLink
+                      name={track.artist}
+                      artistId={track.artistId}
+                      className="text-xs text-muted-foreground truncate block"
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground">{formatListenedMinutes(listenedSeconds)}</span>
+                </button>
+              </TrackContextMenu>
             ))}
           </div>
         )}

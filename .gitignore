@@ -10,7 +10,15 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+release
 *.local
+.env
+.env.*
+!.env.example
+discord-presence.bridge.json
+discord-presence.bridge.local.json
+supabase/.temp
+_changes.patch
 
 # Editor directories and files
 .vscode/*

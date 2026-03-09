@@ -1,78 +1,365 @@
-import { Home, Library, Heart, Plus, Music, Compass, Clock, LogIn, LogOut, User, ChevronLeft, ChevronRight, Search, Loader2, X, History, Bell, Play, AlignJustify, BarChart3, Settings } from "lucide-react";
-import { useSidebarCollapsed } from "@/components/Layout";
-import { NavLink } from "@/components/NavLink";
-import type { Track } from "@/types/music";
-import { formatDuration } from "@/lib/utils";
-import { useFavoriteArtists } from "@/hooks/useFavoriteArtists";
-import { useSavedAlbums } from "@/hooks/useSavedAlbums";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { usePlayer } from "@/contexts/PlayerContext";
-import { useAuth } from "@/contexts/AuthContext";
-import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { usePlaylists } from "@/hooks/usePlaylists";
-import { useSearch } from "@/contexts/SearchContext";
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { Input } from "@/components/ui/input";
-import { FilterPill } from "@/components/ui/filter-pill";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ChevronsLeft,
+  Compass,
+  Library,
+  List,
+  Loader2,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useSidebarCollapsed } from "@/components/Layout";
+import { SidebarCollapsedRail } from "@/components/sidebar/SidebarCollapsedRail";
+import { SidebarLibraryCard } from "@/components/sidebar/SidebarLibraryCard";
+import { SidebarOverflowMenu } from "@/components/sidebar/SidebarOverflowMenu";
+import { type FilterType } from "@/components/sidebar/sidebarTypes";
+import { useSidebarLibraryItems } from "@/components/sidebar/useSidebarLibraryItems";
+import { AlbumContextMenu } from "@/components/AlbumContextMenu";
+import { ArtistContextMenu } from "@/components/ArtistContextMenu";
+import { BrandLogo } from "@/components/BrandLogo";
+import { PlaylistContextMenu } from "@/components/PlaylistContextMenu";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import type { PlaylistCreateSubmitPayload } from "@/components/PlaylistCreateDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/contexts/AuthContext";
+import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useLikedSongs } from "@/contexts/LikedSongsContext";
+import { useLocalFiles } from "@/contexts/LocalFilesContext";
+import { useSearch } from "@/contexts/SearchContext";
+import { useSettings } from "@/contexts/SettingsContext";
+import { useFavoritePlaylists } from "@/hooks/useFavoritePlaylists";
+import { useMotionPreferences } from "@/hooks/useMotionPreferences";
+import { usePlaylists } from "@/hooks/usePlaylists";
+import {
+  clearActivePlaylistDrag,
+  consumePlaylistDrag,
+  getPlaylistDragSummary,
+  hasPlaylistDragPayload,
+  startDeferredPlaylistDrag,
+  startPlaylistDrag,
+} from "@/lib/playlistDrag";
+import { filterAudioTracks, getAlbumWithTracks, getPlaylistWithTracks, tidalTrackToAppTrack } from "@/lib/musicApi";
+import { useSavedAlbums } from "@/hooks/useSavedAlbums";
 
-type FilterType = "playlists" | "albums" | "artists";
-type SearchTab = "all" | "tracks" | "artists" | "albums" | "playlists";
+const LazySidebarSearchResults = lazy(async () => {
+  const module = await import("@/components/sidebar/SidebarSearchResults");
+  return { default: module.SidebarSearchResults };
+});
 
-const searchTabs: { key: SearchTab; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "tracks", label: "Songs" },
-  { key: "artists", label: "Artists" },
-  { key: "albums", label: "Albums" },
-  { key: "playlists", label: "Playlists" },
-];
+const LazyPlaylistCreateDialog = lazy(async () => {
+  const module = await import("@/components/PlaylistCreateDialog");
+  return { default: module.PlaylistCreateDialog };
+});
 
 export function AppSidebar() {
-  const [filter, setFilter] = useState<FilterType>("playlists");
-  const { currentTrack } = usePlayer();
-  const { user, signOut } = useAuth();
-  const { likedSongs } = useLikedSongs();
-  const { playlists: userPlaylists, createPlaylist } = usePlaylists();
-  const { favoriteArtists } = useFavoriteArtists();
-  const { savedAlbums } = useSavedAlbums();
-  const { searchOpen, setSearchOpen, query, onQueryChange, isSearching, closeSearch, handleSearch, searchTab, setSearchTab } = useSearch();
-  const { collapsed, expandPanel } = useSidebarCollapsed();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const [filter, setFilter] = useState<FilterType>("all");
+  const [librarySearchOpen, setLibrarySearchOpen] = useState(false);
+  const [librarySearch, setLibrarySearch] = useState("");
+  const { libraryItemStyle, librarySortDefault, sidebarStyle } = useSettings();
+  const [librarySort, setLibrarySort] = useState<"recents" | "alphabetical">(() => librarySortDefault);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
 
-  const filters: { key: FilterType; label: string }[] = [
-    { key: "playlists", label: "Playlists" },
-    { key: "albums", label: "Albums" },
-    { key: "artists", label: "Artists" },
+  const { user, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
+  const { likedSongs, addLikedSong } = useLikedSongs();
+  const { localFiles } = useLocalFiles();
+  const { savedAlbums } = useSavedAlbums();
+  const { favoriteArtists } = useFavoriteArtists();
+  const { favoritePlaylists } = useFavoritePlaylists();
+  const {
+    playlists: userPlaylists,
+    createPlaylist,
+    importTracksToPlaylist,
+    deletePlaylist,
+    getLastPlaylistError,
+  } = usePlaylists();
+  const { searchOpen, setSearchOpen, query, onQueryChange, isSearching, closeSearch, handleSearch } = useSearch();
+  const { collapsed, expandPanel, setCollapsed } = useSidebarCollapsed();
+  const { motionEnabled: sidebarMotionEnabled } = useMotionPreferences();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const navigateHome = useCallback(() => {
+    try {
+      window.localStorage.setItem("last-route", "/");
+    } catch {
+      // Ignore storage failures.
+    }
+    navigate("/");
+  }, [navigate]);
+  const isFullSearchPage = location.pathname === "/search";
+  const libraryFilters: Array<{ value: Exclude<FilterType, "all">; label: string }> = [
+    { value: "playlists", label: t("sidebar.playlists") },
+    { value: "albums", label: t("sidebar.albums") },
+    { value: "artists", label: t("sidebar.artists") },
   ];
 
   useEffect(() => {
     if (searchOpen) inputRef.current?.focus();
   }, [searchOpen]);
 
-  const handleCreate = useCallback(async () => {
-    if (!newName.trim()) return;
-    const id = await createPlaylist(newName.trim());
-    if (id) {
-      toast.success(`Created "${newName.trim()}"`);
-      navigate(`/my-playlist/${id}`);
-    }
-    setNewName("");
-    setShowCreate(false);
-  }, [newName, createPlaylist, navigate]);
+  useEffect(() => {
+    const resetDropTarget = () => {
+      setDropTargetItemId(null);
+      clearActivePlaylistDrag();
+    };
+
+    window.addEventListener("dragend", resetDropTarget);
+    window.addEventListener("drop", resetDropTarget);
+
+    return () => {
+      window.removeEventListener("dragend", resetDropTarget);
+      window.removeEventListener("drop", resetDropTarget);
+    };
+  }, []);
+
+  const handleCreate = useCallback(
+    async (payload: PlaylistCreateSubmitPayload) => {
+      if (!payload.importRequest) {
+        const id = await createPlaylist(payload.name, payload.description, {
+          cover_url: payload.coverUrl || null,
+          visibility: payload.visibility,
+        });
+        if (id) {
+          toast.success(t("sidebar.playlistCreated", { name: payload.name }));
+          setNewName("");
+          setShowCreate(false);
+          startTransition(() => {
+            navigate(`/my-playlist/${id}`);
+          });
+          return;
+        }
+
+        toast.error(getLastPlaylistError() || t("sidebar.playlistCreateFailed"));
+        return;
+      }
+
+      try {
+        const playlistId = await createPlaylist(payload.name, payload.description, {
+          cover_url: payload.coverUrl || null,
+          visibility: payload.visibility,
+        });
+
+        if (!playlistId) {
+          toast.error(getLastPlaylistError() || t("sidebar.playlistCreateFailed"));
+          return;
+        }
+
+        setNewName("");
+        setShowCreate(false);
+        startTransition(() => {
+          navigate(`/my-playlist/${playlistId}`);
+        });
+
+        const progressToastId = toast.loading(`Preparing import for "${payload.name}"...`);
+
+        void (async () => {
+          try {
+            const { importPlaylist } = await import("@/lib/playlistImport");
+            const importResult = await importPlaylist(payload.importRequest, (progress) => {
+              if (progress.stage === "fetching") {
+                toast.loading("Fetching playlist source...", { id: progressToastId });
+                return;
+              }
+
+              toast.loading(
+                `Matching tracks ${progress.current}/${progress.total}${progress.currentTrack ? ` · ${progress.currentTrack}` : ""}`,
+                { id: progressToastId },
+              );
+            });
+
+            if (importResult.tracks.length === 0) {
+              toast.error("Import finished, but no matching tracks were found", { id: progressToastId });
+              return;
+            }
+
+            const result = await importTracksToPlaylist(playlistId, importResult.tracks, (progress) => {
+              toast.loading(`Adding tracks ${progress.current}/${progress.total} to "${payload.name}"...`, {
+                id: progressToastId,
+              });
+            });
+
+            toast.success(
+              result.addedCount > 0
+                ? `Imported ${result.addedCount} track${result.addedCount === 1 ? "" : "s"} into "${payload.name}"`
+                : `Finished importing "${payload.name}"`,
+              { id: progressToastId },
+            );
+
+            if (importResult.missingTracks.length > 0) {
+              toast.info(
+                `${importResult.missingTracks.length} track${importResult.missingTracks.length === 1 ? "" : "s"} could not be matched`,
+              );
+            }
+
+            if (result.duplicateCount > 0) {
+              toast.info(
+                `${result.duplicateCount} duplicate track${result.duplicateCount === 1 ? "" : "s"} skipped`,
+              );
+            }
+
+            if (result.failedCount > 0) {
+              toast.error(
+                `${result.failedCount} track${result.failedCount === 1 ? "" : "s"} failed to save`,
+              );
+            }
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Playlist import failed", {
+              id: progressToastId,
+            });
+          }
+        })();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Playlist import failed");
+      }
+    },
+    [createPlaylist, getLastPlaylistError, importTracksToPlaylist, navigate, t],
+  );
+
+  const handleDeleteLibraryPlaylist = useCallback(
+    async (playlistId: string, playlistName: string, isActive: boolean) => {
+      const confirmed = window.confirm(t("sidebar.deletePlaylistConfirm", { name: playlistName }));
+      if (!confirmed) return;
+
+      await deletePlaylist(playlistId);
+      toast.success(t("sidebar.playlistDeleted"));
+
+      if (isActive) {
+        navigate("/");
+      }
+    },
+    [deletePlaylist, navigate, t],
+  );
+
+  const handlePlaylistCardDragOver = useCallback(
+    (event: DragEvent<HTMLButtonElement>, itemId: string) => {
+      if (!hasPlaylistDragPayload(event.dataTransfer)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      if (dropTargetItemId !== itemId) {
+        setDropTargetItemId(itemId);
+      }
+    },
+    [dropTargetItemId],
+  );
+
+  const handlePlaylistCardDrop = useCallback(
+    async (event: DragEvent<HTMLButtonElement>, playlistId: string, playlistName: string) => {
+      event.preventDefault();
+      setDropTargetItemId(null);
+      const progressToastId = toast.loading(`Preparing transfer to "${playlistName}"...`);
+
+      const payload = await consumePlaylistDrag(event.dataTransfer);
+      if (!payload || payload.tracks.length === 0) {
+        toast.error("Nothing to transfer", { id: progressToastId });
+        return;
+      }
+
+      if (payload.sourcePlaylistId === playlistId) {
+        toast.info(`"${playlistName}" is already the source playlist`, { id: progressToastId });
+        return;
+      }
+
+      toast.loading(`Adding ${getPlaylistDragSummary(payload)} to "${playlistName}"...`, { id: progressToastId });
+      const result = await importTracksToPlaylist(playlistId, payload.tracks, (progress) => {
+        toast.loading(`Adding tracks ${progress.current}/${progress.total} to "${playlistName}"...`, {
+          id: progressToastId,
+        });
+      });
+
+      if (result.addedCount > 0) {
+        toast.success(
+          `Added ${result.addedCount} track${result.addedCount === 1 ? "" : "s"} to "${playlistName}"`,
+          { id: progressToastId },
+        );
+      } else if (result.duplicateCount > 0 && result.failedCount === 0) {
+        toast.info(`Everything from ${payload.label} is already in "${playlistName}"`, { id: progressToastId });
+      } else {
+        toast.error(`No tracks were added to "${playlistName}"`, { id: progressToastId });
+      }
+
+      if (result.duplicateCount > 0) {
+        toast.info(
+          `${result.duplicateCount} duplicate track${result.duplicateCount === 1 ? "" : "s"} skipped`,
+        );
+      }
+
+      if (result.failedCount > 0) {
+        toast.error(
+          `${result.failedCount} track${result.failedCount === 1 ? "" : "s"} failed to save`,
+        );
+      }
+    },
+    [importTracksToPlaylist],
+  );
+
+  const handleLikedSongsDrop = useCallback(
+    async (event: DragEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      setDropTargetItemId(null);
+      const progressToastId = toast.loading("Preparing transfer to Liked Songs...");
+
+      const payload = await consumePlaylistDrag(event.dataTransfer);
+      if (!payload || payload.tracks.length === 0) {
+        toast.error("Nothing to transfer", { id: progressToastId });
+        return;
+      }
+
+      toast.loading(`Adding ${getPlaylistDragSummary(payload)} to Liked Songs...`, { id: progressToastId });
+      let addedCount = 0;
+      let duplicateCount = 0;
+      let failedCount = 0;
+
+      for (const track of payload.tracks) {
+        const result = await addLikedSong(track);
+        if (result === "added") {
+          addedCount += 1;
+        } else if (result === "duplicate") {
+          duplicateCount += 1;
+        } else {
+          failedCount += 1;
+        }
+      }
+
+      if (addedCount > 0) {
+        toast.success(
+          `Added ${addedCount} track${addedCount === 1 ? "" : "s"} to Liked Songs`,
+          { id: progressToastId },
+        );
+      } else if (duplicateCount > 0 && failedCount === 0) {
+        toast.info(`Everything from ${payload.label} is already in Liked Songs`, { id: progressToastId });
+      } else {
+        toast.error("No tracks were added to Liked Songs", { id: progressToastId });
+      }
+
+      if (duplicateCount > 0) {
+        toast.info(
+          `${duplicateCount} duplicate track${duplicateCount === 1 ? "" : "s"} skipped`,
+        );
+      }
+
+      if (failedCount > 0) {
+        toast.error(
+          `${failedCount} track${failedCount === 1 ? "" : "s"} failed to save`,
+        );
+      }
+    },
+    [addLikedSong],
+  );
 
   const openSavedAlbum = useCallback(
     (album: { album_id: number; album_title: string; album_artist: string; album_cover_url: string | null }) => {
@@ -83,502 +370,519 @@ export function AppSidebar() {
       if (album.album_cover_url) params.set("cover", album.album_cover_url);
       navigate(`/album/tidal-${album.album_id}?${params.toString()}`);
     },
-    [navigate]
+    [navigate],
   );
 
-  // Collapsed sidebar - Spotify style compact strip
+  const libraryItems = useSidebarLibraryItems({
+    favoriteArtists,
+    favoritePlaylists,
+    filter,
+    librarySearch,
+    librarySort,
+    likedSongs,
+    navigate,
+    openSavedAlbum,
+    pathname: location.pathname,
+    search: location.search,
+    savedAlbums,
+    userPlaylists,
+  });
+
+  const compactLibraryItems = useSidebarLibraryItems({
+    favoriteArtists,
+    favoritePlaylists,
+    filter: "all",
+    librarySearch: "",
+    librarySort: "recents",
+    likedSongs,
+    navigate,
+    openSavedAlbum,
+    pathname: location.pathname,
+    search: location.search,
+    savedAlbums,
+    userPlaylists,
+  });
+
+  useEffect(() => {
+    setLibrarySort(librarySortDefault);
+  }, [librarySortDefault]);
+
   if (collapsed) {
     return (
-      <div className="w-full h-full flex flex-col gap-0 glass-heavy overflow-hidden">
-        {/* Top: Home + Search icons only */}
-        <div className="py-3 flex flex-col items-center gap-2 border-b border-white/10">
-          <button onClick={() => navigate("/")} className="w-8 h-8 flex items-center justify-center  hover:bg-white/10 transition-colors" title="Home">
-            <Home className="w-4 h-4 text-foreground" />
-          </button>
-          <button
-            onClick={() => { setSearchOpen(true); expandPanel(); }}
-            className="w-8 h-8 flex items-center justify-center  hover:bg-white/10 transition-colors"
-            title="Search"
-          >
-            <Search className="w-4 h-4 text-muted-foreground" />
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="w-8 h-8 flex items-center justify-center  hover:bg-white/10 transition-colors" title="Menu">
-                <AlignJustify className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52">
-              {user && (
-                <DropdownMenuItem onClick={() => navigate("/profile")}>
-                  <User className="w-4 h-4 mr-2" /> Profile
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={() => navigate("/notifications")}>
-                <Bell className="w-4 h-4 mr-2" /> Notifications
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/history")}>
-                <History className="w-4 h-4 mr-2" /> History
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/settings")}>
-                <Settings className="w-4 h-4 mr-2" /> Settings
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        {/* Library: icon-only thumbnails */}
-        <div className="flex-1 flex flex-col items-center min-h-0 overflow-hidden py-3 gap-1">
-          <button className="w-8 h-8 flex items-center justify-center shrink-0 mb-1" title="Your Library">
-            <Library className="w-4 h-4 text-muted-foreground" />
-          </button>
-          <ScrollArea className="flex-1 w-full">
-            <div className="flex flex-col items-center gap-1 px-1">
-              <button
-                onClick={() => navigate("/liked")}
-                className="w-10 h-10  shrink-0 flex items-center justify-center hover:brightness-110 transition"
-                title="Liked Songs"
-                style={{ background: "linear-gradient(135deg, hsl(250 80% 60%), hsl(200 80% 50%))" }}
-              >
-                <Heart className="w-3.5 h-3.5 text-white fill-white" />
-              </button>
-              {userPlaylists.map((pl) => (
-                <button key={pl.id} onClick={() => navigate(`/my-playlist/${pl.id}`)} title={pl.name} className="shrink-0">
-                  <div className="w-10 h-10  overflow-hidden bg-accent flex items-center justify-center hover:brightness-110 transition">
-                    {pl.cover_url ? (
-                      <img src={pl.cover_url} alt={pl.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <Music className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-      </div>
+      <SidebarCollapsedRail
+        expandPanel={expandPanel}
+        items={compactLibraryItems}
+        navigate={navigate}
+        onOpenSearch={() => setSearchOpen(true)}
+      />
     );
   }
 
   return (
-    <div className="w-full h-full flex flex-col gap-0 glass-heavy overflow-hidden">
-      {/* Top section: Brand + Nav + Menu + Search */}
-      <div className={`flex flex-col border-b border-white/10 transition-all duration-300 ${searchOpen ? "flex-1 min-h-0" : ""}`} style={{ overflow: "hidden" }}>
-        {/* Brand row with nav and menu */}
-        <div className="flex items-center justify-between px-4 h-14">
-          <button onClick={() => navigate("/")} className="flex items-center gap-1">
-            <span className="text-lg font-extrabold tracking-tight text-foreground">Nobbb</span>
+    <div className={`desktop-shell-sidebar sidebar-shell sidebar-shell-${sidebarStyle} relative isolate flex h-full w-full flex-col overflow-hidden border-r border-white/5 chrome-bar transition-colors duration-1000`}>
+      <div
+        className={`flex flex-col overflow-hidden transition-all duration-300 ${searchOpen ? "flex-1 min-h-0" : ""}`}
+      >
+        <div className="flex h-14 items-center justify-between border-b border-white/10 px-4">
+          <button
+            type="button"
+            onClick={navigateHome}
+            className="flex items-center"
+            aria-label={t("nav.home")}
+          >
+            <BrandLogo showLabel markClassName="h-7 w-7" />
           </button>
 
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="w-7 h-7  text-muted-foreground hover:text-foreground hover:bg-white/10" onClick={() => navigate(-1)}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="w-7 h-7  text-muted-foreground hover:text-foreground hover:bg-white/10" onClick={() => navigate(1)}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="w-7 h-7  text-muted-foreground hover:text-foreground hover:bg-white/10">
-                  <AlignJustify className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                {user && (
-                  <DropdownMenuItem onClick={() => navigate("/profile")}>
-                    <User className="w-4 h-4 mr-2" /> Profile
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => navigate("/notifications")}>
-                  <Bell className="w-4 h-4 mr-2" /> Notifications
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/history")}>
-                  <History className="w-4 h-4 mr-2" /> History
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/settings")}>
-                  <Settings className="w-4 h-4 mr-2" /> Settings
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-
-        {/* Search bar */}
-        <div
-          className={`flex items-center gap-2 h-14 px-4 cursor-text border-y border-white/10 transition-all ${searchOpen
-            ? "bg-white/[0.09]"
-            : "bg-white/[0.05] hover:bg-white/[0.08]"
-            }`}
-          onClick={() => setSearchOpen(true)}
-        >
-          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-          {searchOpen ? (
-            <>
-              <Input
-                ref={inputRef}
-                placeholder="Search..."
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSearch(query);
-                  if (e.key === "Escape") closeSearch();
-                }}
-                className="border-0 bg-transparent p-0 h-auto text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 min-w-0"
-              />
-              {isSearching && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />}
-              <Button variant="ghost" size="icon" className="w-5 h-5 shrink-0 " onClick={(e) => { e.stopPropagation(); closeSearch(); }}>
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground flex-1">Search</span>
-          )}
-        </div>
-
-        {/* Search tabs + results inside the box */}
-        {searchOpen && (
-          <>
-            <FilterPill<SearchTab>
-              options={searchTabs.map(t => ({ key: t.key, label: t.label }))}
-              value={searchTab}
-              onChange={(v) => { setSearchTab(v); }}
-            />
-            <ScrollArea className="flex-1">
-              <SidebarSearchResults />
-            </ScrollArea>
-          </>
-        )}
-      </div>
-
-      {/* Library Card - hidden when search is open */}
-      <div className={`flex-1 flex flex-col min-h-0 transition-all duration-300 ${searchOpen ? "hidden" : ""}`}>
-        <div className="flex items-center justify-between px-4 h-14">
-          <button
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => navigate("/")}
-          >
-            <Library className="w-5 h-5" />
-            <span className="text-sm font-bold">Your Library</span>
-          </button>
-          {user && (
-            <button
-              className="w-7 h-7 flex items-center justify-center  text-muted-foreground hover:text-foreground hover:bg-white/10 transition-all"
-              onClick={() => setShowCreate(true)}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-white/78 hover:bg-white/10 hover:text-white"
+              title={t("sidebar.yourLibrary")}
+              onClick={() => setCollapsed(true)}
             >
-              <Plus className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        <div className="px-0 pb-0">
-          <div className="grid grid-cols-3 border-y border-white/10 bg-white/[0.02]">
-            {filters.map((item) => {
-              const active = filter === item.key;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setFilter(item.key)}
-                  className={`h-14 text-sm font-bold border-r border-white/10 last:border-r-0 transition-colors ${active ? "bg-white/[0.22] text-foreground" : "text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
-                    }`}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <ScrollArea className="flex-1 px-0 pb-0">
-          <div className="space-y-0 pb-0">
-            {filter === "playlists" && (
-              <>
-                <SidebarLibraryCard
-                  title="Liked Songs"
-                  subtitle={`Playlist · ${likedSongs.length} songs`}
-                  imageUrl={likedSongs[0]?.coverUrl ?? null}
-                  active={location.pathname === "/liked"}
-                  onClick={() => navigate("/liked")}
-                />
-
-                {userPlaylists.map((pl) => (
-                  <SidebarLibraryCard
-                    key={pl.id}
-                    title={pl.name}
-                    subtitle={`Playlist · ${pl.tracks.length} songs`}
-                    imageUrl={pl.cover_url || pl.tracks[0]?.coverUrl || null}
-                    active={location.pathname === `/my-playlist/${pl.id}`}
-                    onClick={() => navigate(`/my-playlist/${pl.id}`)}
-                  />
-                ))}
-
-              </>
-            )}
-
-            {filter === "albums" && (
-              <>
-                {savedAlbums.map((album) => (
-                  <SidebarLibraryCard
-                    key={album.id}
-                    title={album.album_title}
-                    subtitle={album.album_artist}
-                    imageUrl={album.album_cover_url}
-                    active={location.pathname.includes(`/album/tidal-${album.album_id}`)}
-                    onClick={() => openSavedAlbum(album)}
-                  />
-                ))}
-              </>
-            )}
-
-            {filter === "artists" && (
-              <>
-                {favoriteArtists.map((artist) => (
-                  <SidebarLibraryCard
-                    key={artist.id}
-                    title={artist.artist_name}
-                    imageUrl={artist.artist_image_url}
-                    variant="artist"
-                    active={location.pathname.includes(`/artist/${artist.artist_id}`)}
-                    onClick={() => navigate(`/artist/${artist.artist_id}?name=${encodeURIComponent(artist.artist_name)}`)}
-                  />
-                ))}
-              </>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-
-      {/* Create Playlist Dialog */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="bg-card/95 backdrop-blur-xl border-border/30 max-w-xs">
-          <DialogHeader>
-            <DialogTitle>New Playlist</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="space-y-4">
-            <Input
-              placeholder="Playlist name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              autoFocus
-              className="bg-background border-border/30"
-            />
-            <Button type="submit" className="w-full" disabled={!newName.trim()}>
-              Create
+              <ChevronsLeft className="h-5 w-5" absoluteStrokeWidth />
             </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+            <SidebarOverflowMenu
+              align="end"
+              buttonClassName="h-9 w-9 text-white/78 hover:bg-white/10 hover:text-white"
+            />
+          </div>
+        </div>
 
-function SidebarLibraryCard({
-  title,
-  subtitle,
-  imageUrl,
-  onClick,
-  active = false,
-  variant = "default",
-}: {
-  title: string;
-  subtitle?: string;
-  imageUrl?: string | null;
-  onClick: () => void;
-  active?: boolean;
-  variant?: "default" | "artist";
-}) {
-  const isArtist = variant === "artist";
+        {!isFullSearchPage && (
+          <div
+            className="relative h-14 cursor-text overflow-hidden border-b border-white/10"
+            onClick={() => setSearchOpen(true)}
+          >
+            <div
+              className="absolute inset-0 z-0"
+              style={{
+                backgroundColor: "hsl(var(--player-waveform))",
+                transform: searchOpen ? "translateX(0%)" : "translateX(-100%)",
+                transition: "transform 0.4s cubic-bezier(0.22,1,0.36,1)",
+              }}
+            />
 
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group relative block w-full overflow-hidden text-left ${isArtist ? "h-[84px]" : "h-24"
-        } ${active ? "bg-white/[0.1]" : "bg-black/25 hover:bg-white/[0.05]"
-        }`}
-    >
-      {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={title}
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-        />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-white/[0.02]" />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/45 to-black/20" />
-      <div className="absolute inset-y-0 left-0 w-[58%] bg-gradient-to-r from-black/50 via-black/20 to-transparent pointer-events-none" />
-      <div className={`absolute left-4 right-4 ${isArtist ? "bottom-2" : "bottom-2.5"}`}>
-        <p className={`${isArtist ? "text-[1.45rem]" : "text-[1.2rem]"} font-black tracking-tight text-foreground/95 truncate leading-[1.08] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]`}>{title}</p>
-        {!isArtist && subtitle ? (
-          <p className="text-[10px] text-white/70 truncate mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{subtitle}</p>
+            <div className="relative z-10 flex h-full items-center justify-between gap-3 px-4">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                  <Search className={`h-5 w-5 ${searchOpen ? "text-black" : "text-white/78"}`} />
+                </span>
+                {searchOpen ? (
+                  <>
+                    <Input
+                      ref={inputRef}
+                      placeholder={t("sidebar.searchPlaceholder")}
+                      value={query}
+                      onChange={(event) => onQueryChange(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          const nextQuery = query.trim();
+                          if (nextQuery) {
+                            navigate(`/search?q=${encodeURIComponent(nextQuery)}`);
+                            setSearchOpen(false);
+                          } else {
+                            handleSearch(query);
+                          }
+                        }
+                        if (event.key === "Escape") closeSearch();
+                      }}
+                      className="h-auto min-w-0 border-0 bg-transparent p-0 text-[0.95rem] font-medium leading-none text-black placeholder:text-black/60 focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                    {isSearching && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-black" />}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-black"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeSearch();
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <span className="flex-1 text-[0.92rem] text-white/70">{t("nav.search")}</span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-transparent transition-colors ${
+                  location.pathname === "/browse"
+                    ? searchOpen
+                      ? "text-black"
+                      : "text-white"
+                    : searchOpen
+                      ? "text-black/70 hover:text-black"
+                      : "text-white/70 hover:text-white"
+                }`}
+                title={t("nav.browse")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  navigate("/browse");
+                  setSearchOpen(false);
+                }}
+              >
+                <div
+                  style={{
+                    transform: searchOpen ? "rotate(90deg)" : "rotate(0deg)",
+                    transition: "transform 0.25s cubic-bezier(0.22,1,0.36,1)",
+                  }}
+                >
+                  <Compass className="h-5 w-5" />
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {sidebarMotionEnabled ? (
+          <AnimatePresence mode="wait">
+            {searchOpen && (
+              <motion.div
+                key="search-results"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <ScrollArea className="sidebar-scroll-area flex-1">
+                  <Suspense fallback={<div className="px-4 py-4 text-xs text-white/45">{t("sidebar.loadingSearch")}</div>}>
+                    <LazySidebarSearchResults />
+                  </Suspense>
+                </ScrollArea>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        ) : searchOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ScrollArea className="sidebar-scroll-area flex-1">
+              <Suspense fallback={<div className="px-4 py-4 text-xs text-white/45">{t("sidebar.loadingSearch")}</div>}>
+                <LazySidebarSearchResults />
+              </Suspense>
+            </ScrollArea>
+          </div>
         ) : null}
       </div>
-    </button>
-  );
-}
 
-function SidebarSearchResults() {
-  const { searchTab, tidalTracks, tidalArtists, tidalAlbums, tidalPlaylists, isSearching, closeSearch, query } = useSearch();
-  const { currentTrack, play } = usePlayer();
-  const navigate = useNavigate();
+      <div className={`relative min-h-0 ${searchOpen ? "h-0 flex-0 overflow-hidden" : "flex flex-1 flex-col"}`}>
+        <AnimatePresence mode="wait">
+          {!searchOpen && (
+            <motion.div
+              key="library-section"
+              initial={sidebarMotionEnabled ? { opacity: 0 } : false}
+              animate={{ opacity: 1 }}
+              exit={sidebarMotionEnabled ? { opacity: 0 } : undefined}
+              transition={{ duration: sidebarMotionEnabled ? 0.15 : 0 }}
+              className="absolute inset-0 flex flex-col"
+            >
+              <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
+                <div className="flex min-w-0 items-center gap-3 text-white">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                    <Library className="h-[22px] w-[22px]" />
+                  </span>
+                  <span className="truncate text-sm font-bold">{t("sidebar.yourLibrary")}</span>
+                </div>
+                {user && (
+                  <button
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/78 transition-all hover:bg-white/10 hover:text-white"
+                    onClick={() => setShowCreate(true)}
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
 
-  const handlePlayTrack = (track: Track, list: Track[]) => {
-    play(track, list);
-    closeSearch();
-  };
+              <div className="flex w-full items-center border-b border-white/10 select-none">
+                {libraryFilters.map((libraryFilter, index) => {
+                  const active = filter === libraryFilter.value;
 
-  const q = query.toLowerCase();
+                  return (
+                    <button
+                      key={libraryFilter.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setFilter(active ? "all" : libraryFilter.value)}
+                      className={`menu-sweep-hover group relative flex h-10 min-w-0 flex-1 overflow-hidden text-[11px] font-semibold uppercase tracking-[0.16em] transition-colors ${
+                        index > 0 ? "border-l border-white/5" : ""
+                      } ${active ? "bg-[hsl(var(--player-waveform))] text-black" : "text-white/70 hover:text-black"}`}
+                    >
+                      {active ? (
+                        <motion.span
+                          layoutId={sidebarMotionEnabled ? "sidebar-library-filter" : undefined}
+                          className="absolute inset-0 bg-[hsl(var(--player-waveform))]"
+                        />
+                      ) : null}
+                      <span className="relative z-10 flex h-full min-w-0 w-full items-center justify-center truncate px-2">
+                        {libraryFilter.label}
+                        {active ? <X className="ml-1.5 h-3 w-3 opacity-60 transition-opacity hover:opacity-100" /> : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-  // "All" tab shows a mix of everything
-  if (searchTab === "all") {
-    const hasQuery = q.length > 0;
-    if (!hasQuery && !isSearching) {
-      return (
-        <div className="text-center py-10 px-3">
-          <Search className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-          <p className="text-muted-foreground text-xs">Search songs, artists, albums...</p>
-        </div>
-      );
-    }
-    return (
-      <div className="px-3 space-y-3">
-        {/* Top Artists */}
-        {tidalArtists.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Artists</p>
-            {tidalArtists.slice(0, 3).map((artist) => (
-              <button key={artist.id} className="flex items-center gap-3 w-full px-2 py-1.5  hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`); closeSearch(); }}>
-                <div className="w-9 h-9 bg-accent overflow-hidden shrink-0">
-                  {artist.imageUrl ? <img src={artist.imageUrl} alt={artist.name} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-white/10" />}
+              <div className="flex h-10 w-full shrink-0 items-center border-b border-white/5">
+                {librarySearchOpen ? (
+                  <div className="flex h-full w-full items-center gap-2 px-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center text-white/78">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <input
+                      autoFocus
+                      value={librarySearch}
+                      onChange={(event) => setLibrarySearch(event.target.value)}
+                      placeholder={t("sidebar.searchLibraryPlaceholder")}
+                      className="w-full bg-transparent text-xs font-medium text-foreground outline-none placeholder:text-muted-foreground"
+                    />
+                    <button
+                      onClick={() => {
+                        setLibrarySearchOpen(false);
+                        setLibrarySearch("");
+                      }}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/78 hover:text-white"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setLibrarySearchOpen(true)}
+                      className="menu-sweep-hover flex h-full w-14 shrink-0 items-center justify-center border-r border-white/5 text-white/78 transition-colors hover:text-black"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center">
+                        <Search className="h-4 w-4" />
+                      </span>
+                    </button>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="menu-sweep-hover flex h-full min-w-0 flex-1 items-center justify-end gap-2.5 px-4 text-xs font-medium text-white/78 transition-colors outline-none hover:text-black">
+                          <span className="truncate">{librarySort === "recents" ? t("sidebar.recents") : t("sidebar.alphabetical")}</span>
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                            <List className="h-4 w-4" />
+                          </span>
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          onClick={() => setLibrarySort("recents")}
+                          className={librarySort === "recents" ? "font-medium text-[hsl(var(--player-waveform))]" : "text-white"}
+                        >
+                          {t("sidebar.recents")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setLibrarySort("alphabetical")}
+                          className={librarySort === "alphabetical" ? "font-medium text-[hsl(var(--player-waveform))]" : "text-white"}
+                        >
+                          {t("sidebar.alphabetical")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
+              </div>
+
+              <ScrollArea forceVisibleScrollbar className="sidebar-scroll-area flex-1 px-0 pb-0 shadow-inner">
+                <div className={libraryItemStyle === "list" ? "space-y-1 px-2 py-2" : "space-y-0 pb-0"}>
+                  {libraryItems.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      {t("sidebar.noMatchesFound")}
+                    </div>
+                  ) : (
+                    libraryItems.map((item) => {
+                      const canAcceptPlaylistDrop = item.type === "liked" || (item.type === "playlist" && item.playlistKind === "user");
+                      const canDragLibraryItem = item.type !== "artist";
+
+                      const card = (
+                        <SidebarLibraryCard
+                          key={item.id}
+                          itemType={item.type}
+                          title={item.title}
+                          subtitle={item.subtitle}
+                          imageUrl={item.imageUrl}
+                          artistId={item.artistId}
+                          active={item.active}
+                          isDropTarget={dropTargetItemId === item.id}
+                          variant={item.variant}
+                          layout={libraryItemStyle}
+                          onClick={item.onClick}
+                          onDragLeave={() => {
+                            if (dropTargetItemId === item.id) {
+                              setDropTargetItemId(null);
+                            }
+                          }}
+                          onDragOver={(event) => {
+                            if (!canAcceptPlaylistDrop) return;
+                            handlePlaylistCardDragOver(event, item.id);
+                          }}
+                          onDrop={(event) => {
+                            if (item.type === "liked") {
+                              void handleLikedSongsDrop(event);
+                              return;
+                            }
+                            if (!item.playlistId || item.playlistKind !== "user") return;
+                            void handlePlaylistCardDrop(event, item.playlistId, item.title);
+                          }}
+                          draggable={canDragLibraryItem}
+                          onDragStart={(event) => {
+                            if (item.type === "liked") {
+                              startPlaylistDrag(event.dataTransfer, {
+                                label: item.title,
+                                source: "playlist",
+                                tracks: likedSongs,
+                              });
+                              return;
+                            }
+
+                            if (item.type === "local") {
+                              startPlaylistDrag(event.dataTransfer, {
+                                label: item.title,
+                                source: "playlist",
+                                tracks: localFiles,
+                              });
+                              return;
+                            }
+
+                            if (item.type === "album" && item.albumId) {
+                              startDeferredPlaylistDrag(event.dataTransfer, `${item.title} album`, async () => {
+                                const { tracks } = await getAlbumWithTracks(item.albumId!);
+                                const appTracks = filterAudioTracks(tracks.map((track) => tidalTrackToAppTrack(track)));
+                                if (appTracks.length === 0) return null;
+                                return {
+                                  label: item.title,
+                                  source: "album",
+                                  tracks: appTracks,
+                                };
+                              });
+                              return;
+                            }
+
+                            if (item.type !== "playlist" || !item.playlistId) return;
+
+                            if (item.playlistKind === "tidal") {
+                              startDeferredPlaylistDrag(event.dataTransfer, `${item.title} playlist`, async () => {
+                                const { tracks } = await getPlaylistWithTracks(item.playlistId!);
+                                const appTracks = filterAudioTracks(tracks.map((track) => tidalTrackToAppTrack(track)));
+                                if (appTracks.length === 0) return null;
+                                return {
+                                  label: item.title,
+                                  source: "playlist",
+                                  tracks: appTracks,
+                                };
+                              });
+                              return;
+                            }
+
+                            if (item.playlistKind !== "user") return;
+                            const sourcePlaylist = userPlaylists.find((entry) => entry.id === item.playlistId);
+                            if (!sourcePlaylist) return;
+                            startPlaylistDrag(event.dataTransfer, {
+                              label: sourcePlaylist.name,
+                              source: "playlist",
+                              sourcePlaylistId: sourcePlaylist.id,
+                              tracks: sourcePlaylist.tracks,
+                            });
+                          }}
+                          onDragEnd={() => {
+                            clearActivePlaylistDrag();
+                          }}
+                        />
+                      );
+
+                      if (item.type === "liked") {
+                        return (
+                          <PlaylistContextMenu
+                            key={item.id}
+                            title={item.title}
+                            kind="liked"
+                            tracks={likedSongs}
+                            coverUrl={item.imageUrl}
+                          >
+                            {card}
+                          </PlaylistContextMenu>
+                        );
+                      }
+
+                      if (item.type === "playlist" && item.playlistId) {
+                        const playlist = userPlaylists.find((entry) => entry.id === item.playlistId);
+                        return (
+                          <PlaylistContextMenu
+                            key={item.id}
+                            title={item.title}
+                            playlistId={item.playlistId}
+                            shareToken={item.playlistShareToken}
+                            coverUrl={item.imageUrl}
+                            kind={item.playlistKind === "tidal" ? "tidal" : "user"}
+                            visibility={playlist?.visibility}
+                            tracks={playlist?.tracks}
+                            onDelete={item.playlistKind === "user"
+                              ? () => void handleDeleteLibraryPlaylist(item.playlistId!, item.title, item.active)
+                              : undefined}
+                          >
+                            {card}
+                          </PlaylistContextMenu>
+                        );
+                      }
+
+                      if (item.type === "album" && item.albumId) {
+                        return (
+                          <AlbumContextMenu
+                            key={item.id}
+                            albumId={item.albumId}
+                            title={item.title}
+                            artist={item.albumArtist || item.subtitle || "Unknown Artist"}
+                            coverUrl={item.imageUrl}
+                          >
+                            {card}
+                          </AlbumContextMenu>
+                        );
+                      }
+
+                      if (item.type === "artist" && item.artistId) {
+                        return (
+                          <ArtistContextMenu
+                            key={item.id}
+                            artistId={item.artistId}
+                            artistName={item.title}
+                            artistImageUrl={item.imageUrl}
+                          >
+                            {card}
+                          </ArtistContextMenu>
+                        );
+                      }
+
+                      return card;
+                    })
+                  )}
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold truncate">{artist.name}</p>
-                  <p className="text-[10px] text-muted-foreground">Artist</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Top Albums */}
-        {tidalAlbums.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Albums</p>
-            {tidalAlbums.slice(0, 3).map((album) => (
-              <button key={album.id} className="flex items-center gap-3 w-full px-2 py-1.5  hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/album/${album.id}`); closeSearch(); }}>
-                <img src={album.coverUrl} alt={album.title} className="w-9 h-9 object-cover shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold truncate">{album.title}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{album.artist}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Songs */}
-        {tidalTracks.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Songs</p>
-            {tidalTracks.slice(0, 6).map((track) => (
-              <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, tidalTracks)} />
-            ))}
-          </div>
-        )}
-        {/* Local Playlists */}
-        {tidalPlaylists.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-2 pb-1">Playlists</p>
-            {tidalPlaylists.slice(0, 3).map((pl) => (
-              <button key={pl.id} className="flex items-center gap-3 w-full px-2 py-1.5  hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/playlist/${pl.id}`); closeSearch(); }}>
-                <img src={pl.coverUrl} alt={pl.title} className="w-9 h-9 object-cover shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold truncate">{pl.title}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{pl.description}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        {tidalTracks.length === 0 && tidalArtists.length === 0 && tidalAlbums.length === 0 && !isSearching && (
-          <p className="text-center text-muted-foreground text-xs py-10">No results found</p>
-        )}
+              </ScrollArea>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-    );
-  }
 
-  return (
-    <div className="px-3">
-      {searchTab === "tracks" && (
-        <>
-          {tidalTracks.length === 0 && !isSearching && <p className="text-center text-muted-foreground text-xs py-10">No songs found</p>}
-          {tidalTracks.map((track) => (
-            <SidebarTrackRow key={track.id} track={track} isCurrent={currentTrack?.id === track.id} onClick={() => handlePlayTrack(track, tidalTracks)} />
-          ))}
-        </>
-      )}
-      {searchTab === "artists" && (
-        <>
-          {tidalArtists.length === 0 && !isSearching && <p className="text-center text-muted-foreground text-xs py-10">No artists found</p>}
-          {tidalArtists.map((artist) => (
-            <button key={artist.id} className="flex items-center gap-3 w-full px-2 py-1.5  hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`); closeSearch(); }}>
-              <div className="w-9 h-9 bg-accent overflow-hidden shrink-0">
-                {artist.imageUrl ? <img src={artist.imageUrl} alt={artist.name} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-white/10" />}
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold truncate">{artist.name}</p>
-                <p className="text-[10px] text-muted-foreground">Artist</p>
-              </div>
-            </button>
-          ))}
-        </>
-      )}
-      {searchTab === "albums" && (
-        <>
-          {tidalAlbums.length === 0 && !isSearching && <p className="text-center text-muted-foreground text-xs py-10">No albums found</p>}
-          {tidalAlbums.map((album) => (
-            <button key={album.id} className="flex items-center gap-3 w-full px-2 py-1.5  hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/album/${album.id}`); closeSearch(); }}>
-              <img src={album.coverUrl} alt={album.title} className="w-9 h-9 object-cover shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold truncate">{album.title}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{album.artist}</p>
-              </div>
-            </button>
-          ))}
-        </>
-      )}
-      {searchTab === "playlists" && (
-        <>
-          {tidalPlaylists.length === 0 && <p className="text-center text-muted-foreground text-xs py-10">No playlists found</p>}
-          {tidalPlaylists.map((pl) => (
-            <button key={pl.id} className="flex items-center gap-3 w-full px-2 py-1.5  hover:bg-white/5 transition-colors text-left" onClick={() => { navigate(`/playlist/${pl.id}`); closeSearch(); }}>
-              <img src={pl.coverUrl} alt={pl.title} className="w-9 h-9 object-cover shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold truncate">{pl.title}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{pl.description}</p>
-              </div>
-            </button>
-          ))}
-        </>
-      )}
+      {showCreate ? (
+        <Suspense fallback={null}>
+          <LazyPlaylistCreateDialog
+            open={showCreate}
+            onOpenChange={setShowCreate}
+            title={t("sidebar.newPlaylist")}
+            placeholder={t("sidebar.playlistNamePlaceholder")}
+            value={newName}
+            onValueChange={setNewName}
+            onSubmit={handleCreate}
+            allowImports
+            disabled={authLoading || !user}
+            submitLabel={t("sidebar.createPlaylist")}
+          />
+        </Suspense>
+      ) : null}
     </div>
-  );
-}
-
-function SidebarTrackRow({ track, isCurrent, onClick }: { track: Track; isCurrent: boolean; onClick: () => void }) {
-  return (
-    <button
-      className={`flex items-center gap-3 w-full px-2 py-1.5  transition-colors text-left group ${isCurrent ? "bg-white/10" : "hover:bg-white/5"}`}
-      onClick={onClick}
-    >
-      <img src={track.coverUrl} alt="" className="w-9 h-9 object-cover shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className={`text-xs truncate ${isCurrent ? "font-semibold" : ""}`} style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}>
-          {track.title}
-        </p>
-        <p className="text-[10px] text-muted-foreground truncate">{track.artist} · {track.album}</p>
-      </div>
-      <span className="text-[10px] text-muted-foreground font-mono">{formatDuration(track.duration)}</span>
-    </button>
   );
 }

@@ -1,0 +1,23 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/api/unreleased"
+  to = "/.netlify/functions/unreleased-proxy"
+  status = 200
+
+[[redirects]]
+  from = "/embed/track/:trackId"
+  to = "/.netlify/functions/embed-track?trackId=:trackId"
+  status = 200
+
+[[redirects]]
+  from = "/track/:trackId"
+  to = "/.netlify/functions/track-share?trackId=:trackId"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

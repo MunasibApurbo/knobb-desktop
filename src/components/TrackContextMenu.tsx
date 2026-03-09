@@ -1,28 +1,31 @@
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
-import { usePlaylists } from "@/hooks/usePlaylists";
 import { Track } from "@/types/music";
-import { Heart, Play, UserRound, Share2, Download, ListMusic, Plus } from "lucide-react";
+import { Disc3, Download, Heart, ListMusic, Play, Radio, Share2, UserRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useState } from "react";
 import { CreditsDialog } from "@/components/CreditsDialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TrackPlaylistDialog } from "@/components/TrackPlaylistDialog";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { downloadTrack } from "@/lib/downloadHelpers";
 import { useSettings } from "@/contexts/SettingsContext";
+import {
+  buildArtistPath,
+  buildTrackMixPath,
+  copyPlainTextToClipboard,
+  buildTrackShareUrl,
+  navigateToTrackAlbum,
+} from "@/lib/mediaNavigation";
+import { getTrackMixId } from "@/lib/trackMix";
+import { isTrackPlayable } from "@/lib/trackPlayback";
 
 interface TrackContextMenuProps {
   track: Track;
@@ -31,26 +34,24 @@ interface TrackContextMenuProps {
 }
 
 export function TrackContextMenu({ track, tracks, children }: TrackContextMenuProps) {
-  const { play } = usePlayer();
+  const { play, addToQueue, startTrackMix } = usePlayer();
   const { user } = useAuth();
   const { isLiked, toggleLike } = useLikedSongs();
-  const { playlists, addTrack, createPlaylist } = usePlaylists();
   const navigate = useNavigate();
   const { downloadFormat } = useSettings();
   const liked = isLiked(track.id);
+  const trackMixPath = buildTrackMixPath(track);
+  const trackShareUrl = buildTrackShareUrl(track);
+  const hasTrackMixPage = Boolean(getTrackMixId(track) && trackMixPath);
+  const playable = isTrackPlayable(track);
   const [isCreditsOpen, setIsCreditsOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
-  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
 
-  const handleShare = () => {
-    const text = `${track.title} — ${track.artist}`;
-    if (navigator.share) {
-      navigator.share({ title: track.title, text }).catch(() => { });
-    } else {
-      navigator.clipboard.writeText(text);
-      toast.success("Copied to clipboard");
-    }
+  const handleCopyTrackLink = async () => {
+    if (!trackShareUrl) return;
+    await copyPlainTextToClipboard(trackShareUrl);
+    toast.success("Song link copied");
   };
 
   const handleDownload = async () => {
@@ -62,137 +63,106 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
     setIsDownloading(false);
   };
 
-  const handleAddToPlaylist = async (playlistId: string, playlistName: string) => {
-    const result = await addTrack(playlistId, track);
-    if (result.added) {
-      toast.success(`Added to ${playlistName}`);
-      return;
+  const handleGoToAlbum = async () => {
+    const opened = await navigateToTrackAlbum(track, navigate);
+    if (!opened) {
+      toast.error("Album not found");
     }
-    if (result.reason === "duplicate") {
-      toast.info(`Already in ${playlistName}`);
-      return;
-    }
-    toast.error(`Failed to add to ${playlistName}`);
-  };
-
-  const handleCreateAndAdd = async () => {
-    if (!newPlaylistName.trim()) return;
-
-    const id = await createPlaylist(newPlaylistName.trim());
-    if (!id) {
-      toast.error("Failed to create playlist");
-      return;
-    }
-
-    const result = await addTrack(id, track);
-    if (result.added) {
-      toast.success(`Saved to "${newPlaylistName.trim()}"`);
-    } else if (result.reason === "duplicate") {
-      toast.info(`Track already exists in "${newPlaylistName.trim()}"`);
-    } else {
-      toast.error("Playlist created, but failed to add track");
-    }
-
-    setNewPlaylistName("");
-    setShowCreatePlaylist(false);
   };
 
   return (
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56 bg-card/95 backdrop-blur-xl border-border/30">
+        <ContextMenuContent className="w-56">
           <ContextMenuItem
-            className="gap-2 text-sm"
+            className="gap-2"
             onClick={() => play(track, tracks || [track])}
+            disabled={!playable}
           >
             <Play className="w-4 h-4" /> Play
           </ContextMenuItem>
-          <ContextMenuSeparator className="bg-border/30" />
           <ContextMenuItem
-            className="gap-2 text-sm"
+            className="gap-2"
+            onClick={() => {
+              if (trackMixPath) {
+                navigate(trackMixPath);
+                return;
+              }
+
+              void startTrackMix(track);
+            }}
+            disabled={!playable}
+          >
+            <Radio className="w-4 h-4" /> {hasTrackMixPage ? "Open Mix" : "Start Mix"}
+          </ContextMenuItem>
+          <ContextMenuItem
+            className="gap-2"
+            onClick={() => {
+              addToQueue(track);
+              toast.success(`Queued ${track.title}`);
+            }}
+            disabled={!playable}
+          >
+            <ListMusic className="w-4 h-4" /> Add to Queue
+          </ContextMenuItem>
+          <ContextMenuItem
+            className="gap-2"
             onClick={() => {
               toggleLike(track);
               toast.success(liked ? "Removed from Liked Songs" : "Added to Liked Songs");
             }}
           >
-            <Heart className={`w-4 h-4 ${liked ? "fill-current text-[hsl(var(--dynamic-accent))]" : ""}`} />
+            <Heart className={`w-4 h-4 ${liked ? "fill-current text-white" : ""}`} />
             {liked ? "Remove from Liked Songs" : "Save to Liked Songs"}
           </ContextMenuItem>
 
           {user && (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger className="gap-2 text-sm">
-                <ListMusic className="w-4 h-4" /> Add to Playlist
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-56 bg-card/95 backdrop-blur-xl border-border/30">
-                <ContextMenuItem className="gap-2 text-sm" onClick={() => setShowCreatePlaylist(true)}>
-                  <Plus className="w-4 h-4" /> New Playlist
-                </ContextMenuItem>
-                {playlists.length > 0 && <ContextMenuSeparator className="bg-border/30" />}
-                {playlists.map((playlist) => (
-                  <ContextMenuItem
-                    key={playlist.id}
-                    className="gap-2 text-sm"
-                    onClick={() => handleAddToPlaylist(playlist.id, playlist.name)}
-                  >
-                    <ListMusic className="w-4 h-4" /> {playlist.name}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+            <ContextMenuItem className="gap-2" onClick={() => setShowPlaylistDialog(true)}>
+              <ListMusic className="w-4 h-4" /> Add to playlist
+            </ContextMenuItem>
           )}
 
-          <ContextMenuItem className="gap-2 text-sm" onClick={handleDownload} disabled={isDownloading}>
-            <Download className="w-4 h-4" /> {isDownloading ? "Downloading..." : "Download"}
-          </ContextMenuItem>
-          <ContextMenuItem className="gap-2 text-sm" onClick={handleShare}>
-            <Share2 className="w-4 h-4" /> Share
-          </ContextMenuItem>
-          <ContextMenuItem
-            className="gap-2 text-sm"
-            onClick={() => setIsCreditsOpen(true)}
-          >
-            <UserRound className="w-4 h-4" /> View Credits
-          </ContextMenuItem>
-          {track.artistId && (
+          {(track.album || track.artistId) && (
             <>
-              <ContextMenuSeparator className="bg-border/30" />
-              <ContextMenuItem
-                className="gap-2 text-sm"
-                onClick={() => navigate(`/artist/${track.artistId}?name=${encodeURIComponent(track.artist)}`)}
-              >
-                <UserRound className="w-4 h-4" /> Go to Artist
-              </ContextMenuItem>
+              <ContextMenuSeparator />
+              {track.artistId ? (
+                <ContextMenuItem
+                  className="gap-2"
+                  onClick={() => navigate(buildArtistPath(track.artistId, track.artist))}
+                >
+                  <UserRound className="w-4 h-4" /> Go to Artist
+                </ContextMenuItem>
+              ) : null}
+              {track.album ? (
+                <ContextMenuItem className="gap-2" onClick={() => void handleGoToAlbum()}>
+                  <Disc3 className="w-4 h-4" /> Go to Album
+                </ContextMenuItem>
+              ) : null}
             </>
           )}
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="gap-2"
+            onClick={() => setIsCreditsOpen(true)}
+          >
+            <UserRound className="w-4 h-4" /> View credits
+          </ContextMenuItem>
+          <ContextMenuItem className="gap-2" onClick={() => void handleCopyTrackLink()} disabled={!trackShareUrl}>
+            <Share2 className="w-4 h-4" /> Share
+          </ContextMenuItem>
+          <ContextMenuItem className="gap-2" onClick={handleDownload} disabled={isDownloading || !playable}>
+            <Download className="w-4 h-4" /> {isDownloading ? "Downloading..." : "Download"}
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      <Dialog open={showCreatePlaylist} onOpenChange={setShowCreatePlaylist}>
-        <DialogContent className="bg-card/95 backdrop-blur-xl border-border/30 max-w-xs">
-          <DialogHeader>
-            <DialogTitle>New Playlist</DialogTitle>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleCreateAndAdd();
-            }}
-            className="space-y-4"
-          >
-            <Input
-              placeholder="Playlist name"
-              value={newPlaylistName}
-              onChange={(e) => setNewPlaylistName(e.target.value)}
-              autoFocus
-              className="bg-background border-border/30"
-            />
-            <Button type="submit" className="w-full" disabled={!newPlaylistName.trim()}>
-              Create & Add Track
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {showPlaylistDialog ? (
+        <TrackPlaylistDialog
+          open={showPlaylistDialog}
+          onOpenChange={setShowPlaylistDialog}
+          track={track}
+        />
+      ) : null}
       <CreditsDialog
         track={track}
         isOpen={isCreditsOpen}

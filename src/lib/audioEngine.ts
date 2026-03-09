@@ -3,10 +3,22 @@
  * Supports crossfade between tracks via dual audio elements
  */
 
-export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+import { EQ_BANDS, type PlaybackSource } from "@/lib/audioEngineShared";
+
+export { EQ_BANDS, EQ_PRESETS, type PlaybackSource } from "@/lib/audioEngineShared";
 
 type AudioEventCallback = () => void;
 type TimeUpdateCallback = (currentTime: number, duration: number) => void;
+type AudioEngineEventMap = {
+  play: AudioEventCallback;
+  pause: AudioEventCallback;
+  ended: AudioEventCallback;
+  timeupdate: TimeUpdateCallback;
+  error: (error: string) => void;
+  loadstart: AudioEventCallback;
+  canplay: AudioEventCallback;
+  crossfade: AudioEventCallback;
+};
 
 export class AudioEngine {
   private audio: HTMLAudioElement;
@@ -20,25 +32,40 @@ export class AudioEngine {
   private masterGain: GainNode | null = null;
   private eqNodes: BiquadFilterNode[] = [];
   private compressorNode: DynamicsCompressorNode | null = null;
+  private preampNode: GainNode | null = null;
+  private monoSplitter: ChannelSplitterNode | null = null;
+  private monoMerger: ChannelMergerNode | null = null;
+  private monoLeftGain: GainNode | null = null;
+  private monoRightGain: GainNode | null = null;
 
   private normalizationEnabled = false;
   private equalizerEnabled = false;
+  private monoAudioEnabled = false;
   private eqGains: number[] = new Array(10).fill(0);
+  private preampDb = 0;
 
   private source: MediaElementAudioSourceNode | null = null;
   private crossfadeSource: MediaElementAudioSourceNode | null = null;
   private connected = false;
-  private crossfadeConnected = false;
 
   // Crossfade
   private crossfadeDuration = 0; // 0 = disabled
-  private crossfadeTimer: number | null = null;
   private isCrossfading = false;
   private onCrossfadeNeeded: (() => void) | null = null;
+
+  // rAF-based smooth time updates (60fps)
+  private rafId: number | null = null;
+  private progressIntervalId: number | null = null;
+  private readonly handleVisibilityChange = () => {
+    if (!this.audio.paused) {
+      this.startProgressUpdates();
+    }
+  };
 
   // Replay gain
   private replayGain = 0;
   private peak = 1;
+  private preservePitchEnabled = true;
 
   // Callbacks
   private onPlay: AudioEventCallback | null = null;
@@ -48,32 +75,242 @@ export class AudioEngine {
   private onError: ((error: string) => void) | null = null;
   private onLoadStart: AudioEventCallback | null = null;
   private onCanPlay: AudioEventCallback | null = null;
+  private preferredSinkId = "default";
+  private dashPlayer: {
+    initialize: (view: HTMLMediaElement | null, source: string | null, autoPlay?: boolean) => void;
+    attachSource: (url: string) => void;
+    reset: () => void;
+    seek: (time: number) => void;
+    setPlaybackRate?: (rate: number) => void;
+    getPlaybackRate?: () => number;
+    updateSettings?: (settings: unknown) => void;
+  } | null = null;
+  private dashSourceUrl: string | null = null;
+  private dashReadyPromise: Promise<void> | null = null;
 
   constructor() {
     this.audio = new Audio();
     this.audio.crossOrigin = "anonymous";
     this.audio.preload = "auto";
+    this.applyPitchPreservation(this.audio);
+    this.preferredSinkId = this.readPreferredSinkId();
     this.setupAudioListeners(this.audio);
+    void this.applyPreferredSink(this.audio);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    }
+  }
+
+  private readPreferredSinkId() {
+    if (typeof window === "undefined") return "default";
+
+    try {
+      return window.localStorage.getItem("audio-output-device") || "default";
+    } catch {
+      return "default";
+    }
+  }
+
+  private persistPreferredSinkId(sinkId: string) {
+    if (typeof window === "undefined") return;
+
+    try {
+      window.localStorage.setItem("audio-output-device", sinkId || "default");
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
+  private canSetSinkId(audio: HTMLAudioElement = this.audio) {
+    return typeof (audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> }).setSinkId === "function";
+  }
+
+  private async setElementSinkId(audio: HTMLAudioElement, sinkId: string) {
+    const sinkAudio = audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
+    if (typeof sinkAudio.setSinkId !== "function") return;
+    await sinkAudio.setSinkId(sinkId);
+  }
+
+  private async applyPreferredSink(audio: HTMLAudioElement) {
+    if (!this.canSetSinkId(audio)) return;
+
+    try {
+      await this.setElementSinkId(audio, this.preferredSinkId || "default");
+    } catch {
+      // Ignore output routing errors during bootstrap and keep default output.
+    }
   }
 
   private setupAudioListeners(audio: HTMLAudioElement) {
-    audio.addEventListener("play", () => this.onPlay?.());
+    audio.addEventListener("play", () => {
+      if (audio !== this.audio) return;
+      this.onPlay?.();
+      this.startProgressUpdates();
+    });
     audio.addEventListener("pause", () => {
+      if (audio !== this.audio) return;
+      this.stopProgressUpdates();
       if (!this.isCrossfading) this.onPause?.();
     });
     audio.addEventListener("ended", () => {
+      if (audio !== this.audio) return;
+      this.stopProgressUpdates();
       if (!this.isCrossfading) this.onEnded?.();
     });
-    audio.addEventListener("loadstart", () => this.onLoadStart?.());
-    audio.addEventListener("canplay", () => this.onCanPlay?.());
     audio.addEventListener("timeupdate", () => {
-      this.onTimeUpdate?.(audio.currentTime, audio.duration || 0);
-      this.checkCrossfade();
+      if (audio === this.audio) {
+        this.emitProgress();
+      }
+    });
+    audio.addEventListener("seeking", () => {
+      if (audio === this.audio) {
+        this.emitProgress();
+      }
+    });
+    audio.addEventListener("seeked", () => {
+      if (audio === this.audio) {
+        this.emitProgress();
+      }
+    });
+    audio.addEventListener("loadstart", () => {
+      if (audio !== this.audio) return;
+      this.onLoadStart?.();
+    });
+    audio.addEventListener("canplay", () => {
+      if (audio !== this.audio) return;
+      this.emitProgress();
+      this.onCanPlay?.();
     });
     audio.addEventListener("error", () => {
+      if (audio !== this.audio) return;
       const err = audio.error;
       this.onError?.(err ? `Audio error: ${err.message} (code ${err.code})` : "Unknown audio error");
     });
+  }
+
+  private applyPitchPreservation(audio: HTMLAudioElement) {
+    const target = audio as HTMLAudioElement & {
+      preservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      webkitPreservesPitch?: boolean;
+    };
+
+    if (typeof target.preservesPitch === "boolean") {
+      target.preservesPitch = this.preservePitchEnabled;
+    }
+
+    if (typeof target.mozPreservesPitch === "boolean") {
+      target.mozPreservesPitch = this.preservePitchEnabled;
+    }
+
+    if (typeof target.webkitPreservesPitch === "boolean") {
+      target.webkitPreservesPitch = this.preservePitchEnabled;
+    }
+  }
+
+  private async getDashPlayer() {
+    if (this.dashPlayer) return this.dashPlayer;
+
+    const dashModule = await import("dashjs");
+    this.dashPlayer = dashModule.MediaPlayer().create();
+    this.dashPlayer.updateSettings?.({
+      streaming: {
+        buffer: {
+          fastSwitchEnabled: true,
+        },
+      },
+    });
+    return this.dashPlayer;
+  }
+
+  private async resetDashPlayer() {
+    if (!this.dashPlayer) return;
+    try {
+      this.dashPlayer.reset();
+    } catch {
+      // Ignore dash reset failures.
+    }
+    this.dashSourceUrl = null;
+    this.dashReadyPromise = null;
+  }
+
+  private async attachDashSource(url: string, startTime = 0) {
+    const player = await this.getDashPlayer();
+    this.dashReadyPromise = new Promise<void>((resolve) => {
+      const onCanPlay = () => {
+        this.audio.removeEventListener("canplay", onCanPlay);
+        resolve();
+      };
+      this.audio.addEventListener("canplay", onCanPlay, { once: true });
+      window.setTimeout(onCanPlay, 2000);
+    });
+
+    if (this.dashSourceUrl && this.dashSourceUrl !== url) {
+      player.attachSource(url);
+    } else if (!this.dashSourceUrl) {
+      player.initialize(this.audio, url, false);
+    } else {
+      player.attachSource(url);
+    }
+
+    this.dashSourceUrl = url;
+
+    if (typeof player.setPlaybackRate === "function") {
+      player.setPlaybackRate(this.audio.playbackRate);
+    }
+
+    await this.dashReadyPromise;
+
+    if (startTime > 0) {
+      try {
+        player.seek(startTime);
+      } catch {
+        this.audio.currentTime = startTime;
+      }
+    }
+  }
+
+  private emitProgress() {
+    this.onTimeUpdate?.(this.audio.currentTime, this.audio.duration || 0);
+    this.checkCrossfade();
+  }
+
+  private startRAF() {
+    this.stopRAF();
+    const tick = () => {
+      this.emitProgress();
+      this.rafId = requestAnimationFrame(tick);
+    };
+    this.rafId = requestAnimationFrame(tick);
+  }
+
+  private stopRAF() {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+  }
+
+  private startProgressUpdates() {
+    this.stopProgressUpdates();
+    this.emitProgress();
+
+    if (typeof document !== "undefined" && document.hidden) {
+      this.progressIntervalId = window.setInterval(() => {
+        this.emitProgress();
+      }, 250);
+      return;
+    }
+
+    this.startRAF();
+  }
+
+  private stopProgressUpdates() {
+    this.stopRAF();
+    if (this.progressIntervalId !== null) {
+      window.clearInterval(this.progressIntervalId);
+      this.progressIntervalId = null;
+    }
   }
 
   private checkCrossfade() {
@@ -93,6 +330,30 @@ export class AudioEngine {
     return this.crossfadeDuration;
   }
 
+  supportsSinkSelection() {
+    return this.canSetSinkId();
+  }
+
+  getSinkId() {
+    return this.preferredSinkId || "default";
+  }
+
+  async setSinkId(sinkId: string) {
+    const nextSinkId = sinkId || "default";
+    if (nextSinkId !== "default" && !this.supportsSinkSelection()) {
+      throw new Error("This browser does not support audio output switching.");
+    }
+
+    await this.setElementSinkId(this.audio, nextSinkId);
+
+    if (this.crossfadeAudio) {
+      await this.setElementSinkId(this.crossfadeAudio, nextSinkId);
+    }
+
+    this.preferredSinkId = nextSinkId;
+    this.persistPreferredSinkId(nextSinkId);
+  }
+
   private initAudioContext() {
     if (this.audioContext) return;
 
@@ -103,6 +364,13 @@ export class AudioEngine {
 
     this.masterGain = this.audioContext.createGain();
     this.gainNode = this.audioContext.createGain();
+    this.preampNode = this.audioContext.createGain();
+    this.monoSplitter = this.audioContext.createChannelSplitter(2);
+    this.monoMerger = this.audioContext.createChannelMerger(2);
+    this.monoLeftGain = this.audioContext.createGain();
+    this.monoRightGain = this.audioContext.createGain();
+    this.monoLeftGain.gain.value = 0.5;
+    this.monoRightGain.gain.value = 0.5;
 
     // Set up Equalizer Bands
     this.eqNodes = EQ_BANDS.map((freq) => {
@@ -129,17 +397,45 @@ export class AudioEngine {
   }
 
   private rebuildAudioGraph() {
-    if (!this.masterGain || !this.analyser || !this.compressorNode || !this.audioContext) return;
+    if (!this.masterGain || !this.analyser || !this.compressorNode || !this.audioContext || !this.preampNode) return;
 
-    // Disconnect master gain
     this.masterGain.disconnect();
+    this.preampNode.disconnect();
+    this.monoSplitter?.disconnect();
+    this.monoMerger?.disconnect();
+    this.monoLeftGain?.disconnect();
+    this.monoRightGain?.disconnect();
+    this.eqNodes.forEach((node) => node.disconnect());
+    this.compressorNode.disconnect();
+    this.analyser.disconnect();
 
     let currentNode: AudioNode = this.masterGain;
 
+    if (
+      this.monoAudioEnabled &&
+      this.monoSplitter &&
+      this.monoMerger &&
+      this.monoLeftGain &&
+      this.monoRightGain
+    ) {
+      currentNode.connect(this.monoSplitter);
+      this.monoSplitter.connect(this.monoLeftGain, 0);
+      this.monoSplitter.connect(this.monoLeftGain, 1);
+      this.monoSplitter.connect(this.monoRightGain, 0);
+      this.monoSplitter.connect(this.monoRightGain, 1);
+      this.monoLeftGain.connect(this.monoMerger, 0, 0);
+      this.monoRightGain.connect(this.monoMerger, 0, 1);
+      currentNode = this.monoMerger;
+    }
+
+    this.preampNode.gain.value = Math.pow(10, this.preampDb / 20);
+    if (this.equalizerEnabled || Math.abs(this.preampDb) > 0.01) {
+      currentNode.connect(this.preampNode);
+      currentNode = this.preampNode;
+    }
+
     // Route through EQ if enabled
     if (this.equalizerEnabled && this.eqNodes.length > 0) {
-      // Disconnect all EQ nodes to cleanly re-route
-      this.eqNodes.forEach(node => node.disconnect());
       for (let i = 0; i < this.eqNodes.length - 1; i++) {
         this.eqNodes[i].connect(this.eqNodes[i + 1]);
       }
@@ -155,13 +451,11 @@ export class AudioEngine {
 
     // Route through Compressor if enabled
     if (this.normalizationEnabled) {
-      this.compressorNode.disconnect();
       currentNode.connect(this.compressorNode);
       currentNode = this.compressorNode;
     }
 
     // Connect final node to analyser and then destination
-    this.analyser.disconnect();
     currentNode.connect(this.analyser);
     this.analyser.connect(this.audioContext.destination);
   }
@@ -187,6 +481,24 @@ export class AudioEngine {
     return this.eqGains;
   }
 
+  setPreampDb(gainDb: number) {
+    this.preampDb = Math.max(-20, Math.min(20, gainDb));
+    if (this.audioContext) this.rebuildAudioGraph();
+  }
+
+  getPreampDb() {
+    return this.preampDb;
+  }
+
+  setMonoAudioEnabled(enabled: boolean) {
+    this.monoAudioEnabled = enabled;
+    if (this.audioContext) this.rebuildAudioGraph();
+  }
+
+  getMonoAudioEnabled() {
+    return this.monoAudioEnabled;
+  }
+
   private connectSource() {
     if (this.connected || !this.audioContext || !this.gainNode) return;
 
@@ -194,7 +506,7 @@ export class AudioEngine {
       this.source = this.audioContext.createMediaElementSource(this.audio);
       this.source.connect(this.gainNode);
       this.connected = true;
-    } catch (e) {
+    } catch {
       this.connected = true;
     }
   }
@@ -203,10 +515,16 @@ export class AudioEngine {
    * Crossfade: load next track into a secondary audio element,
    * fade out current, fade in next, then swap.
    */
-  async crossfadeInto(url: string, replayGain = 0, peak = 1) {
+  async crossfadeInto(source: PlaybackSource, replayGain = 0, peak = 1) {
+    if (source.type === "dash" || this.dashSourceUrl) {
+      await this.load(source, replayGain, peak);
+      await this.play();
+      return;
+    }
+
     if (!this.audioContext || !this.analyser) {
       // No crossfade possible, just do a regular load
-      await this.load(url, replayGain, peak);
+      await this.load(source, replayGain, peak);
       await this.play();
       return;
     }
@@ -215,7 +533,10 @@ export class AudioEngine {
     this.crossfadeAudio = new Audio();
     this.crossfadeAudio.crossOrigin = "anonymous";
     this.crossfadeAudio.preload = "auto";
-    this.crossfadeAudio.src = url;
+    this.crossfadeAudio.playbackRate = this.audio.playbackRate;
+    this.applyPitchPreservation(this.crossfadeAudio);
+    await this.applyPreferredSink(this.crossfadeAudio);
+    this.crossfadeAudio.src = source.url;
     this.crossfadeAudio.volume = this.audio.volume;
     this.crossfadeAudio.load();
 
@@ -230,7 +551,7 @@ export class AudioEngine {
     } catch {
       // Fallback to regular load
       this.isCrossfading = false;
-      await this.load(url, replayGain, peak);
+      await this.load(source, replayGain, peak);
       await this.play();
       return;
     }
@@ -293,6 +614,9 @@ export class AudioEngine {
 
       // Re-setup listeners on new primary audio
       this.setupAudioListeners(this.audio);
+      if (!this.audio.paused) {
+        this.startProgressUpdates();
+      }
 
       this.replayGain = replayGain;
       this.peak = peak;
@@ -305,7 +629,7 @@ export class AudioEngine {
     this.isCrossfading = false;
   }
 
-  async load(url: string, replayGain = 0, peak = 1) {
+  async load(source: PlaybackSource, replayGain = 0, peak = 1) {
     this.initAudioContext();
     this.connectSource();
     this.isCrossfading = false;
@@ -314,12 +638,74 @@ export class AudioEngine {
     this.peak = peak;
     this.applyReplayGain();
 
-    this.audio.src = url;
-    this.audio.load();
+    const resetToStart = () => {
+      try {
+        this.audio.currentTime = 0;
+      } catch {
+        // Ignore pre-metadata seek failures; a later event will retry.
+      }
+    };
+
+    if (source.type === "dash") {
+      await this.attachDashSource(source.url);
+    } else {
+      await this.resetDashPlayer();
+      resetToStart();
+      this.audio.src = source.url;
+      this.audio.load();
+      resetToStart();
+
+      if (this.audio.readyState < 1) {
+        this.audio.addEventListener("loadedmetadata", resetToStart, { once: true });
+        this.audio.addEventListener("canplay", resetToStart, { once: true });
+      }
+    }
 
     if (this.audioContext?.state === "suspended") {
       await this.audioContext.resume();
     }
+  }
+
+  async restore(source: PlaybackSource, replayGain = 0, peak = 1, startTime = 0) {
+    await this.load(source, replayGain, peak);
+
+    if (!isFinite(startTime) || startTime <= 0) {
+      return;
+    }
+
+    if (source.type === "dash") {
+      await this.attachDashSource(source.url, startTime);
+      return;
+    }
+
+    const seekTo = Math.max(0, startTime);
+    const applySeek = () => {
+      try {
+        this.audio.currentTime = seekTo;
+      } catch {
+        // Ignore pre-metadata seek failures.
+      }
+    };
+
+    if (this.audio.readyState >= 1) {
+      applySeek();
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const handleReady = () => {
+        if (settled) return;
+        settled = true;
+        applySeek();
+        resolve();
+      };
+
+      this.audio.addEventListener("loadedmetadata", handleReady, { once: true });
+      this.audio.addEventListener("canplay", handleReady, { once: true });
+
+      window.setTimeout(handleReady, 1500);
+    });
   }
 
   private applyReplayGain() {
@@ -363,8 +749,19 @@ export class AudioEngine {
 
   setPlaybackRate(rate: number) {
     this.audio.playbackRate = rate;
+    if (this.dashPlayer && typeof this.dashPlayer.setPlaybackRate === "function") {
+      this.dashPlayer.setPlaybackRate(rate);
+    }
     if (this.crossfadeAudio) {
       this.crossfadeAudio.playbackRate = rate;
+    }
+  }
+
+  setPreservePitch(enabled: boolean) {
+    this.preservePitchEnabled = enabled;
+    this.applyPitchPreservation(this.audio);
+    if (this.crossfadeAudio) {
+      this.applyPitchPreservation(this.crossfadeAudio);
     }
   }
 
@@ -402,7 +799,7 @@ export class AudioEngine {
     return this.analyser?.fftSize || 2048;
   }
 
-  on(event: string, callback: any) {
+  on<K extends keyof AudioEngineEventMap>(event: K, callback: AudioEngineEventMap[K]) {
     switch (event) {
       case "play": this.onPlay = callback; break;
       case "pause": this.onPause = callback; break;
@@ -416,17 +813,27 @@ export class AudioEngine {
   }
 
   destroy() {
+    this.stopProgressUpdates();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
     this.audio.pause();
     this.audio.src = "";
     this.crossfadeAudio?.pause();
     if (this.crossfadeAudio) this.crossfadeAudio.src = "";
     this.source?.disconnect();
     this.crossfadeSource?.disconnect();
+    void this.resetDashPlayer();
     this.gainNode?.disconnect();
     this.masterGain?.disconnect();
     this.crossfadeGainNode?.disconnect();
     this.eqNodes.forEach(n => n.disconnect());
     this.compressorNode?.disconnect();
+    this.preampNode?.disconnect();
+    this.monoSplitter?.disconnect();
+    this.monoMerger?.disconnect();
+    this.monoLeftGain?.disconnect();
+    this.monoRightGain?.disconnect();
     this.analyser?.disconnect();
     if (this.audioContext && this.audioContext.state !== "closed") {
       this.audioContext.close().catch(() => { });
@@ -436,12 +843,16 @@ export class AudioEngine {
     this.masterGain = null;
     this.gainNode = null;
     this.compressorNode = null;
+    this.preampNode = null;
+    this.monoSplitter = null;
+    this.monoMerger = null;
+    this.monoLeftGain = null;
+    this.monoRightGain = null;
     this.eqNodes = [];
     this.crossfadeGainNode = null;
     this.source = null;
     this.crossfadeSource = null;
     this.connected = false;
-    this.crossfadeConnected = false;
   }
 }
 

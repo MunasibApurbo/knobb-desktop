@@ -1,17 +1,22 @@
-import { usePlayer } from "@/contexts/PlayerContext";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Keyboard } from "lucide-react";
 
 const SHORTCUTS = [
-  { keys: ["Space"], action: "Play / Pause" },
-  { keys: ["Shift", "→"], action: "Next track" },
-  { keys: ["Shift", "←"], action: "Previous track" },
-  { keys: ["Shift", "↑"], action: "Volume up" },
-  { keys: ["Shift", "↓"], action: "Volume down" },
+  { keys: ["Space", "K"], action: "Play / Pause" },
+  { keys: ["J"], action: "Rewind 10s" },
+  { keys: ["L"], action: "Forward 10s" },
+  { keys: ["←"], action: "Rewind 5s" },
+  { keys: ["→"], action: "Forward 5s" },
+  { keys: ["↑"], action: "Volume up" },
+  { keys: ["↓"], action: "Volume down" },
   { keys: ["M"], action: "Mute / Unmute" },
-  { keys: ["Esc"], action: "Close full-screen player" },
-  { keys: ["?"], action: "Show shortcuts" },
+  { keys: ["Ctrl/⌘", "→"], action: "Next track" },
+  { keys: ["Ctrl/⌘", "←"], action: "Previous track" },
+  { keys: ["0–9"], action: "Jump to %" },
+  { keys: ["Ctrl/⌘", "A"], action: "Select all tracks" },
+  { keys: ["Delete"], action: "Remove selected tracks" },
+  { keys: ["Esc"], action: "Clear track selection" },
 ];
 
 export function KeyboardShortcutsOverlay() {
@@ -22,7 +27,7 @@ export function KeyboardShortcutsOverlay() {
           <Keyboard className="w-4 h-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-card/95 backdrop-blur-xl border-border/30 max-w-sm">
+      <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Keyboard className="w-5 h-5" />

@@ -1,5 +1,5 @@
 import { Track } from "@/types/music";
-import { getStreamUrl } from "./monochromeApi";
+import { getStreamUrl } from "./musicApi";
 
 /**
  * Downloads a track to the local machine by fetching its audio blob
@@ -7,11 +7,26 @@ import { getStreamUrl } from "./monochromeApi";
  */
 export async function downloadTrack(track: Track, quality: string = "HIGH") {
     try {
-        let url = track.streamUrl;
+        let url = track.streamUrls?.[quality];
 
-        // If there's no stream URL but we have a tidal ID, fetch the URL from Monochrome
+        // If there's no stream URL but we have a TIDAL ID, fetch the playback URL from the music layer.
         if (!url && track.tidalId) {
             url = await getStreamUrl(track.tidalId, quality);
+            if (url) {
+                track.streamUrls = {
+                    ...(track.streamUrls || {}),
+                    [quality]: url,
+                };
+                track.streamTypes = {
+                    ...(track.streamTypes || {}),
+                    [quality]: "direct",
+                };
+                track.streamUrl = url;
+            }
+        }
+
+        if (!url && !track.tidalId) {
+            url = track.streamUrl;
         }
 
         if (!url) {
@@ -68,6 +83,21 @@ export async function downloadTrack(track: Track, quality: string = "HIGH") {
         console.error("Failed to download track:", error);
         return false;
     }
+}
+
+export async function downloadTracks(tracks: Track[], quality: string = "HIGH") {
+    let successCount = 0;
+
+    for (const track of tracks) {
+        const success = await downloadTrack(track, quality);
+        if (success) successCount += 1;
+    }
+
+    return {
+        successCount,
+        failureCount: Math.max(tracks.length - successCount, 0),
+        total: tracks.length,
+    };
 }
 
 function getExtensionFromContentType(contentType: string) {

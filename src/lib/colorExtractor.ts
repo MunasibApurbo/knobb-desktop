@@ -1,8 +1,8 @@
 /**
  * Extract dominant color from an image URL using canvas pixel sampling.
- * Returns HSL string like "220 70% 55%"
+ * Returns HSL string like "220 70% 55%" when available.
  */
-export async function extractDominantColor(imageUrl: string): Promise<string> {
+export async function extractDominantColor(imageUrl: string): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -15,7 +15,7 @@ export async function extractDominantColor(imageUrl: string): Promise<string> {
         canvas.height = size;
         const ctx = canvas.getContext("2d");
         if (!ctx) {
-          resolve("220 70% 55%");
+          resolve(null);
           return;
         }
 
@@ -47,13 +47,18 @@ export async function extractDominantColor(imageUrl: string): Promise<string> {
           }
         }
 
+        if (bestSaturation === 0) {
+          resolve(null);
+          return;
+        }
+
         resolve(rgbToHsl(bestR, bestG, bestB));
       } catch {
-        resolve("220 70% 55%");
+        resolve(null);
       }
     };
 
-    img.onerror = () => resolve("220 70% 55%");
+    img.onerror = () => resolve(null);
     img.src = imageUrl;
   });
 }
