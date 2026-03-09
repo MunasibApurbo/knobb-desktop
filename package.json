@@ -1,7 +1,7 @@
 {
   "name": "knobb",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Knobb is a React/Vite music app with a custom UI, a direct music data layer, and Supabase-backed account and library features.",
   "license": "MIT",
   "type": "module",

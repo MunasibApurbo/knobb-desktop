@@ -5,9 +5,11 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, dialog, Menu, Tray, ipcMain, nativeImage, nativeTheme, shell } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 
 import { createDiscordPresenceController, loadBridgeConfig } from "../../scripts/discord-presence-bridge-core.mjs";
+
+const { autoUpdater } = electronUpdater;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "../..");
