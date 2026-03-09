@@ -172,7 +172,7 @@ Artifacts:
 - `latest-mac.yml`
 - `latest.yml`
 
-Release publishing now uses `electron-builder` and `electron-updater` with GitHub Releases for `MunasibApurbo/soft-visuals-studio`.
+Release publishing now uses `electron-builder` and `electron-updater` with GitHub Releases for `MunasibApurbo/knobb-desktop`.
 
 The packaged desktop apps now:
 
@@ -199,9 +199,9 @@ Required GitHub Actions secrets:
 
 The website and desktop updater both target the GitHub latest-release URLs:
 
-- macOS: `https://github.com/MunasibApurbo/soft-visuals-studio/releases/latest/download/Knobb-Desktop-macOS.dmg`
-- Windows: `https://github.com/MunasibApurbo/soft-visuals-studio/releases/latest/download/Knobb-Desktop-Setup.exe`
-- Release page: `https://github.com/MunasibApurbo/soft-visuals-studio/releases/latest`
+- macOS: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-macOS.dmg`
+- Windows: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-Setup.exe`
+- Release page: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest`
 
 ## Discord Rich Presence
 

@@ -1,6 +1,6 @@
-export const KNOBB_MAC_DOWNLOAD_URL = "https://github.com/MunasibApurbo/soft-visuals-studio/releases/latest/download/Knobb-Desktop-macOS.dmg";
-export const KNOBB_WINDOWS_DOWNLOAD_URL = "https://github.com/MunasibApurbo/soft-visuals-studio/releases/latest/download/Knobb-Desktop-Setup.exe";
-export const KNOBB_RELEASES_URL = "https://github.com/MunasibApurbo/soft-visuals-studio/releases/latest";
+export const KNOBB_MAC_DOWNLOAD_URL = "https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-macOS.dmg";
+export const KNOBB_WINDOWS_DOWNLOAD_URL = "https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-Setup.exe";
+export const KNOBB_RELEASES_URL = "https://github.com/MunasibApurbo/knobb-desktop/releases/latest";
 
 export type DesktopDownloadPlatform = "macos" | "windows" | "other";
 

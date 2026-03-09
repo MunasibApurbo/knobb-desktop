@@ -9,7 +9,7 @@ import { useSavedAlbums } from "@/hooks/useSavedAlbums";
 import { useMainScrollY } from "@/hooks/useMainScrollY";
 import { useMotionPreferences } from "@/hooks/useMotionPreferences";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ChevronLeft, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/PageTransition";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
@@ -18,6 +18,14 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useResponsiveMediaCardCount } from "@/hooks/useResponsiveMediaCardCount";
 import { ArtistCardWrapper, HomeAlbumCard, TrackCard } from "@/components/home/HomeMediaCards";
 import { HOME_SECTION_CONFIG, type HomeSectionKey } from "@/lib/homeSections";
+import {
+  detectDesktopDownloadPlatform,
+  isDesktopDownloadRecommended,
+  KNOBB_MAC_DOWNLOAD_URL,
+  KNOBB_RELEASES_URL,
+  KNOBB_WINDOWS_DOWNLOAD_URL,
+} from "@/lib/desktopDownloads";
+import { isKnobbDesktopApp } from "@/lib/desktopApp";
 import {
   getControlTap,
   getMotionProfile,
@@ -182,6 +190,8 @@ const Index = () => {
   const { cardSize } = useSettings();
   const isMobile = useIsMobile();
   const { motionEnabled, allowAmbientMotion, websiteMode, isRoundish, strongDesktopEffects } = useMotionPreferences();
+  const desktopApp = useMemo(() => isKnobbDesktopApp(), []);
+  const desktopDownloadPlatform = useMemo(() => detectDesktopDownloadPlatform(), []);
   const allowHomeAmbientMotion = allowAmbientMotion && (isMobile || strongDesktopEffects);
   const enableScrollLinkedHomeMotion = !isMobile && allowHomeAmbientMotion;
   const scrollY = useMainScrollY(enableScrollLinkedHomeMotion);
@@ -693,6 +703,63 @@ const Index = () => {
             </div>
           </div>
         </motion.section>
+
+        {!desktopApp ? (
+          <motion.section
+            className="mobile-page-panel border border-white/10 bg-[linear-gradient(135deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02))]"
+            initial="hidden"
+            animate="show"
+            variants={getSectionRevealVariants(motionEnabled, websiteMode)}
+          >
+            <div className="flex flex-col gap-5 px-5 py-5 md:px-6 md:py-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                  Desktop app
+                </p>
+                <h2 className="mt-3 text-2xl font-black tracking-[-0.04em] text-white md:text-3xl">
+                  Download Knobb for macOS and Windows
+                </h2>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-white/66 sm:text-[15px]">
+                  Desktop builds now ship from the dedicated Knobb Desktop repo. Both apps auto-update, and required updates are enforced through the release channel.
+                </p>
+              </div>
+              <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-3xl">
+                <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                  <Button
+                    asChild
+                    variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
+                    className={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
+                  >
+                    <a href={KNOBB_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                      Download for macOS <Download className="ml-2 h-4 w-4" />
+                    </a>
+                  </Button>
+                </motion.div>
+                <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                  <Button
+                    asChild
+                    variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
+                    className={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
+                  >
+                    <a href={KNOBB_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                      Download for Windows <Download className="ml-2 h-4 w-4" />
+                    </a>
+                  </Button>
+                </motion.div>
+                <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                  <Button
+                    asChild
+                    className={HOME_HERO_CTA_SECONDARY_CLASS}
+                  >
+                    <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
+                      View latest release <ExternalLink className="ml-2 h-4 w-4" />
+                    </a>
+                  </Button>
+                </motion.div>
+              </div>
+            </div>
+          </motion.section>
+        ) : null}
 
         {/* Recommended Tracks (Tidal recommendations) */}
         {recommendedTracks.length > 0 && (

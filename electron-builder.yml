@@ -13,7 +13,7 @@ extraMetadata:
 publish:
   provider: github
   owner: MunasibApurbo
-  repo: soft-visuals-studio
+  repo: knobb-desktop
   releaseType: release
   vPrefixedTagName: true
 mac:
