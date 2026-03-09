@@ -16,6 +16,8 @@ const projectRoot = path.resolve(__dirname, "../..");
 const distRoot = path.join(projectRoot, "dist");
 const desktopPort = Number.parseInt(process.env.KNOBB_DESKTOP_PORT || "32146", 10) || 32146;
 const appIcon = path.join(projectRoot, "public", "brand", "logo-k-black-bg-256.png");
+const KNOBB_DESKTOP_RELEASES_URL = "https://github.com/MunasibApurbo/knobb-desktop/releases/latest";
+const KNOBB_DESKTOP_REPO_URL = "https://github.com/MunasibApurbo/knobb-desktop";
 const bridgeConfigFileName = "discord-presence.bridge.json";
 const bridgeConfigExampleFileName = "discord-presence.bridge.example.json";
 const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS = 4;
@@ -155,6 +157,18 @@ function buildTrayMenu() {
         if (target) {
           void shell.openExternal(target);
         }
+      },
+    },
+    {
+      label: "View Latest Release",
+      click: () => {
+        void shell.openExternal(KNOBB_DESKTOP_RELEASES_URL);
+      },
+    },
+    {
+      label: "Open Desktop Repo",
+      click: () => {
+        void shell.openExternal(KNOBB_DESKTOP_REPO_URL);
       },
     },
     {
@@ -666,8 +680,7 @@ function buildErrorPage(title, detail) {
 
 async function startStaticServer() {
   const indexPath = path.join(distRoot, "index.html");
-  const indexBuffer = await readFileIfPresent(indexPath);
-  if (!indexBuffer) {
+  if (!(await readFileIfPresent(indexPath))) {
     return {
       server: null,
       url: null,
@@ -693,7 +706,7 @@ async function startStaticServer() {
       const resolvedFile = path.join(distRoot, normalizedPath);
       const candidate = await readFileIfPresent(resolvedFile);
       const shouldServeIndex = candidate === null && path.extname(normalizedPath) === "";
-      const body = shouldServeIndex ? indexBuffer : candidate;
+      const body = shouldServeIndex ? await readFileIfPresent(indexPath) : candidate;
 
       if (body === null) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
@@ -881,6 +894,18 @@ function buildMenu() {
             if (target) {
               void shell.openExternal(target);
             }
+          },
+        },
+        {
+          label: "View Latest Release",
+          click: () => {
+            void shell.openExternal(KNOBB_DESKTOP_RELEASES_URL);
+          },
+        },
+        {
+          label: "Open Desktop Repo",
+          click: () => {
+            void shell.openExternal(KNOBB_DESKTOP_REPO_URL);
           },
         },
         {

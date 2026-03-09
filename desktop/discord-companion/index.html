@@ -15,6 +15,7 @@
         --accent: #7c6cff;
         --ok: #2ecc71;
         --warn: #f5a623;
+        --sync: #55c2ff;
       }
 
       * { box-sizing: border-box; }
@@ -65,7 +66,6 @@
       }
       dd { margin: 0; font-size: 16px; line-height: 1.4; }
       button {
-        margin-top: 18px;
         background: linear-gradient(135deg, var(--accent), #55c2ff);
         color: #050505;
         border: 0;
@@ -75,8 +75,24 @@
         font-weight: 700;
         cursor: pointer;
       }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .secondary-button {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
       .activity { display: none; }
       .activity.show { display: block; }
+      .sync { background: var(--sync); }
     </style>
   </head>
   <body>
@@ -90,8 +106,16 @@
         <div class="status-grid">
           <div class="pill"><span class="dot" id="bridge-dot"></span><span id="bridge-label">Starting bridge</span></div>
           <div class="pill"><span class="dot" id="discord-dot"></span><span id="discord-label">Checking Discord</span></div>
+          <div class="pill"><span class="dot" id="update-dot"></span><span id="update-label">Checking updates</span></div>
         </div>
-        <button id="open-knobb" type="button">Open Knobb</button>
+        <div class="button-row">
+          <button id="open-knobb" type="button">Open Knobb</button>
+          <button id="check-updates" class="secondary-button" type="button">Check for updates</button>
+          <button id="install-update" type="button" hidden>Restart to update</button>
+          <button id="open-release" class="secondary-button" type="button">Latest release</button>
+          <button id="open-repo" class="secondary-button" type="button">Desktop repo</button>
+          <button id="open-config" class="secondary-button" type="button">Config folder</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -103,6 +127,18 @@
           <div>
             <dt>Bridge Port</dt>
             <dd id="bridge-port">-</dd>
+          </div>
+          <div>
+            <dt>Installed Version</dt>
+            <dd id="current-version">-</dd>
+          </div>
+          <div>
+            <dt>Available Version</dt>
+            <dd id="available-version">Latest installed</dd>
+          </div>
+          <div>
+            <dt>Update Status</dt>
+            <dd id="update-detail">Waiting for the first update check.</dd>
           </div>
           <div>
             <dt>Last Error</dt>

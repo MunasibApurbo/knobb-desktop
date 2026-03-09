@@ -7,8 +7,8 @@ import { buildMacUpdateFeed, readJson } from "./mac-update-feed.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
-const defaultOutputPath = path.join(projectRoot, "release", "macos", "releases.json");
-const defaultZipPath = path.join(projectRoot, "release", "macos", "Knobb-Desktop-macOS.zip");
+const defaultOutputPath = path.join(projectRoot, "release", "desktop", "releases.json");
+const defaultZipPath = path.join(projectRoot, "release", "desktop", "Knobb-Desktop-macOS.zip");
 
 function fail(message) {
   console.error(message);

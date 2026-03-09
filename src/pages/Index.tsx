@@ -19,8 +19,11 @@ import { useResponsiveMediaCardCount } from "@/hooks/useResponsiveMediaCardCount
 import { ArtistCardWrapper, HomeAlbumCard, TrackCard } from "@/components/home/HomeMediaCards";
 import { HOME_SECTION_CONFIG, type HomeSectionKey } from "@/lib/homeSections";
 import {
+  KNOBB_COMPANION_MAC_DOWNLOAD_URL,
+  KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL,
   detectDesktopDownloadPlatform,
   isDesktopDownloadRecommended,
+  KNOBB_DESKTOP_REPO_URL,
   KNOBB_MAC_DOWNLOAD_URL,
   KNOBB_RELEASES_URL,
   KNOBB_WINDOWS_DOWNLOAD_URL,
@@ -711,51 +714,117 @@ const Index = () => {
             animate="show"
             variants={getSectionRevealVariants(motionEnabled, websiteMode)}
           >
-            <div className="flex flex-col gap-5 px-5 py-5 md:px-6 md:py-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-5 px-5 py-5 md:px-6 md:py-6">
               <div className="max-w-2xl">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  Desktop app
+                  Desktop apps
                 </p>
                 <h2 className="mt-3 text-2xl font-black tracking-[-0.04em] text-white md:text-3xl">
-                  Download Knobb for macOS and Windows
+                  Install Knobb Desktop or the Discord Companion
                 </h2>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-white/66 sm:text-[15px]">
-                  Desktop builds now ship from the dedicated Knobb Desktop repo. Both apps auto-update, and required updates are enforced through the release channel.
+                  Desktop builds now ship from the dedicated Knobb Desktop repo. Both apps ship from the same tagged release stream, with direct downloads, latest-release links, and packaged updater support.
                 </p>
               </div>
-              <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-3xl">
-                <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
-                  <Button
-                    asChild
-                    variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
-                    className={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
-                  >
-                    <a href={KNOBB_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                      Download for macOS <Download className="ml-2 h-4 w-4" />
-                    </a>
-                  </Button>
-                </motion.div>
-                <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
-                  <Button
-                    asChild
-                    variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
-                    className={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
-                  >
-                    <a href={KNOBB_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                      Download for Windows <Download className="ml-2 h-4 w-4" />
-                    </a>
-                  </Button>
-                </motion.div>
-                <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
-                  <Button
-                    asChild
-                    className={HOME_HERO_CTA_SECONDARY_CLASS}
-                  >
-                    <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                      View latest release <ExternalLink className="ml-2 h-4 w-4" />
-                    </a>
-                  </Button>
-                </motion.div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-[28px] border border-white/10 bg-black/20 p-4 sm:p-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Full app
+                  </p>
+                  <h3 className="mt-3 text-xl font-black tracking-[-0.04em] text-white">
+                    Knobb Desktop
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-white/66">
+                    The full player shell with tray support, native Discord presence, and required update checks on packaged releases.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button
+                        asChild
+                        variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
+                        className={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
+                      >
+                        <a href={KNOBB_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                          Download for macOS <Download className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button
+                        asChild
+                        variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
+                        className={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
+                      >
+                        <a href={KNOBB_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                          Download for Windows <Download className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button asChild className={HOME_HERO_CTA_SECONDARY_CLASS}>
+                        <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
+                          View latest release <ExternalLink className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button asChild variant="outline" className={HOME_HERO_CTA_SECONDARY_CLASS}>
+                        <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
+                          Open desktop repo <ExternalLink className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                  </div>
+                </div>
+                <div className="rounded-[28px] border border-white/10 bg-black/20 p-4 sm:p-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Bridge-only helper
+                  </p>
+                  <h3 className="mt-3 text-xl font-black tracking-[-0.04em] text-white">
+                    Knobb Discord Companion
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-white/66">
+                    A smaller Electron helper that keeps the local Discord bridge running without the full Knobb window. Companion installers and updater metadata ship on the same latest release as the main desktop app.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button
+                        asChild
+                        variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
+                        className={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
+                      >
+                        <a href={KNOBB_COMPANION_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                          Download for macOS <Download className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button
+                        asChild
+                        variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
+                        className={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? HOME_HERO_CTA_PRIMARY_CLASS : HOME_HERO_CTA_SECONDARY_CLASS}
+                      >
+                        <a href={KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                          Download for Windows <Download className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button asChild className={HOME_HERO_CTA_SECONDARY_CLASS}>
+                        <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
+                          View latest release <ExternalLink className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={getControlTap(motionEnabled, websiteMode)}>
+                      <Button asChild variant="outline" className={HOME_HERO_CTA_SECONDARY_CLASS}>
+                        <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
+                          Open desktop repo <ExternalLink className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </motion.div>
+                  </div>
+                </div>
               </div>
             </div>
           </motion.section>

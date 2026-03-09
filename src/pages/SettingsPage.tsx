@@ -34,9 +34,12 @@ import {
   type PlaybackSessionSnapshot,
 } from "@/lib/playbackSessions";
 import {
+  KNOBB_COMPANION_MAC_DOWNLOAD_URL,
+  KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL,
   detectDesktopDownloadPlatform,
   formatDesktopPlatform,
   isDesktopDownloadRecommended,
+  KNOBB_DESKTOP_REPO_URL,
   KNOBB_MAC_DOWNLOAD_URL,
   KNOBB_RELEASES_URL,
   KNOBB_WINDOWS_DOWNLOAD_URL,
@@ -730,14 +733,26 @@ export default function SettingsPage() {
   );
   const installAppRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
-    t("settings.desktopDownloads"),
+    t("settings.desktopMainApp"),
     t("settings.desktopDownloadsDescription"),
+    t("settings.desktopMainAppDescription"),
     t("settings.desktopDownloadMac"),
     t("settings.desktopDownloadWindows"),
     t("settings.desktopViewRelease"),
+    t("settings.desktopViewRepo"),
     desktopUpdatePresentation.title,
     desktopUpdatePresentation.detail,
-    "desktop download update release mac windows",
+    "desktop download update release repo mac windows",
+  );
+  const companionRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.desktopCompanionApp"),
+    t("settings.desktopCompanionDescription"),
+    t("settings.desktopDownloadMac"),
+    t("settings.desktopDownloadWindows"),
+    t("settings.desktopViewRelease"),
+    t("settings.desktopViewRepo"),
+    "desktop companion discord download release repo mac windows update",
   );
   const downloadsRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
@@ -767,6 +782,7 @@ export default function SettingsPage() {
   const storageSectionVisible = storageSectionTitleMatch
     || offlineAppRowMatch
     || installAppRowMatch
+    || companionRowMatch
     || downloadsRowMatch
     || storageLocalFilesRowMatch
     || cacheRowMatch
@@ -1348,10 +1364,11 @@ export default function SettingsPage() {
             ) : null}
             {storageSectionTitleMatch || installAppRowMatch ? (
               <Row
-                title={t("settings.desktopDownloads")}
+                title={t("settings.desktopMainApp")}
                 description={(
                   <div className="space-y-1">
                     <p>{t("settings.desktopDownloadsDescription")}</p>
+                    <p>{t("settings.desktopMainAppDescription")}</p>
                     {desktopApp ? (
                       <>
                         <p>{desktopUpdatePresentation.title}. {desktopUpdatePresentation.detail}</p>
@@ -1415,6 +1432,15 @@ export default function SettingsPage() {
                             {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
                           </a>
                         </Button>
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                        >
+                          <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
+                            {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
+                          </a>
+                        </Button>
                       </>
                     ) : (
                       <>
@@ -1445,10 +1471,69 @@ export default function SettingsPage() {
                             {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
                           </a>
                         </Button>
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                        >
+                          <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
+                            {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
+                          </a>
+                        </Button>
                       </>
                     )}
                   </div>
                 }
+              />
+            ) : null}
+            {storageSectionTitleMatch || companionRowMatch ? (
+              <Row
+                title={t("settings.desktopCompanionApp")}
+                description={(
+                  <div className="space-y-1">
+                    <p>{t("settings.desktopCompanionDescription")}</p>
+                  </div>
+                )}
+                action={(
+                  <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
+                    <Button
+                      asChild
+                      variant={isDesktopDownloadRecommended("macos", desktopDownloadPlatform) ? "default" : "outline"}
+                      className={SETTINGS_ACTION_BUTTON_CLASS}
+                    >
+                      <a href={KNOBB_COMPANION_MAC_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                        {t("settings.desktopDownloadMac")} <Download className="ml-2 h-4 w-4" />
+                      </a>
+                    </Button>
+                    <Button
+                      asChild
+                      variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
+                      className={SETTINGS_ACTION_BUTTON_CLASS}
+                    >
+                      <a href={KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+                        {t("settings.desktopDownloadWindows")} <Download className="ml-2 h-4 w-4" />
+                      </a>
+                    </Button>
+                    <Button
+                      asChild
+                      variant="outline"
+                      className={SETTINGS_ACTION_BUTTON_CLASS}
+                    >
+                      <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
+                        {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
+                      </a>
+                    </Button>
+                    <Button
+                      asChild
+                      variant="outline"
+                      className={SETTINGS_ACTION_BUTTON_CLASS}
+                    >
+                      <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
+                        {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
+                      </a>
+                    </Button>
+                  </div>
+                )}
               />
             ) : null}
             {storageSectionTitleMatch || downloadsRowMatch ? (

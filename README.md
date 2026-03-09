@@ -107,6 +107,11 @@ npm run desktop:app:dev
 npm run desktop:package
 npm run desktop:package:mac
 npm run desktop:package:win
+npm run desktop:package:companion
+npm run desktop:package:companion:mac
+npm run desktop:package:companion:win
+npm run desktop:package:apps:mac
+npm run desktop:package:apps:win
 npm run discord:bridge
 npm run discord:companion
 ```
@@ -158,9 +163,13 @@ Explicit host-platform packages:
 ```sh
 npm run desktop:package:mac
 npm run desktop:package:win
+npm run desktop:package:companion:mac
+npm run desktop:package:companion:win
+npm run desktop:package:apps:mac
+npm run desktop:package:apps:win
 ```
 
-This writes artifacts to `release/desktop/`.
+This writes Knobb Desktop artifacts to `release/desktop/` and Discord Companion artifacts to `release/companion/`.
 
 The desktop bundle version comes from `package.json`.
 
@@ -169,17 +178,22 @@ Artifacts:
 - `Knobb-Desktop-macOS.dmg`
 - `Knobb-Desktop-macOS.zip`
 - `Knobb-Desktop-Setup.exe`
+- `Knobb-Discord-Companion-macOS.dmg`
+- `Knobb-Discord-Companion-macOS.zip`
+- `Knobb-Discord-Companion-Setup.exe`
 - `latest-mac.yml`
 - `latest.yml`
 
 Release publishing now uses `electron-builder` and `electron-updater` with GitHub Releases for `MunasibApurbo/knobb-desktop`.
 
-The packaged desktop apps now:
+The packaged desktop app now:
 
 - support auto-updates on packaged macOS and Windows builds
 - treat every newer desktop release as required
 - check automatically on launch and every 4 hours
 - block the app if a required update is available or if offline update verification has been stale for more than 3 days
+
+The Discord Companion is packaged and uploaded with the same GitHub release, but it does not participate in the required-update flow.
 
 GitHub Actions release workflow:
 
@@ -190,7 +204,7 @@ GitHub Actions release workflow:
    - `npm run desktop:release -- --version 0.1.1`
 2. Commit the version bump.
 3. Push a matching git tag like `v0.1.1`.
-4. GitHub Actions builds and publishes the macOS and Windows installers to the latest GitHub Release.
+4. GitHub Actions builds and publishes the signed Knobb Desktop installers and uploads the Discord Companion installers to the same GitHub Release.
 
 Required GitHub Actions secrets:
 
@@ -202,6 +216,7 @@ The website and desktop updater both target the GitHub latest-release URLs:
 - macOS: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-macOS.dmg`
 - Windows: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-Setup.exe`
 - Release page: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest`
+- Repo: `https://github.com/MunasibApurbo/knobb-desktop`
 
 ## Discord Rich Presence
 
@@ -215,7 +230,7 @@ Setup:
 2. Set `clientId` to your Discord application client ID.
 3. Set `siteUrl` to your real Knobb web app URL if you are not running Knobb locally.
 4. Optional: upload Rich Presence art assets in your Discord application and set `largeImageKey`, `playImageKey`, and `pauseImageKey`.
-5. Start Knobb Desktop with `npm run desktop:app` or a packaged app from `release/macos/`, or use `npm run discord:bridge` if you are staying in the browser.
+5. Start Knobb Desktop with `npm run desktop:app` or a packaged app from `release/desktop/`, or use `npm run discord:bridge` if you are staying in the browser.
 6. Open Discord desktop and enable `Discord activity status` in Settings.
 
 Notes:

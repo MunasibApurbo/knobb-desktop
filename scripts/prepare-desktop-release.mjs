@@ -9,7 +9,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 const packageJsonPath = path.join(projectRoot, "package.json");
 const packageLockPath = path.join(projectRoot, "package-lock.json");
-const releaseFeedPath = path.join(projectRoot, "release", "macos", "releases.json");
 
 function fail(message) {
   console.error(message);
@@ -93,12 +92,6 @@ async function main() {
     fail(`Next version (${nextVersion}) must be newer than the current package.json version (${currentVersion}).`);
   }
 
-  const existingFeed = await readJson(releaseFeedPath, null);
-  const currentRelease = String(existingFeed?.currentRelease || "").trim();
-  if (currentRelease && compareReleaseVersions(nextVersion, currentRelease) <= 0) {
-    fail(`Next version (${nextVersion}) must be newer than the current desktop feed release (${currentRelease}).`);
-  }
-
   packageJson.version = nextVersion;
   await writeJson(packageJsonPath, packageJson);
 
@@ -113,10 +106,10 @@ async function main() {
 
   console.log(`Updated desktop release version: ${currentVersion} -> ${nextVersion}`);
   console.log("Next steps:");
-  console.log("1. npm run desktop:package");
-  console.log("2. Upload release/macos/Knobb-Desktop-macOS.zip");
-  console.log("3. Upload release/macos/releases.json");
-  console.log("4. Ship the notarized DMG for manual installs");
+  console.log("1. Commit package.json and package-lock.json");
+  console.log(`2. Push a matching git tag like v${nextVersion}`);
+  console.log("3. GitHub Actions publishes the signed Knobb Desktop installers");
+  console.log("4. GitHub Actions uploads the Discord Companion installers to the same release");
 }
 
 void main().catch((error) => {
