@@ -1,4 +1,4 @@
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayer, usePlayerTimeline } from "@/contexts/PlayerContext";
 import { formatDuration } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { X, Music2, ListMusic, GripVertical, Trash2 } from "lucide-react";
@@ -18,7 +18,8 @@ const LyricsPanel = lazy(async () => {
 });
 
 export function RightPanel() {
-  const { currentTrack, currentTime, toggleRightPanel, rightPanelTab, isPlaying, queue, play, reorderQueue, removeFromQueue, seek } = usePlayer();
+  const { currentTrack, toggleRightPanel, rightPanelTab, isPlaying, queue, play, reorderQueue, removeFromQueue, seek } = usePlayer();
+  const { currentTime } = usePlayerTimeline();
   const { rightPanelStyle, lyricsSyncMode } = useSettings();
   const navigate = useNavigate();
   const tab = rightPanelTab;
@@ -30,26 +31,16 @@ export function RightPanel() {
 
   return (
     <div className={`right-panel-shell h-full flex flex-col overflow-hidden chrome-bar relative isolate ${rightPanelStyle === "artwork" ? "right-panel-shell-artwork" : "right-panel-shell-classic"}`}>
-      {rightPanelStyle === "artwork" ? (
-        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <motion.img
-            key={`panel-bg-${currentTrack.id}`}
-            src={currentTrack.coverUrl}
-            alt=""
-            initial={{ opacity: 0, scale: 1.08 }}
-            animate={{ opacity: 0.85, scale: 1.2 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute inset-[-22%] h-[144%] w-[144%] object-cover blur-[40px] saturate-[1.2] brightness-[0.6]"
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background: "hsl(0 0% 0% / 0.4)",
-            }}
-          />
-        </div>
-      ) : (
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-[hsl(var(--sidebar-background))]" />
+      <div className="shell-artwork-wash -z-10" aria-hidden="true">
+        <img
+          src={currentTrack.coverUrl || "/placeholder.svg"}
+          alt=""
+          loading="eager"
+          decoding="async"
+        />
+      </div>
+      {rightPanelStyle === "artwork" ? null : (
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-[hsl(var(--sidebar-background))/0.42]" />
       )}
 
       {/* Header */}
@@ -58,7 +49,7 @@ export function RightPanel() {
           <Music2 className="right-panel-compact-icon h-5 w-5 text-muted-foreground" absoluteStrokeWidth />
           <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Now Playing</span>
         </div>
-        <Button variant="ghost" size="icon" className="right-panel-control h-9 w-9 text-muted-foreground hover:text-foreground transition-colors" onClick={toggleRightPanel}>
+        <Button variant="ghost" size="icon" className="menu-sweep-hover relative h-9 w-9 overflow-hidden rounded-md text-white/68 transition-colors hover:text-white" onClick={toggleRightPanel}>
           <X className="h-5 w-5" absoluteStrokeWidth />
         </Button>
       </div>
@@ -123,7 +114,7 @@ export function RightPanel() {
         <TrackOptionsMenu
           track={currentTrack}
           tracks={queue}
-          buttonClassName="right-panel-control right-panel-menu-button h-9 w-9 shrink-0 rounded-none bg-transparent p-0 text-white/76 shadow-none backdrop-blur-0 hover:bg-transparent hover:text-white focus-visible:ring-0 focus-visible:ring-offset-0"
+          buttonClassName="right-panel-menu-button menu-sweep-hover relative flex shrink-0 items-center justify-center h-9 w-9 overflow-hidden rounded-md p-0 text-white/68 shadow-none backdrop-blur-0 transition-colors hover:text-white focus-visible:ring-0 focus-visible:ring-offset-0"
         />
       </div>
 

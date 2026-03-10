@@ -6,6 +6,7 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { buildTrackSourceUrl, getTrackShareIdentifier } from "@/lib/mediaNavigation";
 import { getTrackInfo, tidalTrackToAppTrack } from "@/lib/musicApi";
+import { APP_HOME_PATH } from "@/lib/routes";
 import { formatDuration } from "@/lib/utils";
 import { inferTidalIdFromTrackId } from "@/lib/trackIdentity";
 import { cn } from "@/lib/utils";
@@ -171,7 +172,7 @@ linear-gradient(135deg, hsl(${deep}) 0%, rgb(0 0 0) 58%, rgb(0 0 0) 100%)`,
       return;
     }
 
-    navigate("/");
+    navigate(APP_HOME_PATH);
   };
 
   if (loading) {

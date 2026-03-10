@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Download, ExternalLink, HelpCircle, Loader2, Search, Shield } from "lucide-react";
+import { CheckCircle2, ExternalLink, HelpCircle, Loader2, Search, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 import { SettingsEqualizer } from "@/components/SettingsEqualizer";
 import { Switch } from "@/components/ui/switch";
 import { PageTransition } from "@/components/PageTransition";
+import { UtilityPageLayout, UtilityPagePanel } from "@/components/UtilityPageLayout";
 import {
   Select,
   SelectContent,
@@ -33,19 +34,7 @@ import {
   removeOtherPlaybackSessions,
   type PlaybackSessionSnapshot,
 } from "@/lib/playbackSessions";
-import {
-  KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL,
-  detectDesktopDownloadPlatform,
-  formatDesktopPlatform,
-  isDesktopDownloadRecommended,
-  KNOBB_DESKTOP_REPO_URL,
-  KNOBB_RELEASES_URL,
-  KNOBB_WINDOWS_DOWNLOAD_URL,
-} from "@/lib/desktopDownloads";
-import { getDesktopUpdatePresentation } from "@/lib/desktopUpdatePresentation";
 import { cn } from "@/lib/utils";
-import { getKnobbDesktopPlatform, isKnobbDesktopApp } from "@/lib/desktopApp";
-import { useKnobbDesktopUpdate } from "@/hooks/useKnobbDesktopUpdate";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -71,16 +60,16 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-0">
-      <h2 className="text-xl font-bold text-foreground px-0 py-3">{title}</h2>
-      <div
+    <section className="space-y-2">
+      <h2 className="px-1 py-1 text-xl font-bold text-foreground">{title}</h2>
+      <UtilityPagePanel
         className={cn(
           "settings-section-surface overflow-hidden shadow-[0_18px_44px_rgba(0,0,0,0.18)]",
           PANEL_SURFACE_CLASS,
         )}
       >
         {children}
-      </div>
+      </UtilityPagePanel>
     </section>
   );
 }
@@ -98,13 +87,13 @@ function Row({
 }) {
   return (
     <div
-      className={`settings-row grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 border-b border-white/10 last:border-b-0 transition-colors hover:bg-white/[0.03] ${className}`}
+      className={`settings-row flex flex-col gap-4 border-b border-white/10 px-4 py-4 transition-colors hover:bg-white/[0.03] last:border-b-0 sm:px-5 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center ${className}`}
     >
       <div className="min-w-0">
         <p className="text-base font-semibold text-foreground">{title}</p>
         {description ? <div className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {action ? <div className="w-full shrink-0 lg:w-auto">{action}</div> : null}
     </div>
   );
 }
@@ -127,7 +116,7 @@ function SelectControl({
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger
-        className={`settings-select-trigger website-form-control h-11 min-w-[220px] rounded-[var(--settings-control-radius)] px-4 border-white/10 bg-white/[0.04] text-sm text-foreground focus:ring-0 focus:ring-offset-0 menu-sweep-hover ${className}`}
+        className={`settings-select-trigger website-form-control h-11 w-full min-w-0 rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] px-4 text-sm text-foreground focus:ring-0 focus:ring-offset-0 menu-sweep-hover sm:min-w-[220px] ${className}`}
       >
         <SelectValue aria-label={selectedTag ? `${selectedLabel} ${selectedTag}` : selectedLabel}>
           <span className="flex min-w-0 items-center gap-3">
@@ -182,7 +171,9 @@ function ToggleControl({
 }
 
 const SETTINGS_ACTION_BUTTON_CLASS =
-  "settings-action-button website-form-control menu-sweep-hover h-11 rounded-[var(--settings-control-radius)] border-white/12 bg-white/[0.03] px-5 text-sm font-semibold text-foreground hover:bg-white/[0.05] hover:text-black focus-visible:text-black focus:ring-0 focus:ring-offset-0";
+  "settings-action-button website-form-control menu-sweep-hover h-11 w-full justify-center rounded-[var(--settings-control-radius)] border-white/12 bg-white/[0.03] px-5 text-sm font-semibold text-foreground hover:bg-white/[0.05] hover:text-black focus-visible:text-black focus:ring-0 focus:ring-offset-0 sm:w-auto";
+const SETTINGS_DESTRUCTIVE_BUTTON_CLASS =
+  "settings-action-button website-form-control destructive-sweep-hover h-11 w-full justify-center overflow-hidden rounded-[var(--settings-control-radius)] border border-red-500/35 bg-red-500/12 px-5 text-sm font-semibold text-red-300 focus:ring-0 focus:ring-offset-0 disabled:border-red-500/20 disabled:bg-red-500/10 disabled:text-red-100/70 sm:w-auto";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -207,8 +198,6 @@ export default function SettingsPage() {
     setCardSize,
     discordPresenceEnabled,
     setDiscordPresenceEnabled,
-    websiteMode,
-    setWebsiteMode,
     pageDensity,
     setPageDensity,
     rightPanelAutoOpen,
@@ -254,19 +243,6 @@ export default function SettingsPage() {
   const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [isSettingsSearchOpen, setIsSettingsSearchOpen] = useState(false);
   const settingsSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const desktopApp = isKnobbDesktopApp();
-  const desktopDownloadPlatform = useMemo(() => detectDesktopDownloadPlatform(), []);
-  const desktopPlatformLabel = useMemo(() => formatDesktopPlatform(getKnobbDesktopPlatform()), []);
-  const {
-    installUpdate,
-    isLoading: desktopUpdateLoading,
-    refreshStatus: refreshDesktopUpdateStatus,
-    status: desktopUpdateStatus,
-  } = useKnobbDesktopUpdate();
-  const desktopUpdatePresentation = useMemo(
-    () => getDesktopUpdatePresentation(desktopUpdateStatus),
-    [desktopUpdateStatus],
-  );
   const discordBridgeReady = discordBridgeStatus.ok;
   const discordBridgeConfigured = discordBridgeStatus.ok && discordBridgeStatus.configured;
   const discordDesktopConnected = discordBridgeStatus.discordConnected;
@@ -450,11 +426,6 @@ export default function SettingsPage() {
   const otherPlaybackSessions = playbackSessions.filter((session) => session.deviceId !== currentPlaybackDeviceId);
 
   useEffect(() => {
-    if (desktopApp) {
-      setServiceWorkerReady(false);
-      return;
-    }
-
     const handleOnlineState = () => {
       setIsOnline(navigator.onLine);
     };
@@ -476,7 +447,7 @@ export default function SettingsPage() {
       window.removeEventListener("online", handleOnlineState);
       window.removeEventListener("offline", handleOnlineState);
     };
-  }, [desktopApp]);
+  }, []);
 
   useEffect(() => {
     if (!showSettingsSearchInput) return;
@@ -604,13 +575,6 @@ export default function SettingsPage() {
   const librarySectionVisible = librarySectionTitleMatch || showLocalFilesRowMatch || localFilesSummaryRowMatch;
 
   const displaySectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, displaySectionTitle);
-  const websiteModeRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.websiteMode"),
-    t("settings.websiteModeDescription"),
-    t("settings.websiteModeEdgy"),
-    t("settings.websiteModeRoundish"),
-  );
   const pageDensityRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.pageDensity"),
@@ -680,7 +644,6 @@ export default function SettingsPage() {
     t("settings.sizeBigger"),
   );
   const displaySectionVisible = displaySectionTitleMatch
-    || websiteModeRowMatch
     || pageDensityRowMatch
     || fontRowMatch
     || dynamicCardsRowMatch
@@ -726,31 +689,8 @@ export default function SettingsPage() {
   const offlineAppRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.offlineApp"),
-    desktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending"),
+    serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending"),
     "offline cache service worker",
-  );
-  const installAppRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.desktopMainApp"),
-    t("settings.desktopDownloadsDescription"),
-    t("settings.desktopMainAppDescription"),
-    t("settings.desktopDownloadMac"),
-    t("settings.desktopDownloadWindows"),
-    t("settings.desktopViewRelease"),
-    t("settings.desktopViewRepo"),
-    desktopUpdatePresentation.title,
-    desktopUpdatePresentation.detail,
-    "desktop download update release repo mac windows",
-  );
-  const companionRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.desktopCompanionApp"),
-    t("settings.desktopCompanionDescription"),
-    t("settings.desktopDownloadMac"),
-    t("settings.desktopDownloadWindows"),
-    t("settings.desktopViewRelease"),
-    t("settings.desktopViewRepo"),
-    "desktop companion discord download release repo mac windows update",
   );
   const downloadsRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
@@ -779,8 +719,6 @@ export default function SettingsPage() {
   );
   const storageSectionVisible = storageSectionTitleMatch
     || offlineAppRowMatch
-    || installAppRowMatch
-    || companionRowMatch
     || downloadsRowMatch
     || storageLocalFilesRowMatch
     || cacheRowMatch
@@ -795,41 +733,46 @@ export default function SettingsPage() {
     || adminSectionVisible
     || storageSectionVisible;
 
+  const settingsSearchActions = (
+    <div className="flex w-full gap-3 sm:w-auto">
+      {showSettingsSearchInput ? (
+        <Input
+          ref={settingsSearchInputRef}
+          value={settingsSearchQuery}
+          onChange={(event) => setSettingsSearchQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            if (settingsSearchQuery) {
+              setSettingsSearchQuery("");
+              return;
+            }
+            setIsSettingsSearchOpen(false);
+            settingsSearchInputRef.current?.blur();
+          }}
+          placeholder={t("settings.searchPlaceholder")}
+          aria-label={t("settings.searchAria")}
+          className="h-11 w-full rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0 sm:w-72"
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={handleSettingsSearchButtonClick}
+        className="settings-search-button website-form-control menu-sweep-hover flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--settings-control-radius)] border border-white/10 bg-white/[0.04] text-muted-foreground focus:ring-0 focus:ring-offset-0"
+        aria-label={t("settings.searchAria")}
+      >
+        <Search className="w-4 h-4" />
+      </button>
+    </div>
+  );
+
   return (
     <PageTransition>
-      <div className="max-w-6xl mx-auto px-6 pb-24 pt-8 space-y-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-4xl md:text-5xl font-black tracking-tight text-foreground">{t("settings.title")}</h1>
-          <div className="flex w-full justify-end gap-3 sm:w-auto">
-            {showSettingsSearchInput ? (
-              <Input
-                ref={settingsSearchInputRef}
-                value={settingsSearchQuery}
-                onChange={(event) => setSettingsSearchQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape") return;
-                  if (settingsSearchQuery) {
-                    setSettingsSearchQuery("");
-                    return;
-                  }
-                  setIsSettingsSearchOpen(false);
-                  settingsSearchInputRef.current?.blur();
-                }}
-                placeholder={t("settings.searchPlaceholder")}
-                aria-label={t("settings.searchAria")}
-                className="h-11 w-full max-w-xs rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0 sm:w-72"
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={handleSettingsSearchButtonClick}
-              className="settings-search-button website-form-control menu-sweep-hover flex h-11 w-11 items-center justify-center rounded-[var(--settings-control-radius)] border border-white/10 bg-white/[0.04] text-muted-foreground focus:ring-0 focus:ring-offset-0"
-              aria-label={t("settings.searchAria")}
-            >
-              <Search className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+      <UtilityPageLayout
+        eyebrow="Preferences"
+        title={t("settings.title")}
+        actions={settingsSearchActions}
+        className="settings-page-shell"
+      >
 
         {accountSectionVisible ? (
           <Section title={accountSectionTitle}>
@@ -922,17 +865,20 @@ export default function SettingsPage() {
                       </div>
                     }
                     action={
-                      <Button
-                        variant="outline"
-                        className={SETTINGS_ACTION_BUTTON_CLASS}
-                        onClick={() => {
-                          void handleSignOutOtherSessions();
-                        }}
-                        disabled={accountAction !== null || otherPlaybackSessions.length === 0}
-                      >
-                        {accountAction === "sign-out-others" ? "Signing out..." : "Sign out other sessions"}
-                      </Button>
+                      <div className="mt-3 flex w-full justify-end lg:mt-0 lg:w-auto">
+                        <Button
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                          onClick={() => {
+                            void handleSignOutOtherSessions();
+                          }}
+                          disabled={accountAction !== null || otherPlaybackSessions.length === 0}
+                        >
+                          {accountAction === "sign-out-others" ? "Signing out..." : "Sign out other sessions"}
+                        </Button>
+                      </div>
                     }
+                    className="lg:items-start"
                   />
                 ) : null}
                 {accountSectionTitleMatch || signOutRowMatch ? (
@@ -942,7 +888,7 @@ export default function SettingsPage() {
                     action={
                       <Button
                         variant="outline"
-                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        className={SETTINGS_DESTRUCTIVE_BUTTON_CLASS}
                         onClick={() => {
                           void handleSignOutCurrentSession();
                         }}
@@ -1096,22 +1042,6 @@ export default function SettingsPage() {
 
         {displaySectionVisible ? (
           <Section title={displaySectionTitle}>
-            {displaySectionTitleMatch || websiteModeRowMatch ? (
-              <Row
-                title={t("settings.websiteMode")}
-                description={t("settings.websiteModeDescription")}
-                action={
-                  <SelectControl
-                    value={websiteMode}
-                    onChange={(value) => setWebsiteMode(value as typeof websiteMode)}
-                    options={[
-                      { value: "edgy", label: t("settings.websiteModeEdgy") },
-                      { value: "roundish", label: t("settings.websiteModeRoundish") },
-                    ]}
-                  />
-                }
-              />
-            ) : null}
             {displaySectionTitleMatch || pageDensityRowMatch ? (
               <Row
                 title={t("settings.pageDensity")}
@@ -1356,164 +1286,8 @@ export default function SettingsPage() {
             {storageSectionTitleMatch || offlineAppRowMatch ? (
               <Row
                 title={t("settings.offlineApp")}
-                description={desktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending")}
-                action={desktopApp || serviceWorkerReady ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <HelpCircle className="w-5 h-5 text-muted-foreground" />}
-              />
-            ) : null}
-            {storageSectionTitleMatch || installAppRowMatch ? (
-              <Row
-                title={t("settings.desktopMainApp")}
-                description={(
-                  <div className="space-y-1">
-                    <p>{t("settings.desktopDownloadsDescription")}</p>
-                    <p>{t("settings.desktopMainAppDescription")}</p>
-                    {desktopApp ? (
-                      <>
-                        <p>{desktopUpdatePresentation.title}. {desktopUpdatePresentation.detail}</p>
-                        <p>{t("settings.desktopUpdateVersion", { version: desktopUpdateStatus?.currentVersion || "0.0.0" })}</p>
-                        <p>{t("settings.desktopUpdatePlatform", { platform: desktopPlatformLabel })}</p>
-                      </>
-                    ) : null}
-                  </div>
-                )}
-                action={
-                  <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
-                    {desktopApp ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                          onClick={() => {
-                            if (desktopUpdateStatus?.status === "downloaded") {
-                              void installUpdate();
-                              return;
-                            }
-
-                            void refreshDesktopUpdateStatus();
-                          }}
-                          disabled={
-                            desktopUpdateLoading
-                            || desktopUpdateStatus?.status === "checking"
-                            || desktopUpdateStatus?.status === "downloading"
-                          }
-                        >
-                          {desktopUpdateStatus?.status === "downloaded" ? (
-                            <>
-                              {t("settings.desktopRestartUpdate")}
-                              <RotateCcw className="ml-2 h-4 w-4" />
-                            </>
-                          ) : desktopUpdateStatus?.status === "downloading" ? (
-                            <>
-                              {desktopUpdatePresentation.title}
-                              <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                            </>
-                          ) : desktopUpdateStatus?.status === "checking" ? (
-                            <>
-                              {t("settings.desktopCheckUpdates")}
-                              <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                            </>
-                          ) : (
-                            <>
-                              {desktopUpdateStatus?.status === "error" || desktopUpdateStatus?.blockingReason === "offline-grace-expired"
-                                ? t("settings.desktopRetryUpdate")
-                                : t("settings.desktopCheckUpdates")}
-                              <RotateCcw className="ml-2 h-4 w-4" />
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          asChild
-                          variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopDownloadWindows")} <Download className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                }
-              />
-            ) : null}
-            {storageSectionTitleMatch || companionRowMatch ? (
-              <Row
-                title={t("settings.desktopCompanionApp")}
-                description={(
-                  <div className="space-y-1">
-                    <p>{t("settings.desktopCompanionDescription")}</p>
-                  </div>
-                )}
-                action={(
-                  <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
-                    <Button
-                      asChild
-                      variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopDownloadWindows")} <Download className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
-                  </div>
-                )}
+                description={serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending")}
+                action={serviceWorkerReady ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <HelpCircle className="w-5 h-5 text-muted-foreground" />}
               />
             ) : null}
             {storageSectionTitleMatch || downloadsRowMatch ? (
@@ -1554,9 +1328,9 @@ export default function SettingsPage() {
         ) : null}
 
         {hasSettingsSearchQuery && !hasVisibleSearchResults ? (
-          <div className={cn("rounded-[28px] border border-white/10 bg-white/[0.03] px-5 py-6 text-sm text-muted-foreground", PANEL_SURFACE_CLASS)}>
+          <UtilityPagePanel className={cn("px-5 py-6 text-sm text-muted-foreground", PANEL_SURFACE_CLASS)}>
             {t("settings.searchNoResults")}
-          </div>
+          </UtilityPagePanel>
         ) : null}
 
         <DiscordConnectDialog
@@ -1568,7 +1342,7 @@ export default function SettingsPage() {
             setDiscordPresenceEnabled(true);
           }}
         />
-      </div >
+      </UtilityPageLayout>
     </PageTransition >
   );
 }

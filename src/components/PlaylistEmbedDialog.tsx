@@ -15,7 +15,7 @@ import { buildPlaylistEmbedCode } from "@/lib/playlistSharing";
 type EmbedSize = "compact" | "normal";
 
 const DIALOG_CONTENT_CLASS =
-  "w-[min(1180px,calc(100vw-32px))] max-w-[1180px] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.14),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0.015)),rgba(0,0,0,0.98)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.82)] backdrop-blur-2xl sm:max-h-[90vh] sm:overflow-hidden";
+  "w-[min(1180px,calc(100vw-32px))] max-w-[1180px] gap-0 overflow-hidden border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0.015)),rgba(0,0,0,0.98)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.82)] backdrop-blur-2xl sm:max-h-[90vh] sm:overflow-hidden";
 
 const EMBED_SIZES: Record<EmbedSize, { label: string; height: number; previewClassName: string }> = {
   compact: {
@@ -178,7 +178,7 @@ export function PlaylistEmbedDialog({
             </div>
           </div>
 
-          <div className="bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.18),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-4 lg:p-8">
+          <div className="bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-4 lg:p-8">
             <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/45">
               <Radio className="h-3.5 w-3.5" />
               Live preview

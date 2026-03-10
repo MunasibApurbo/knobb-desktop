@@ -169,6 +169,20 @@ vi.mock("@/hooks/useBrowseHotNew", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useUnreleasedArtists", () => ({
+  useUnreleasedArtists: () => ({
+    artists: responsiveMocks.artists.map((artist, index) => ({
+      sheetId: `sheet-${index + 1}`,
+      name: artist.name,
+      url: `https://example.com/${index + 1}`,
+      imageUrl: artist.imageUrl,
+      popularity: 100 - index,
+    })),
+    loading: false,
+    error: null,
+  }),
+}));
+
 vi.mock("@/hooks/useSavedAlbums", () => ({
   useSavedAlbums: () => ({
     isSaved: () => false,
@@ -248,7 +262,7 @@ vi.mock("@/hooks/useResolvedArtistImage", () => ({
 }));
 
 vi.mock("@/lib/tidalReferenceSearch", () => ({
-  searchTidalReference: (...args: unknown[]) => responsiveMocks.searchTidalReference(...args),
+  searchTidalReference: responsiveMocks.searchTidalReference,
 }));
 
 vi.mock("@/lib/musicApi", async (importOriginal) => {
@@ -340,11 +354,13 @@ describe("responsive routes", () => {
     responsiveMocks.searchTidalReference.mockClear();
   });
 
-  it("renders the home page as horizontal mobile shelves", () => {
-    const { container } = renderWithRouter(<Index />);
+  it("renders the home page content on mobile", () => {
+    renderWithRouter(<Index />);
 
-    expect(container.querySelector(".home-section-inline-row")).not.toBeNull();
-    expect(screen.queryAllByLabelText(/Next /i)).toHaveLength(0);
+    expect(screen.getByText("Knobb Mobile")).toBeInTheDocument();
+    expect(screen.getByText("Your richest listening canvas")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume Session" })).toBeInTheDocument();
+    expect(screen.getByText("Picked For You")).toBeInTheDocument();
   });
 
   it("renders browse collections as horizontal mobile shelves", () => {
@@ -368,6 +384,24 @@ describe("responsive routes", () => {
 
     expect(await screen.findByText("Top result")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Top Results" })).toHaveClass("menu-sweep-hover");
+  });
+
+  it("shows a mobile browse action in search and navigates to browse", async () => {
+    renderWithRouter(
+      <Routes>
+        <Route path="/search" element={<SearchPage />} />
+        <Route path="/browse" element={<div>Browse destination</div>} />
+      </Routes>,
+      ["/search?q=artist"],
+    );
+
+    await waitFor(() => {
+      expect(responsiveMocks.searchTidalReference).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse" }));
+
+    expect(screen.getByText("Browse destination")).toBeInTheDocument();
   });
 
   it("renders top-result search tracks through the shared track row and keeps the current track highlighted while playing", async () => {
@@ -449,14 +483,14 @@ describe("responsive routes", () => {
     expect(container.querySelector(".detail-track-row.is-current")).toBe(currentRow);
   });
 
-  it("keeps the desktop home carousel and pager controls", () => {
+  it("renders the home page content on desktop", () => {
     responsiveMocks.viewport.isMobile = false;
 
-    const { container } = renderWithRouter(<Index />);
+    renderWithRouter(<Index />);
 
-    expect(container.querySelector(".home-section-inline-row")).toBeNull();
-    expect(container.querySelector(".home-section-carousel-track")).not.toBeNull();
-    expect(screen.getAllByLabelText(/Next /i).length).toBeGreaterThan(0);
+    expect(screen.getByText("For You")).toBeInTheDocument();
+    expect(screen.getByText("Fresh picks, recent plays, and artists worth revisiting.")).toBeInTheDocument();
+    expect(screen.getByText("Recommended Songs")).toBeInTheDocument();
   });
 
   it("keeps desktop artist carousels and pager controls", () => {

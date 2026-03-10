@@ -70,7 +70,13 @@ vi.mock("@/components/AppDiagnosticsInbox", () => ({
 }));
 
 vi.mock("@/components/MobileNav", () => ({
-  MobileNav: () => <nav data-testid="mobile-nav" />,
+  MobileNav: () => (
+    <nav data-testid="mobile-nav">
+      <a href="/app">Home</a>
+      <a href="/search">Search</a>
+      <a href="/library">Library</a>
+    </nav>
+  ),
 }));
 
 vi.mock("@/components/mobile/MobileMiniPlayer", () => ({
@@ -157,9 +163,14 @@ describe("Layout mobile shell", () => {
     const { container } = renderLayout();
 
     await screen.findByText("Open player");
+    expect(await screen.findByLabelText("Open account menu")).toBeInTheDocument();
     expect(screen.getByTestId("mobile-nav")).toBeInTheDocument();
+    expect(screen.getByText("Home")).toBeInTheDocument();
+    expect(screen.getByText("Search")).toBeInTheDocument();
+    expect(screen.getByText("Library")).toBeInTheDocument();
     expect(screen.getByText("Player sheet closed")).toBeInTheDocument();
     expect(container.querySelector("main")).toHaveClass("mobile-main-content");
+    expect(container.querySelector("main")?.parentElement?.parentElement?.parentElement).toHaveClass("h-full");
 
     fireEvent.click(screen.getByText("Open player"));
 
@@ -186,6 +197,7 @@ describe("Layout mobile shell", () => {
 
     expect(screen.queryByText("Player sheet closed")).not.toBeInTheDocument();
     expect(screen.getByTestId("mobile-nav")).toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(3);
   });
 
 });

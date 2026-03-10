@@ -16,7 +16,7 @@ import { loadProfilePreferences, persistProfilePreferences } from "@/lib/profile
 export type Theme = "default" | "midnight" | "forest" | "crimson" | "ocean" | "amber" | "noir" | "amoled";
 type Font = "System Default" | "Inter" | "Roboto" | "Outfit" | "JetBrains Mono" | "Poppins" | "Nunito" | "Space Grotesk";
 export type LibraryItemStyle = "cover" | "list";
-export type WebsiteMode = "edgy" | "roundish";
+export type WebsiteMode = "roundish";
 export type RightPanelStyle = "classic" | "artwork";
 export type BottomPlayerStyle = "current" | "black";
 export type SidebarStyle = "classic" | "artwork";
@@ -162,7 +162,7 @@ type SyncedUiPreferences = Pick<
 const VALID_THEMES: Theme[] = ["default", "midnight", "forest", "crimson", "ocean", "amber", "noir", "amoled"];
 const VALID_FONTS: Font[] = ["System Default", "Inter", "Roboto", "Outfit", "JetBrains Mono", "Poppins", "Nunito", "Space Grotesk"];
 const VALID_LIBRARY_ITEM_STYLES: LibraryItemStyle[] = ["cover", "list"];
-const VALID_WEBSITE_MODES: WebsiteMode[] = ["edgy", "roundish"];
+const VALID_WEBSITE_MODES: WebsiteMode[] = ["roundish"];
 const VALID_RIGHT_PANEL_STYLES: RightPanelStyle[] = ["classic", "artwork"];
 const VALID_BOTTOM_PLAYER_STYLES: BottomPlayerStyle[] = ["current", "black"];
 const VALID_SIDEBAR_STYLES: SidebarStyle[] = ["classic", "artwork"];
@@ -292,10 +292,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const storedCardSize = safeStorageGetItem("card-size") as MediaCardSize | null;
         return storedCardSize || "small";
     });
-    const [websiteMode, setWebsiteModeState] = useState<WebsiteMode>(() => {
-        const storedWebsiteMode = safeStorageGetItem("website-mode");
-        return storedWebsiteMode === "edgy" ? "edgy" : "roundish";
-    });
+    const [websiteMode, setWebsiteModeState] = useState<WebsiteMode>("roundish");
     const [rightPanelStyle, setRightPanelStyleState] = useState<RightPanelStyle>(() => {
         const storedRightPanelStyle = safeStorageGetItem("right-panel-style");
         return storedRightPanelStyle === "classic" ? "classic" : "artwork";
@@ -653,7 +650,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     useEffect(() => {
-        if (safeStorageGetItem("website-mode") === null) {
+        if (safeStorageGetItem("website-mode") !== "roundish") {
             safeStorageSetItem("website-mode", "roundish");
         }
     }, []);

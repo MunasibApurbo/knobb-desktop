@@ -9,8 +9,6 @@ vi.mock("@/contexts/LanguageContext", () => ({
       const labels: Record<string, string> = {
         "nav.home": "Home",
         "nav.search": "Search",
-        "nav.browse": "Browse",
-        "nav.unreleased": "Unreleased",
         "nav.library": "Library",
       };
 
@@ -20,7 +18,7 @@ vi.mock("@/contexts/LanguageContext", () => ({
 }));
 
 describe("MobileNav", () => {
-  it("shows the four core destinations without a separate unreleased tab", () => {
+  it("shows the three mobile destinations with no dedicated browse tab", () => {
     render(
       <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
         <MobileNav />
@@ -29,9 +27,8 @@ describe("MobileNav", () => {
 
     expect(screen.getByText("Home")).toBeInTheDocument();
     expect(screen.getByText("Search")).toBeInTheDocument();
-    expect(screen.getByText("Browse")).toBeInTheDocument();
     expect(screen.getByText("Library")).toBeInTheDocument();
-    expect(screen.queryByText("Unreleased")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link")).toHaveLength(4);
+    expect(screen.queryByText("Browse")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(3);
   });
 });

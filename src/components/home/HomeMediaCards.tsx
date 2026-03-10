@@ -36,11 +36,13 @@ export function TrackCard({
   tracks,
   liked,
   onToggleLike,
+  isPriority,
 }: {
   track: Track;
   tracks: Track[];
   liked: boolean;
   onToggleLike: () => void;
+  isPriority?: boolean;
 }) {
   const { play, currentTrack } = usePlayer();
   const { motionEnabled, websiteMode } = useMotionPreferences();
@@ -52,10 +54,10 @@ export function TrackCard({
     track.artists && track.artists.length > 0
       ? track.artists.map((artist) => ({ id: artist.id, name: artist.name }))
       : track.artist
-          .split(",")
-          .map((name) => name.trim())
-          .filter(Boolean)
-          .map((name) => ({ name }));
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .map((name) => ({ name }));
 
   return (
     <TrackContextMenu track={track} tracks={tracks}>
@@ -71,7 +73,8 @@ export function TrackCard({
           <img
             src={track.coverUrl}
             alt={track.title}
-            loading="lazy"
+            loading={isPriority ? "eager" : "lazy"}
+            fetchPriority={isPriority ? "high" : "auto"}
             decoding="async"
             draggable={false}
             className={MEDIA_CARD_ARTWORK_CLASS}
@@ -109,20 +112,32 @@ export function TrackCard({
             <Heart className={`${MEDIA_CARD_ACTION_ICON_CLASS} ${liked ? "fill-current" : ""}`} />
           </motion.button>
         </div>
-        <div className={MEDIA_CARD_BODY_CLASS}>
+        <div className={`${MEDIA_CARD_BODY_CLASS} relative`}>
+          <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+            <div className="shell-artwork-wash">
+              <img
+                src={track.coverUrl}
+                alt=""
+                loading={isPriority ? "eager" : "lazy"}
+                fetchPriority={isPriority ? "high" : "auto"}
+                decoding="async"
+              />
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+          </div>
           <p
             className={`${MEDIA_CARD_TITLE_CLASS} truncate ${isCurrent ? "font-semibold" : ""}`}
             style={isCurrent ? { color: `hsl(var(--dynamic-accent))` } : {}}
           >
             {track.title}
           </p>
-          <p className={`${MEDIA_CARD_META_CLASS} truncate`}>
+          <div className={MEDIA_CARD_META_CLASS}>
             <ArtistsLink
               artists={trackArtists}
               className={`${MEDIA_CARD_META_CLASS} block truncate`}
               onClick={(event) => event.stopPropagation()}
             />
-          </p>
+          </div>
           {playbackIssue ? (
             <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white/55">
               {playbackIssue === "video" ? "Video only" : "Unavailable"}
@@ -134,12 +149,13 @@ export function TrackCard({
   );
 }
 
-export function ArtistCardWrapper({ artist }: { artist: HomeArtist }) {
+export function ArtistCardWrapper({ artist, isPriority }: { artist: HomeArtist; isPriority?: boolean }) {
   return (
     <ArtistCard
       id={artist.id}
       name={artist.name}
       imageUrl={artist.imageUrl}
+      isPriority={isPriority}
     />
   );
 }
@@ -148,10 +164,12 @@ export function HomeAlbumCard({
   album,
   saved,
   onToggleSave,
+  isPriority,
 }: {
   album: HomeAlbum;
   saved: boolean;
   onToggleSave: () => void;
+  isPriority?: boolean;
 }) {
   const navigate = useNavigate();
   const { playAlbum } = usePlayer();
@@ -184,7 +202,8 @@ export function HomeAlbumCard({
           <img
             src={album.coverUrl || "/placeholder.svg"}
             alt={album.title}
-            loading="lazy"
+            loading={isPriority ? "eager" : "lazy"}
+            fetchPriority={isPriority ? "high" : "auto"}
             decoding="async"
             draggable={false}
             className={MEDIA_CARD_ARTWORK_CLASS}
@@ -227,7 +246,19 @@ export function HomeAlbumCard({
             <Heart className={`${MEDIA_CARD_ACTION_ICON_CLASS} ${saved ? "fill-current" : ""}`} />
           </motion.button>
         </div>
-        <div className={MEDIA_CARD_BODY_CLASS}>
+        <div className={`${MEDIA_CARD_BODY_CLASS} relative`}>
+          <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+            <div className="shell-artwork-wash">
+              <img
+                src={album.coverUrl || "/placeholder.svg"}
+                alt=""
+                loading={isPriority ? "eager" : "lazy"}
+                fetchPriority={isPriority ? "high" : "auto"}
+                decoding="async"
+              />
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+          </div>
           <AlbumLink
             title={album.title}
             albumId={album.id}

@@ -20,6 +20,7 @@ interface DetailHeroProps {
   artworkUrl: string;
   artworkLayoutId?: string;
   body?: ReactNode;
+  backgroundVariant?: "rich" | "plain-black";
   className?: string;
   cornerAction?: ReactNode;
   dragPayload?: PlaylistDragPayload;
@@ -36,6 +37,7 @@ export function DetailHero({
   artworkUrl,
   artworkLayoutId,
   body,
+  backgroundVariant = "rich",
   className,
   cornerAction,
   dragPayload,
@@ -48,9 +50,10 @@ export function DetailHero({
 }: DetailHeroProps) {
   const { scrollScale, scrollBlur, scrollOpacity } = getHeroScrollStyles(scrollY);
   const safeArtworkUrl = artworkUrl || "/placeholder.svg";
-  const heroBackground = getHeroSurfaceBackground(accentColor);
-  const heroOverlayBackground = getHeroSplitOverlayBackground(accentColor);
-  const heroAuraBackground = getHeroAuraBackground(accentColor);
+  const hasRichBackground = backgroundVariant === "rich";
+  const heroBackground = hasRichBackground ? getHeroSurfaceBackground(accentColor) : "#000";
+  const heroOverlayBackground = hasRichBackground ? getHeroSplitOverlayBackground(accentColor) : null;
+  const heroAuraBackground = hasRichBackground ? getHeroAuraBackground(accentColor) : null;
   const canDragArtwork = !!dragPayload && dragPayload.tracks.length > 0;
 
   const handleArtworkDragStart = (event: DragEvent<HTMLElement>) => {
@@ -64,7 +67,11 @@ export function DetailHero({
 
   return (
     <section
-      className={cn("detail-hero relative overflow-hidden border border-white/10 border-b-0", className)}
+      className={cn(
+        "detail-hero relative overflow-hidden border border-white/10 border-b-0",
+        !hasRichBackground && "detail-hero--plain",
+        className,
+      )}
       style={{ background: heroBackground }}
     >
       {cornerAction ? (
@@ -72,55 +79,68 @@ export function DetailHero({
           {cornerAction}
         </div>
       ) : null}
-      <div
-        className="absolute inset-0 z-[1]"
-        style={{ background: heroOverlayBackground }}
-      />
-      <div
-        className="detail-hero-aura absolute inset-0 z-[1]"
-        style={{ background: heroAuraBackground }}
-      />
-      <img
-        src={safeArtworkUrl}
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover transition-[filter] duration-100 mix-blend-overlay"
-        style={{
-          opacity: 0.6,
-          transform: `scale(${scrollScale + 0.44})`,
-          filter: `blur(${34 + scrollBlur}px) saturate(1.06)`,
-        }}
-      />
+      {heroOverlayBackground ? (
+        <div
+          className="absolute inset-0 z-[1]"
+          style={{ background: heroOverlayBackground }}
+        />
+      ) : null}
+      {heroAuraBackground ? (
+        <div
+          className="detail-hero-aura absolute inset-0 z-[1]"
+          style={{ background: heroAuraBackground }}
+        />
+      ) : null}
+      {hasRichBackground ? (
+        <img
+          src={safeArtworkUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover transition-[filter] duration-100 mix-blend-overlay"
+          style={{
+            opacity: 0.6,
+            transform: `scale(${scrollScale + 0.44})`,
+            filter: `blur(${34 + scrollBlur}px) saturate(1.06)`,
+          }}
+        />
+      ) : null}
 
       <div className="relative z-[2] flex h-full items-end">
+        {hasRichBackground ? (
+          <div
+            className={cn(
+              "detail-hero-cover-bleed absolute inset-y-0 right-0 hidden w-[58%] shrink-0 md:block",
+              canDragArtwork ? "cursor-grab active:cursor-grabbing" : "",
+            )}
+            draggable={canDragArtwork}
+            onDragEnd={canDragArtwork ? clearActivePlaylistDrag : undefined}
+            onDragStart={canDragArtwork ? handleArtworkDragStart : undefined}
+            title={canDragArtwork ? `Drag ${label.toLowerCase()} artwork to a playlist` : undefined}
+          >
+            <motion.img
+              src={safeArtworkUrl}
+              alt=""
+              layoutId={artworkLayoutId}
+              draggable={false}
+              className="h-full w-full object-cover object-top transition-[filter,transform] duration-100 mix-blend-overlay"
+              style={{
+                opacity: 0.6,
+                transform: `scale(${scrollScale})`,
+                filter: `blur(${scrollBlur}px)`,
+                maskImage: HERO_SPLIT_MASK_IMAGE,
+                WebkitMaskImage: HERO_SPLIT_MASK_IMAGE,
+                maskComposite: "intersect",
+                WebkitMaskComposite: "source-in",
+              }}
+            />
+          </div>
+        ) : null}
+
         <div
           className={cn(
-            "detail-hero-cover-bleed absolute inset-y-0 right-0 hidden w-[58%] shrink-0 md:block",
-            canDragArtwork ? "cursor-grab active:cursor-grabbing" : "",
+            "detail-hero-content relative z-10 flex w-full min-w-0 flex-col justify-end px-4 pb-5 pt-6 sm:px-5 md:px-8 md:pb-8 md:pt-10 lg:px-10",
+            hasRichBackground ? "md:w-[58%]" : "md:w-full",
           )}
-          draggable={canDragArtwork}
-          onDragEnd={canDragArtwork ? clearActivePlaylistDrag : undefined}
-          onDragStart={canDragArtwork ? handleArtworkDragStart : undefined}
-          title={canDragArtwork ? `Drag ${label.toLowerCase()} artwork to a playlist` : undefined}
         >
-          <motion.img
-            src={safeArtworkUrl}
-            alt=""
-            layoutId={artworkLayoutId}
-            draggable={false}
-            className="h-full w-full object-cover object-top transition-[filter,transform] duration-100 mix-blend-overlay"
-            style={{
-              opacity: 0.6,
-              transform: `scale(${scrollScale})`,
-              filter: `blur(${scrollBlur}px)`,
-              maskImage: HERO_SPLIT_MASK_IMAGE,
-              WebkitMaskImage: HERO_SPLIT_MASK_IMAGE,
-              maskComposite: "intersect",
-              WebkitMaskComposite: "source-in",
-            }}
-          />
-        </div>
-
-        <div className="detail-hero-content relative z-10 flex w-full min-w-0 flex-col justify-end px-4 pb-5 pt-6 sm:px-5 md:w-[58%] md:px-8 md:pb-8 md:pt-10 lg:px-10">
           <div
             className={cn(
               "detail-hero-cover-card mb-5 md:hidden",

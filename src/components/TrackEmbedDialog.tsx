@@ -28,7 +28,7 @@ const EMBED_SIZES: Record<EmbedSize, { label: string; height: number }> = {
 };
 
 const DIALOG_CONTENT_CLASS =
-  "w-[min(1360px,calc(100vw-32px))] max-w-[1360px] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.14),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0.015)),rgba(0,0,0,0.98)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.82)] backdrop-blur-2xl sm:max-h-[92vh] sm:overflow-auto";
+  "w-[min(1360px,calc(100vw-32px))] max-w-[1360px] gap-0 overflow-hidden border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0.015)),rgba(0,0,0,0.98)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.82)] backdrop-blur-2xl sm:max-h-[92vh] sm:overflow-auto";
 const CONTROL_SURFACE_CLASS =
   "website-form-control h-[62px] rounded-[var(--surface-radius-lg)] border border-white/10 bg-black px-7 text-[19px] text-white outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 

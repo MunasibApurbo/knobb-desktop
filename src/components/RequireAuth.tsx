@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
+import { APP_HOME_PATH } from "@/lib/routes";
 
 export function RequireAuth({ children }: React.PropsWithChildren) {
   const { user, loading } = useAuth();
@@ -46,7 +47,7 @@ export function RequireAdmin({ children }: React.PropsWithChildren) {
   }
 
   if (!isAdmin) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={APP_HOME_PATH} replace />;
   }
 
   return <>{children}</>;

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
+import { APP_HOME_PATH } from "@/lib/routes";
 
 export default function TrackSharePage() {
   const { trackId } = useParams<{ trackId: string }>();
@@ -13,7 +14,7 @@ export default function TrackSharePage() {
   const artist = searchParams.get("artist") || "Unknown artist";
   const album = searchParams.get("album") || "";
   const cover = searchParams.get("cover") || undefined;
-  const redirect = searchParams.get("redirect") || "/";
+  const redirect = searchParams.get("redirect") || APP_HOME_PATH;
 
   usePageMetadata({
     title: `${title} - ${artist}`,

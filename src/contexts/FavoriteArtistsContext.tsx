@@ -2,9 +2,9 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
 import { scheduleBackgroundTask } from "@/lib/performanceProfile";
 import { getSupabaseClient } from "@/lib/runtimeModules";
+import { showErrorToast } from "@/lib/toast";
 
 export interface FavoriteArtist {
     id: string;
@@ -156,7 +156,7 @@ export function FavoriteArtistsProvider({ children }: { children: React.ReactNod
     const addFavorite = useCallback(
         async ({ artistId, artistName, artistImageUrl }: FavoriteArtistInput) => {
             if (!user) {
-                toast.error("Sign in to favorite artists");
+                showErrorToast("Sign in to favorite artists");
                 return false;
             }
 

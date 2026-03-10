@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayer, usePlayerTimeline } from "@/contexts/PlayerContext";
 import { useTrackSelectionShortcutsContext } from "@/contexts/TrackSelectionShortcutsContext";
 
 const EDITABLE_TARGET_SELECTOR = [
@@ -89,9 +89,33 @@ function hasOpenOverlaySurface() {
 }
 
 export function useKeyboardShortcuts() {
-  const { togglePlay, next, previous, volume, setVolume, currentTrack, seek, currentTime, duration } = usePlayer();
+  const { togglePlay, next, previous, volume, setVolume, currentTrack, seek } = usePlayer();
+  const { currentTime, duration } = usePlayerTimeline();
   const { activeScope } = useTrackSelectionShortcutsContext();
+  const activeScopeRef = useRef(activeScope);
+  const currentTimeRef = useRef(currentTime);
+  const currentTrackRef = useRef(currentTrack);
+  const durationRef = useRef(duration);
+  const nextRef = useRef(next);
+  const previousRef = useRef(previous);
   const prevVolumeRef = useRef(volume);
+  const seekRef = useRef(seek);
+  const setVolumeRef = useRef(setVolume);
+  const togglePlayRef = useRef(togglePlay);
+  const volumeRef = useRef(volume);
+
+  useEffect(() => {
+    activeScopeRef.current = activeScope;
+    currentTimeRef.current = currentTime;
+    currentTrackRef.current = currentTrack;
+    durationRef.current = duration;
+    nextRef.current = next;
+    previousRef.current = previous;
+    seekRef.current = seek;
+    setVolumeRef.current = setVolume;
+    togglePlayRef.current = togglePlay;
+    volumeRef.current = volume;
+  }, [activeScope, currentTime, currentTrack, duration, next, previous, seek, setVolume, togglePlay, volume]);
 
   useEffect(() => {
     if (volume > 0) prevVolumeRef.current = volume;
@@ -101,22 +125,28 @@ export function useKeyboardShortcuts() {
     const handler = (e: KeyboardEvent) => {
       if (e.defaultPrevented || hasOpenOverlaySurface()) return;
 
-      if (!shouldIgnoreSelectionShortcutTarget(e.target) && activeScope) {
+      const activeSelectionScope = activeScopeRef.current;
+      const activeDuration = durationRef.current;
+      const activeCurrentTime = currentTimeRef.current;
+      const activeTrack = currentTrackRef.current;
+      const activeVolume = volumeRef.current;
+
+      if (!shouldIgnoreSelectionShortcutTarget(e.target) && activeSelectionScope) {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
           e.preventDefault();
-          activeScope.selectAll();
+          activeSelectionScope.selectAll();
           return;
         }
 
-        if (e.key === "Escape" && activeScope.selectedCount) {
+        if (e.key === "Escape" && activeSelectionScope.selectedCount) {
           e.preventDefault();
-          activeScope.clearSelection();
+          activeSelectionScope.clearSelection();
           return;
         }
 
-        if ((e.key === "Delete" || e.key === "Backspace") && activeScope.selectedCount) {
+        if ((e.key === "Delete" || e.key === "Backspace") && activeSelectionScope.selectedCount) {
           e.preventDefault();
-          void activeScope.deleteSelection();
+          void activeSelectionScope.deleteSelection();
           return;
         }
       }
@@ -129,14 +159,14 @@ export function useKeyboardShortcuts() {
         case "k":
         case "K":
           e.preventDefault();
-          if (currentTrack) togglePlay();
+          if (activeTrack) togglePlayRef.current();
           break;
 
         // ── Seek backward 10s ──
         case "j":
         case "J":
           e.preventDefault();
-          seek(Math.max(0, currentTime - 10));
+          seekRef.current(Math.max(0, activeCurrentTime - 10));
           break;
 
         // ── Seek forward 10s ──
@@ -144,7 +174,7 @@ export function useKeyboardShortcuts() {
         case "L":
           if (!e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            seek(Math.min(duration, currentTime + 10));
+            seekRef.current(Math.min(activeDuration, activeCurrentTime + 10));
           }
           break;
 
@@ -152,9 +182,9 @@ export function useKeyboardShortcuts() {
         case "ArrowLeft":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            previous();
+            previousRef.current();
           } else {
-            seek(Math.max(0, currentTime - 5));
+            seekRef.current(Math.max(0, activeCurrentTime - 5));
           }
           break;
 
@@ -162,22 +192,22 @@ export function useKeyboardShortcuts() {
         case "ArrowRight":
           e.preventDefault();
           if (e.ctrlKey || e.metaKey) {
-            next();
+            nextRef.current();
           } else {
-            seek(Math.min(duration, currentTime + 5));
+            seekRef.current(Math.min(activeDuration, activeCurrentTime + 5));
           }
           break;
 
         // ── Volume up 5% ──
         case "ArrowUp":
           e.preventDefault();
-          setVolume(Math.min(1, volume + 0.05));
+          setVolumeRef.current(Math.min(1, activeVolume + 0.05));
           break;
 
         // ── Volume down 5% ──
         case "ArrowDown":
           e.preventDefault();
-          setVolume(Math.max(0, volume - 0.05));
+          setVolumeRef.current(Math.max(0, activeVolume - 0.05));
           break;
 
         // ── Mute / Unmute ──
@@ -185,7 +215,7 @@ export function useKeyboardShortcuts() {
         case "M":
           if (!e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            setVolume(volume > 0 ? 0 : (prevVolumeRef.current || 1));
+            setVolumeRef.current(activeVolume > 0 ? 0 : (prevVolumeRef.current || 1));
           }
           break;
 
@@ -200,10 +230,10 @@ export function useKeyboardShortcuts() {
         case "7":
         case "8":
         case "9":
-          if (!e.ctrlKey && !e.metaKey && !e.altKey && duration > 0) {
+          if (!e.ctrlKey && !e.metaKey && !e.altKey && activeDuration > 0) {
             e.preventDefault();
             const pct = Number.parseInt(e.key, 10) / 10;
-            seek(duration * pct);
+            seekRef.current(activeDuration * pct);
           }
           break;
       }
@@ -211,5 +241,5 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [togglePlay, next, previous, volume, setVolume, currentTrack, seek, currentTime, duration, activeScope]);
+  }, []);
 }

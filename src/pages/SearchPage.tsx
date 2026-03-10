@@ -1,7 +1,8 @@
 import { FormEvent, forwardRef, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Loader2, Search, X } from "lucide-react";
+import { Compass, Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
@@ -21,6 +22,14 @@ import { useResolvedArtistImage } from "@/hooks/useResolvedArtistImage";
 import { warmArtistPageData } from "@/lib/musicApi";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
+import {
+  MOBILE_ACTION_BUTTON_CLASS,
+  MOBILE_SECONDARY_BUTTON_CLASS,
+  MobileExperiencePage,
+  MobileHero,
+  MobileMetaChip,
+  MobileSection,
+} from "@/components/mobile/MobileExperienceLayout";
 import {
   TidalReferenceAlbumResult,
   TidalReferenceArtistResult,
@@ -98,7 +107,11 @@ type SearchRowProps = {
   onRowMouseEnter?: () => void;
   onRowFocus?: () => void;
   onRowPointerDown?: () => void;
-} & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onMouseEnter" | "onFocus" | "onPointerDown">;
+  onClick?: React.HTMLAttributes<HTMLDivElement>["onClick"];
+  onMouseEnter?: React.HTMLAttributes<HTMLDivElement>["onMouseEnter"];
+  onFocus?: React.HTMLAttributes<HTMLDivElement>["onFocus"];
+  onPointerDown?: React.HTMLAttributes<HTMLDivElement>["onPointerDown"];
+} & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onMouseEnter" | "onFocus" | "onPointerDown" | "title">;
 
 const SearchRow = forwardRef<HTMLDivElement, SearchRowProps>(function SearchRow({
   index,
@@ -365,7 +378,7 @@ export default function SearchPage() {
         >
           <button
             type="button"
-            className="relative m-3 overflow-hidden rounded-[var(--mobile-panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(61,223,179,0.14),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(63,191,255,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-3.5 text-left"
+            className="relative m-3 overflow-hidden rounded-[var(--mobile-panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_85%_18%,rgba(63,191,255,0.16),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-3.5 text-left"
             onClick={() => navigate(`/artist/${results.artists[0].id}?name=${encodeURIComponent(results.artists[0].name)}`)}
           >
             <div className="flex items-center gap-3">
@@ -550,6 +563,416 @@ export default function SearchPage() {
     return null;
   };
 
+  const renderMobileResultGroup = (title: string, children: React.ReactNode, description?: string) => (
+    <MobileSection title={title} eyebrow={description || "Results"} contentClassName="px-0 pb-0">
+      <div>{children}</div>
+    </MobileSection>
+  );
+
+  const renderMobileTopResultCard = () => {
+    if (results.artists[0]) {
+      const artist = results.artists[0];
+      return (
+        <ArtistContextMenu
+          artistId={artist.id}
+          artistName={artist.name}
+          artistImageUrl={artist.imageUrl}
+        >
+          <button
+            type="button"
+            className="relative overflow-hidden rounded-[28px] border border-white/10 p-4 text-left"
+            onClick={() => navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`)}
+          >
+            <img
+              src={artist.imageUrl || "/placeholder.svg"}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_16%,rgba(252,112,88,0.34),transparent_28%),linear-gradient(180deg,rgba(0,0,0,0.12),rgba(0,0,0,0.82)_62%,rgba(0,0,0,0.96))]" />
+            <div className="relative z-10 flex items-end gap-4">
+              <img
+                src={artist.imageUrl || "/placeholder.svg"}
+                alt={artist.name}
+                className="h-24 w-24 shrink-0 rounded-full border border-white/12 object-cover shadow-[0_18px_40px_rgba(0,0,0,0.35)]"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/48">Top result</p>
+                <p className="mt-2 truncate text-[1.65rem] font-black tracking-[-0.05em] text-white">{artist.name}</p>
+                <p className="mt-2 text-sm leading-6 text-white/64">Open the artist profile, start radio, or save them for later.</p>
+              </div>
+            </div>
+          </button>
+        </ArtistContextMenu>
+      );
+    }
+
+    if (results.tracks[0]) {
+      const track = results.tracks[0];
+      return (
+        <button
+          type="button"
+          className="relative overflow-hidden rounded-[28px] border border-white/10 p-4 text-left"
+          onClick={() => play(track, results.tracks)}
+        >
+          <img
+            src={track.coverUrl || "/placeholder.svg"}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_16%,rgba(81,143,255,0.3),transparent_28%),linear-gradient(180deg,rgba(0,0,0,0.14),rgba(0,0,0,0.84)_60%,rgba(0,0,0,0.98))]" />
+          <div className="relative z-10 flex items-end gap-4">
+            <img
+              src={track.coverUrl || "/placeholder.svg"}
+              alt={track.title}
+              className="h-24 w-24 shrink-0 rounded-[22px] border border-white/12 object-cover shadow-[0_18px_40px_rgba(0,0,0,0.35)]"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/48">Top result</p>
+              <p className="mt-2 truncate text-[1.65rem] font-black tracking-[-0.05em] text-white">{track.title}</p>
+              <p className="mt-2 truncate text-sm text-white/66">{track.artist}</p>
+            </div>
+          </div>
+        </button>
+      );
+    }
+
+    if (results.albums[0]) {
+      const album = results.albums[0];
+      return (
+        <button
+          type="button"
+          className="relative overflow-hidden rounded-[28px] border border-white/10 p-4 text-left"
+          onClick={() => openAlbum(album)}
+        >
+          <img src={album.coverUrl || "/placeholder.svg"} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.15),rgba(0,0,0,0.84)_60%,rgba(0,0,0,0.98))]" />
+          <div className="relative z-10 flex items-end gap-4">
+            <img
+              src={album.coverUrl || "/placeholder.svg"}
+              alt={album.title}
+              className="h-24 w-24 shrink-0 rounded-[22px] border border-white/12 object-cover shadow-[0_18px_40px_rgba(0,0,0,0.35)]"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/48">Top result</p>
+              <p className="mt-2 truncate text-[1.65rem] font-black tracking-[-0.05em] text-white">{album.title}</p>
+              <p className="mt-2 truncate text-sm text-white/66">{album.artist}</p>
+            </div>
+          </div>
+        </button>
+      );
+    }
+
+    return null;
+  };
+
+  const renderMobileTabContent = () => {
+    if (activeTab === "top") {
+      return (
+        <>
+          {renderMobileResultGroup("Top Results", (
+            <div className="space-y-3 px-3 pb-3">
+              {renderMobileTopResultCard()}
+            </div>
+          ), "Search")}
+          {results.tracks.length > 0 ? renderMobileResultGroup("Tracks", results.tracks.slice(0, 6).map((track, index) => renderTrackResultRow(track, index, results.tracks)), "Playable now") : null}
+          {results.albums.length > 0 ? renderMobileResultGroup("Albums", (
+            <div>{results.albums.slice(0, 6).map((album, i) => (
+              <AlbumContextMenu
+                key={`mobile-top-album-${album.id}`}
+                albumId={album.id}
+                title={album.title}
+                artist={album.artist}
+                coverUrl={album.coverUrl}
+              >
+                <SearchRow
+                  index={i}
+                  imageUrl={album.coverUrl}
+                  title={album.title}
+                  subtitle={`Album · ${album.artist}`}
+                  onSelect={() => openAlbum(album)}
+                />
+              </AlbumContextMenu>
+            ))}</div>
+          ), "Full projects") : null}
+          {results.playlists.length > 0 ? renderMobileResultGroup("Playlists", (
+            <div>{results.playlists.slice(0, 6).map((playlist, i) => (
+              <PlaylistContextMenu
+                key={`mobile-top-playlist-${playlist.id}`}
+                title={playlist.title}
+                playlistId={playlist.id}
+                coverUrl={playlist.coverUrl}
+                kind="tidal"
+              >
+                <SearchRow
+                  index={i}
+                  imageUrl={playlist.coverUrl}
+                  title={<PlaylistLink title={playlist.title} playlistId={playlist.id} className="text-inherit" />}
+                  subtitle={`Playlist · ${playlist.trackCount} songs`}
+                  onSelect={() => navigate(`/playlist/${playlist.id}`)}
+                />
+              </PlaylistContextMenu>
+            ))}</div>
+          ), "Collections") : null}
+        </>
+      );
+    }
+
+    if (activeTab === "profiles") {
+      return renderMobileResultGroup("Profiles", (
+        <div>
+          {results.artists.map((artist, i) => (
+            <ArtistContextMenu
+              key={`mobile-artist-${artist.id}`}
+              artistId={artist.id}
+              artistName={artist.name}
+              artistImageUrl={artist.imageUrl}
+            >
+              <SearchRow
+                index={i}
+                imageUrl={artist.imageUrl}
+                artistId={artist.id}
+                artistName={artist.name}
+                roundedImage
+                title={artist.name}
+                subtitle="Profile"
+                onSelect={() => navigate(`/artist/${artist.id}?name=${encodeURIComponent(artist.name)}`)}
+                onRowMouseEnter={() => prefetchArtist(artist.id)}
+                onRowFocus={() => prefetchArtist(artist.id)}
+                onRowPointerDown={() => prefetchArtist(artist.id)}
+                onPlay={() => playArtist(artist.id, artist.name)}
+                onLike={() => void handleToggleFavoriteArtist(artist)}
+                isLiked={isFavorite(artist.id)}
+              />
+            </ArtistContextMenu>
+          ))}
+        </div>
+      ), "Artists");
+    }
+
+    if (activeTab === "tracks") {
+      return renderMobileResultGroup("Tracks", (
+        <div>{results.tracks.map((track, i) => renderTrackResultRow(track, i, results.tracks))}</div>
+      ), "Playable now");
+    }
+
+    if (activeTab === "albums") {
+      return renderMobileResultGroup("Albums", (
+        <div>
+          {results.albums.map((album, i) => (
+            <AlbumContextMenu
+              key={`mobile-album-${album.id}`}
+              albumId={album.id}
+              title={album.title}
+              artist={album.artist}
+              coverUrl={album.coverUrl}
+            >
+              <SearchRow
+                index={i}
+                imageUrl={album.coverUrl}
+                title={album.title}
+                subtitle={`Album · ${album.artist}`}
+                onSelect={() => openAlbum(album)}
+              />
+            </AlbumContextMenu>
+          ))}
+        </div>
+      ), "Full projects");
+    }
+
+    if (activeTab === "playlists") {
+      return renderMobileResultGroup("Playlists", (
+        <div>
+          {results.playlists.map((playlist, i) => (
+            <PlaylistContextMenu
+              key={`mobile-playlist-${playlist.id}`}
+              title={playlist.title}
+              playlistId={playlist.id}
+              coverUrl={playlist.coverUrl}
+              kind="tidal"
+            >
+              <SearchRow
+                index={i}
+                imageUrl={playlist.coverUrl}
+                title={<PlaylistLink title={playlist.title} playlistId={playlist.id} className="text-inherit" />}
+                subtitle={`Playlist · ${playlist.trackCount} songs`}
+                onSelect={() => navigate(`/playlist/${playlist.id}`)}
+              />
+            </PlaylistContextMenu>
+          ))}
+        </div>
+      ), "Collections");
+    }
+
+    return null;
+  };
+
+  if (isMobile) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="home-page-surface"
+      >
+        <MobileExperiencePage artworkUrl={results.artists[0]?.imageUrl || results.tracks[0]?.coverUrl || results.albums[0]?.coverUrl}>
+          <MobileHero
+            artworkUrl={results.artists[0]?.imageUrl || results.tracks[0]?.coverUrl || results.albums[0]?.coverUrl}
+            artworkAlt={query || "Search"}
+            artworkShape={results.artists[0] ? "round" : "square"}
+            eyebrow="Search"
+            title="Find the next obsession."
+            description={(
+              <div className="space-y-3">
+                <p>Premium speed, clear grouping, and one-thumb browsing that still feels rich.</p>
+                <form onSubmit={submitSearch} className="flex min-h-14 items-center gap-2 rounded-[24px] border border-white/10 bg-black/25 px-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <Search className="h-5 w-5 shrink-0 text-white/55" />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search artists, tracks, albums..."
+                      className="h-11 min-w-0 border-0 bg-transparent px-0 text-base font-semibold text-white placeholder:text-white/45 focus-visible:ring-0 focus-visible:ring-offset-0"
+                      autoFocus
+                    />
+                    {query ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuery("");
+                          setSearchParams({});
+                        }}
+                        className="shrink-0 text-white/56 transition-colors hover:text-white"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              </div>
+            )}
+            meta={(
+              <>
+                <MobileMetaChip label="Artists" value={results.artists.length} />
+                <MobileMetaChip label="Tracks" value={results.tracks.length} />
+                <MobileMetaChip label="Albums" value={results.albums.length} />
+                <MobileMetaChip label="Playlists" value={results.playlists.length} />
+              </>
+            )}
+            actions={(
+              <>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => navigate("/browse")}
+                >
+                  <Compass className="h-4 w-4" />
+                  Browse
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => navigate("/library")}
+                >
+                  <Heart className="h-4 w-4" />
+                  Library
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => navigate(user ? "/liked" : "/auth")}
+                >
+                  <Play className="h-4 w-4 fill-current" />
+                  {user ? "Liked Songs" : "Sign In"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_ACTION_BUTTON_CLASS}
+                  onClick={() => {
+                    const next = query.trim();
+                    if (!next) {
+                      navigate("/browse");
+                      return;
+                    }
+
+                    setSearchParams({ q: next });
+                  }}
+                >
+                  <Search className="h-4 w-4" />
+                  Search
+                </Button>
+              </>
+            )}
+          />
+
+          {!query.trim() ? (
+            <MobileSection eyebrow="Jump points" title="Start Somewhere">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  className="rounded-[20px] border border-white/10 bg-black/24 px-4 py-4 text-left transition-colors hover:bg-black/34"
+                  onClick={() => navigate("/browse")}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/48">Explore</p>
+                  <p className="mt-2 text-lg font-black tracking-[-0.04em] text-white">Browse releases</p>
+                </button>
+                <button
+                  type="button"
+                  className="rounded-[20px] border border-white/10 bg-black/24 px-4 py-4 text-left transition-colors hover:bg-black/34"
+                  onClick={() => navigate("/library")}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/48">Collection</p>
+                  <p className="mt-2 text-lg font-black tracking-[-0.04em] text-white">Open library</p>
+                </button>
+                <button
+                  type="button"
+                  className="rounded-[20px] border border-white/10 bg-black/24 px-4 py-4 text-left transition-colors hover:bg-black/34"
+                  onClick={() => navigate(user ? "/liked" : "/auth")}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/48">Favorites</p>
+                  <p className="mt-2 text-lg font-black tracking-[-0.04em] text-white">{user ? "Liked Songs" : "Sign in to save"}</p>
+                </button>
+              </div>
+            </MobileSection>
+          ) : (
+            <>
+              <MobileSection eyebrow="Views" title="Result Modes">
+                <div className="grid grid-cols-2 gap-2">
+                  {TABS.map((tab, index) => (
+                    <SearchTabButton
+                      key={tab.key}
+                      active={activeTab === tab.key}
+                      label={tab.label}
+                      onClick={() => setActiveTab(tab.key)}
+                      className={index === TABS.length - 1 ? "col-span-2" : ""}
+                    />
+                  ))}
+                </div>
+              </MobileSection>
+
+              {isSearching ? (
+                <MobileSection eyebrow="Searching" title="Looking through everything">
+                  <div className="py-12 text-center text-white/58">
+                    <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin" />
+                    Searching...
+                  </div>
+                </MobileSection>
+              ) : !hasAnyResults ? (
+                <MobileSection eyebrow="No results" title="Nothing matched yet">
+                  <div className="py-6 text-center">
+                    <p className="text-sm text-white/58">Try a broader name, album title, or playlist keyword.</p>
+                  </div>
+                </MobileSection>
+              ) : (
+                renderMobileTabContent()
+              )}
+            </>
+          )}
+        </MobileExperiencePage>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -559,29 +982,43 @@ export default function SearchPage() {
     >
       <div className="mobile-page-sticky-stack sticky top-0 z-20">
       <section className="mobile-page-panel border border-white/10 border-b-0 seekbar-tone-box backdrop-blur-xl">
-        <form onSubmit={submitSearch} className="h-14 px-4 flex items-center gap-3">
-          <Search className="w-5 h-5 text-muted-foreground shrink-0" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={isMobile ? "Search artists, tracks, albums..." : "Search artists, tracks, albums, playlists"}
-            className="h-10 min-w-0 border-0 bg-transparent px-0 text-base font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-lg md:text-xl placeholder:text-muted-foreground/85"
-            autoFocus
-          />
-          {query ? (
+        <form onSubmit={submitSearch} className="flex min-h-14 items-center gap-3 px-4">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <Search className="w-5 h-5 text-muted-foreground shrink-0" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={isMobile ? "Search artists, tracks, albums..." : "Search artists, tracks, albums, playlists"}
+              className="h-10 min-w-0 border-0 bg-transparent px-0 text-base font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-lg md:text-xl placeholder:text-muted-foreground/85"
+              autoFocus
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setSearchParams({});
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                aria-label="Clear search"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            ) : (
+              <span className="w-5 h-5 shrink-0" />
+            )}
+          </div>
+          {isMobile ? (
             <button
               type="button"
-              onClick={() => {
-                setQuery("");
-                setSearchParams({});
-              }}
-              className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              onClick={() => navigate("/browse")}
+              className="menu-sweep-hover relative flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-[var(--mobile-control-radius)] border border-white/10 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/78 transition-colors hover:text-black"
+              aria-label="Browse"
             >
-              <X className="w-5 h-5" />
+              <Compass className="h-4 w-4" />
+              <span>Browse</span>
             </button>
-          ) : (
-            <span className="w-5 h-5" />
-          )}
+          ) : null}
         </form>
       </section>
 

@@ -145,8 +145,6 @@ vi.mock("@/contexts/PlayerContext", () => ({
       audioQuality: "LOSSLESS",
     },
     isPlaying: true,
-    currentTime: 24,
-    duration: 180,
     playbackSpeed: 1,
     shuffle: false,
     repeat: "off",
@@ -161,9 +159,20 @@ vi.mock("@/contexts/PlayerContext", () => ({
     seek,
     openRightPanel,
   }),
+  usePlayerTimeline: () => ({
+    currentTime: 24,
+    duration: 180,
+  }),
 }));
 
 describe("BottomPlayer", () => {
+  beforeAll(() => {
+    Object.defineProperty(window, "PointerEvent", {
+      configurable: true,
+      value: MouseEvent,
+    });
+  });
+
   beforeEach(() => {
     openRightPanel.mockReset();
     setVolume.mockReset();
@@ -177,14 +186,55 @@ describe("BottomPlayer", () => {
     expect(await screen.findByTestId("player-settings")).toBeInTheDocument();
   });
 
+  it("keeps the desktop player shell isolated from main-content compositing", () => {
+    const { container } = render(<BottomPlayer />);
+
+    const shell = container.querySelector(".bottom-player-shell");
+    expect(shell).not.toBeNull();
+    expect(shell).toHaveClass("relative", "z-20", "isolate", "overflow-hidden");
+
+    const ambientLayer = shell?.firstElementChild;
+    expect(ambientLayer).not.toBeNull();
+    expect(ambientLayer).toHaveClass("pointer-events-none", "absolute", "inset-0", "z-0", "overflow-hidden");
+  });
+
   it("opens queue and lyrics panels from the bottom controls", () => {
     const { container } = render(<BottomPlayer />);
 
-    const utilityButtons = container.querySelectorAll(".player-chrome-utility");
-    fireEvent.click(utilityButtons[0] as HTMLButtonElement);
-    fireEvent.click(utilityButtons[1] as HTMLButtonElement);
+    const utilityButtons = Array.from(container.querySelectorAll(".player-chrome-utility"));
+    expect(utilityButtons.length).toBeGreaterThanOrEqual(2);
+
+    utilityButtons.forEach((button) => {
+      fireEvent.click(button as HTMLButtonElement);
+    });
 
     expect(openRightPanel).toHaveBeenCalledWith("queue");
     expect(openRightPanel).toHaveBeenCalledWith("lyrics");
+  });
+
+  it("drags the seekbar to update playback position", () => {
+    render(<BottomPlayer />);
+
+    const seekbar = screen.getByRole("slider", { name: /seek playback position/i });
+    Object.defineProperty(seekbar, "getBoundingClientRect", {
+      value: () => ({
+        left: 100,
+        top: 0,
+        right: 300,
+        bottom: 20,
+        width: 200,
+        height: 20,
+        x: 100,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    fireEvent.pointerDown(seekbar, { button: 0, clientX: 150, pointerId: 1, pointerType: "mouse" });
+    fireEvent.pointerMove(window, { clientX: 250, pointerId: 1 });
+    fireEvent.pointerUp(window, { clientX: 250, pointerId: 1 });
+
+    expect(seek).toHaveBeenNthCalledWith(1, 45);
+    expect(seek).toHaveBeenLastCalledWith(135);
   });
 });

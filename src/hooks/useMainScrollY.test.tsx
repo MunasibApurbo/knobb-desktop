@@ -64,7 +64,7 @@ describe("useMainScrollY", () => {
       flushAnimationFrames();
     });
 
-    expect(screen.getByTestId("scroll-y")).toHaveTextContent("180");
+    expect(screen.getByTestId("scroll-y")).toHaveTextContent("184");
   });
 
   it("stays at zero when tracking is disabled", () => {
@@ -77,6 +77,26 @@ describe("useMainScrollY", () => {
       if (!viewport) return;
       viewport.scrollTop = 240;
       viewport.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(screen.getByTestId("scroll-y")).toHaveTextContent("0");
+  });
+
+  it("ignores sub-step scroll deltas to avoid excessive rerenders", () => {
+    render(<ScrollProbe />);
+
+    act(() => {
+      flushAnimationFrames();
+    });
+
+    const viewport = document.querySelector<HTMLElement>("[data-main-scroll-viewport='true']");
+    expect(viewport).not.toBeNull();
+
+    act(() => {
+      if (!viewport) return;
+      viewport.scrollTop = 3;
+      viewport.dispatchEvent(new Event("scroll"));
+      flushAnimationFrames();
     });
 
     expect(screen.getByTestId("scroll-y")).toHaveTextContent("0");

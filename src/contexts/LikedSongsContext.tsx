@@ -2,11 +2,11 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
 import { Track } from "@/types/music";
 import { normalizeTrackIdentity } from "@/lib/trackIdentity";
 import { scheduleBackgroundTask } from "@/lib/performanceProfile";
 import { getSupabaseClient } from "@/lib/runtimeModules";
+import { showErrorToast } from "@/lib/toast";
 
 interface LikedSongsContextType {
   likedSongs: Track[];
@@ -135,7 +135,7 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
   const addLikedSong = useCallback(
     async (track: Track): Promise<"added" | "duplicate" | "error"> => {
       if (!user) {
-        toast.error("Please sign in to like songs");
+        showErrorToast("Please sign in to like songs");
         return "error";
       }
 
@@ -170,7 +170,7 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
         console.error("Failed to sync liked song", e);
         likedSongsRef.current = previous;
         setLikedSongs(previous);
-        toast.error("Failed to sync liked song");
+        showErrorToast("Failed to sync liked song");
         return "error";
       }
     },
@@ -180,7 +180,7 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
   const toggleLike = useCallback(
     async (track: Track) => {
       if (!user) {
-        toast.error("Please sign in to like songs");
+        showErrorToast("Please sign in to like songs");
         return;
       }
 
@@ -229,7 +229,7 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
         // Rollback
         likedSongsRef.current = previous;
         setLikedSongs(previous);
-        toast.error("Failed to sync liked song");
+        showErrorToast("Failed to sync liked song");
       }
     },
     [user]

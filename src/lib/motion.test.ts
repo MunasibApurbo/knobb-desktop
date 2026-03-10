@@ -6,19 +6,13 @@ import {
 } from "@/lib/motion";
 
 describe("motion profiles", () => {
-  it("keeps edgy as the default profile", () => {
-    expect(getMotionProfile().duration.base).toBe(0.42);
-    expect(getMotionProfile().depth.cardLift).toBe(12);
+  it("uses the roundish profile by default", () => {
+    expect(getMotionProfile().duration.base).toBe(0.56);
+    expect(getMotionProfile().depth.cardLift).toBe(16);
   });
 
-  it("uses a softer and longer roundish profile", () => {
-    const edgy = getMotionProfile("edgy");
-    const roundish = getMotionProfile("roundish");
-
-    expect(roundish.duration.base).toBeGreaterThan(edgy.duration.base);
-    expect(roundish.duration.ambient).toBeGreaterThan(edgy.duration.ambient);
-    expect(roundish.depth.cardLift).toBeGreaterThan(edgy.depth.cardLift);
-    expect(roundish.spring.shell.stiffness).toBeLessThan(edgy.spring.shell.stiffness);
+  it("returns the same profile when roundish is requested explicitly", () => {
+    expect(getMotionProfile("roundish")).toEqual(getMotionProfile());
   });
 
   it("returns neutral variants and no control motion when motion is disabled", () => {
@@ -31,9 +25,8 @@ describe("motion profiles", () => {
     expect(getControlTap(false, "roundish")).toBeUndefined();
   });
 
-  it("adds more expressive control motion in roundish mode", () => {
+  it("uses the roundish control motion profile", () => {
     expect(getControlHover(true, "roundish")).toMatchObject({ scale: 1.085, y: -2.8 });
     expect(getControlTap(true, "roundish")).toMatchObject({ scale: 0.94, y: 1.6 });
-    expect(getControlHover(true, "edgy")).toMatchObject({ scale: 1.05, y: -1.5 });
   });
 });

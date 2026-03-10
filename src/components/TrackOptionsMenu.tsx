@@ -36,7 +36,7 @@ type TrackOptionsMenuProps = {
 export function TrackOptionsMenu({
   track,
   tracks,
-  buttonClassName = "h-11 w-11 rounded-full border border-white/10 bg-black/30 text-white/78 backdrop-blur-xl hover:bg-white/10 hover:text-white",
+  buttonClassName = "menu-sweep-hover relative flex shrink-0 items-center justify-center h-11 w-11 overflow-hidden rounded-md border border-white/10 bg-black/30 text-white/78 backdrop-blur-xl transition-colors hover:text-white focus-visible:ring-0 focus-visible:ring-offset-0",
 }: TrackOptionsMenuProps) {
   const navigate = useNavigate();
   const { user } = useAuth();

@@ -8,7 +8,7 @@ export const MEDIA_CARD_ARTWORK_CLASS =
   "media-card-artwork pointer-events-none select-none w-full h-full object-cover object-center";
 
 export const MEDIA_CARD_BODY_CLASS =
-  "media-card-body min-w-0 flex-1 flex flex-col justify-center text-left";
+  "media-card-body min-w-0 flex-1 flex flex-col justify-start text-left";
 
 export const MEDIA_CARD_PLAY_BUTTON_CLASS =
   "media-card-hover-control media-card-hover-control-left absolute flex items-center justify-center shadow-xl rounded-full bg-black/50 " +

@@ -20,7 +20,7 @@ import {
 import { PlaylistAccessRole, PlaylistCollaborator, PlaylistVisibility } from "@/hooks/usePlaylists";
 
 const MANAGE_DIALOG_CONTENT_CLASS =
-  "w-[min(960px,calc(100vw-32px))] max-w-[960px] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.12),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[88vh]";
+  "w-[min(960px,calc(100vw-32px))] max-w-[960px] gap-0 overflow-hidden border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[88vh]";
 const MANAGE_DIALOG_HEADER_CLASS =
   "border-b border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.015))] px-6 py-5 text-left";
 const MANAGE_DIALOG_KICKER_CLASS =
@@ -168,7 +168,7 @@ export function UserPlaylistManageMenu({
       </Dialog>
 
       <Dialog open={isCollaboratorsOpen} onOpenChange={setIsCollaboratorsOpen}>
-        <DialogContent className="w-[min(1200px,calc(100vw-32px))] max-w-[1200px] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.12),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[90vh]">
+        <DialogContent className="w-[min(1200px,calc(100vw-32px))] max-w-[1200px] gap-0 overflow-hidden border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[90vh]">
           <DialogHeader className="border-b border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.015))] px-6 py-7 text-left sm:px-8">
             <div className={MANAGE_DIALOG_KICKER_CLASS}>
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(var(--player-waveform))" }} />

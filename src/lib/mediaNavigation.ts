@@ -1,6 +1,7 @@
 import type { NavigateFunction } from "react-router-dom";
 import { toast } from "sonner";
 import { searchAlbums } from "@/lib/musicApi";
+import { APP_HOME_PATH } from "@/lib/routes";
 import { getResolvableTidalId, inferTidalIdFromTrackId } from "@/lib/trackIdentity";
 import { getTrackMixId } from "@/lib/trackMix";
 import type { Track } from "@/types/music";
@@ -205,7 +206,7 @@ function buildTrackDestinationPath(
     return `${url.pathname}${url.search}`;
   }
 
-  return buildTrackMixPath(track) || "/";
+  return buildTrackMixPath(track) || APP_HOME_PATH;
 }
 
 export function buildPlaylistPath({

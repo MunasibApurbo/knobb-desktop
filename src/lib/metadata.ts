@@ -1,4 +1,5 @@
 import { HOME_SECTION_CONFIG, isHomeSectionKey } from "@/lib/homeSections";
+import { APP_HOME_PATH, PUBLIC_HOME_PATH } from "@/lib/routes";
 
 export type PageMetadata = {
   title?: string;
@@ -17,7 +18,7 @@ export type PageMetadata = {
 export const SITE_NAME = "KNOBB";
 export const SITE_THEME_COLOR = "#1d0834";
 export const DEFAULT_DESCRIPTION =
-  "KNOBB is a modern music app for playlists, discovery, shared listening, and direct-source archives.";
+  "KNOBB is a direct-source music app for discovery, shared playlists, new releases, and unreleased archives.";
 export const DEFAULT_IMAGE_PATH = "/brand/knobb-share.png";
 export const DEFAULT_IMAGE_ALT =
   "KNOBB share card with a silver K mark and layered KNOBB wordmark in silver, yellow, and purple on black.";
@@ -317,18 +318,28 @@ export function getRouteMetadata(pathname: string, search: string): PageMetadata
   const isEmbedMode = new URLSearchParams(search).get("embed");
   const embedActive = isEmbedMode === "1" || isEmbedMode === "true";
 
-  if (pathname === "/") {
+  if (pathname === PUBLIC_HOME_PATH) {
     return {
-      title: SITE_NAME,
-      description: DEFAULT_DESCRIPTION,
-      canonicalPath: "/",
+      title: "App Home",
+      description: "Open the KNOBB feed for recommendations, recent plays, and quick access back into the app.",
+      canonicalPath: APP_HOME_PATH,
+      robots: "noindex, nofollow",
+    };
+  }
+
+  if (pathname === APP_HOME_PATH) {
+    return {
+      title: "App Home",
+      description: "Open the KNOBB feed for recommendations, recent plays, and quick access back into the app.",
+      canonicalPath: APP_HOME_PATH,
+      robots: "noindex, nofollow",
     };
   }
 
   if (pathname === "/browse") {
     return {
       title: "Browse",
-      description: "Browse playlists, artists, albums, and new releases on KNOBB.",
+      description: "Browse new releases, playlists, artists, and public discovery shelves on KNOBB.",
       canonicalPath,
     };
   }
@@ -344,7 +355,7 @@ export function getRouteMetadata(pathname: string, search: string): PageMetadata
   if (pathname === "/search") {
     return {
       title: "Search",
-      description: "Search for tracks, artists, albums, and playlists on KNOBB.",
+      description: "Search tracks, artists, albums, and playlists directly inside KNOBB.",
       canonicalPath,
       robots: "noindex, nofollow",
     };
@@ -353,7 +364,7 @@ export function getRouteMetadata(pathname: string, search: string): PageMetadata
   if (pathname === "/unreleased") {
     return {
       title: "Unreleased Archive",
-      description: "Browse KNOBB's unreleased archive with artist and project pages sourced from ArtistGrid.",
+      description: "Browse KNOBB's unreleased archive with artist and project pages sourced directly from ArtistGrid.",
       canonicalPath,
     };
   }

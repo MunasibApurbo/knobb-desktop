@@ -34,14 +34,11 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/hooks/playlists/playlistQueries", () => ({
-  fetchUserPlaylists: (...args: unknown[]) => playlistQueryMocks.fetchUserPlaylists(...args),
-  invalidateUserPlaylistsCache: (...args: unknown[]) =>
-    playlistQueryMocks.invalidateUserPlaylistsCache(...args),
-  subscribeToPlaylistChanges: (...args: unknown[]) =>
-    playlistQueryMocks.subscribeToPlaylistChanges(...args),
-  removePlaylistSubscription: (...args: unknown[]) =>
-    playlistQueryMocks.removePlaylistSubscription(...args),
-  fetchPlaylistTracks: (...args: unknown[]) => playlistQueryMocks.fetchPlaylistTracks(...args),
+  fetchUserPlaylists: playlistQueryMocks.fetchUserPlaylists,
+  invalidateUserPlaylistsCache: playlistQueryMocks.invalidateUserPlaylistsCache,
+  subscribeToPlaylistChanges: playlistQueryMocks.subscribeToPlaylistChanges,
+  removePlaylistSubscription: playlistQueryMocks.removePlaylistSubscription,
+  fetchPlaylistTracks: playlistQueryMocks.fetchPlaylistTracks,
 }));
 
 vi.mock("@/hooks/playlists/playlistCollaborators", () => ({
@@ -52,15 +49,15 @@ vi.mock("@/hooks/playlists/playlistCollaborators", () => ({
 }));
 
 vi.mock("@/hooks/playlists/playlistMutations", () => ({
-  createPlaylistRecord: (...args: unknown[]) => playlistMutationMocks.createPlaylistRecord(...args),
-  deletePlaylistRecord: (...args: unknown[]) => playlistMutationMocks.deletePlaylistRecord(...args),
-  deletePlaylistTrackRecord: (...args: unknown[]) => playlistMutationMocks.deletePlaylistTrackRecord(...args),
-  fetchPlaylistTrackIds: (...args: unknown[]) => playlistMutationMocks.fetchPlaylistTrackIds(...args),
-  fetchPlaylistTrackRows: (...args: unknown[]) => playlistMutationMocks.fetchPlaylistTrackRows(...args),
-  insertPlaylistTrackRecord: (...args: unknown[]) => playlistMutationMocks.insertPlaylistTrackRecord(...args),
-  setPlaylistCoverUrl: (...args: unknown[]) => playlistMutationMocks.setPlaylistCoverUrl(...args),
-  updatePlaylistRecord: (...args: unknown[]) => playlistMutationMocks.updatePlaylistRecord(...args),
-  updatePlaylistTrackPosition: (...args: unknown[]) => playlistMutationMocks.updatePlaylistTrackPosition(...args),
+  createPlaylistRecord: playlistMutationMocks.createPlaylistRecord,
+  deletePlaylistRecord: playlistMutationMocks.deletePlaylistRecord,
+  deletePlaylistTrackRecord: playlistMutationMocks.deletePlaylistTrackRecord,
+  fetchPlaylistTrackIds: playlistMutationMocks.fetchPlaylistTrackIds,
+  fetchPlaylistTrackRows: playlistMutationMocks.fetchPlaylistTrackRows,
+  insertPlaylistTrackRecord: playlistMutationMocks.insertPlaylistTrackRecord,
+  setPlaylistCoverUrl: playlistMutationMocks.setPlaylistCoverUrl,
+  updatePlaylistRecord: playlistMutationMocks.updatePlaylistRecord,
+  updatePlaylistTrackPosition: playlistMutationMocks.updatePlaylistTrackPosition,
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({

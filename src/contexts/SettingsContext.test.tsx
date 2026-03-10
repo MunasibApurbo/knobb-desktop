@@ -17,8 +17,8 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/lib/profilePreferences", () => ({
-  loadProfilePreferences: (...args: unknown[]) => settingsAccountSyncMocks.loadProfilePreferences(...args),
-  persistProfilePreferences: (...args: unknown[]) => settingsAccountSyncMocks.persistProfilePreferences(...args),
+  loadProfilePreferences: settingsAccountSyncMocks.loadProfilePreferences,
+  persistProfilePreferences: settingsAccountSyncMocks.persistProfilePreferences,
 }));
 
 function SettingsSnapshot() {
@@ -162,24 +162,26 @@ describe("SettingsProvider", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("website-mode")).toHaveTextContent("edgy");
+      expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
     });
 
     expect(screen.getByTestId("right-panel-style")).toHaveTextContent("classic");
     expect(screen.getByTestId("card-size")).toHaveTextContent("big");
-    expect(document.documentElement.getAttribute("data-website-mode")).toBe("edgy");
+    expect(document.documentElement.getAttribute("data-website-mode")).toBe("roundish");
   });
 
-  it("persists and applies website mode changes", async () => {
+  it("normalizes saved edgy website mode to roundish", async () => {
+    window.localStorage.setItem("website-mode", "edgy");
+
     render(
       <SettingsProvider>
         <SettingsSnapshot />
       </SettingsProvider>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Roundish" }));
-
-    expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
+    await waitFor(() => {
+      expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
+    });
     expect(window.localStorage.getItem("website-mode")).toBe("roundish");
     expect(document.documentElement.getAttribute("data-website-mode")).toBe("roundish");
   });

@@ -30,3 +30,6 @@ _changes.patch
 *.njsproj
 *.sln
 *.sw?
+
+# Local Netlify folder
+.netlify

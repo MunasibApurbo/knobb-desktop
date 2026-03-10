@@ -10,8 +10,6 @@ type ProfileHeroProps = {
   email: string | undefined;
   createdAt: string;
   heroImage: string | null;
-  profileCompleteness: number;
-  profileCompletenessLabel: string;
   scrollY: MotionValue<number>;
   onEditDisplayName: () => void;
   onChangeCoverImage: () => void;
@@ -23,32 +21,40 @@ export function ProfileHero({
   email,
   createdAt,
   heroImage,
-  profileCompleteness,
-  profileCompletenessLabel,
   scrollY,
   onEditDisplayName,
   onChangeCoverImage,
   onSignOut,
 }: ProfileHeroProps) {
   const { scrollScale, scrollBlur, scrollOpacity } = getHeroScrollStyles(scrollY.get());
+  const runAfterMenuClose = (action: () => void) => {
+    window.setTimeout(action, 0);
+  };
 
   return (
-    <div className="relative overflow-hidden mb-0 border-b border-white/5 bg-[#121212]" style={{ height: "320px" }}>
-      <div className="absolute top-6 right-6 z-30 pointer-events-auto">
+    <div className="relative mb-0 h-[280px] overflow-hidden border-b border-white/5 bg-[#121212] sm:h-[320px]">
+      <div className="absolute right-4 top-4 z-30 pointer-events-auto sm:right-6 sm:top-6">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="w-10 h-10 flex items-center justify-center bg-black/20 hover:bg-black/40 backdrop-blur-md transition-colors text-white border border-white/10">
+            <button
+              type="button"
+              aria-label="Open profile options"
+              className="flex h-10 w-10 items-center justify-center rounded-[var(--mobile-control-radius)] border border-white/10 bg-black/20 text-white backdrop-blur-md transition-colors hover:bg-black/40"
+            >
               <MoreHorizontal className="w-5 h-5" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={onEditDisplayName}>
+            <DropdownMenuItem onSelect={() => runAfterMenuClose(onEditDisplayName)}>
               Edit Display Name
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onChangeCoverImage}>
-              Change Cover Image
+            <DropdownMenuItem onSelect={() => runAfterMenuClose(onChangeCoverImage)}>
+              Change Banner Image
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onSignOut} className="text-red-500">
+            <DropdownMenuItem
+              onSelect={onSignOut}
+              className="text-red-300 focus:bg-red-500/14 focus:text-red-100 data-[highlighted]:bg-red-500/14 data-[highlighted]:text-red-100"
+            >
               Sign Out
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -97,22 +103,17 @@ export function ProfileHero({
           </div>
         )}
 
-        <div className="relative z-10 w-full flex flex-row items-center md:items-end px-6 sm:px-10 pb-6 sm:pb-10 min-w-0 pointer-events-none">
+        <div className="pointer-events-none relative z-10 flex w-full min-w-0 flex-row items-end px-4 pb-4 sm:px-10 sm:pb-10">
           <div className="flex-1 min-w-0 pb-1 pointer-events-auto">
-            <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.16em] text-white/80 mb-1">Profile</p>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/80 sm:text-[11px]">Profile</p>
             <h1
-              className="text-3xl sm:text-5xl md:text-6xl font-black text-white truncate leading-none mb-2 tracking-tight"
+              className="mb-2 truncate text-[2rem] font-black leading-none tracking-tight text-white sm:text-5xl md:text-6xl"
               style={{ opacity: scrollOpacity, textShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
             >
               {displayName}
             </h1>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/72 backdrop-blur-md">
-              <span>{profileCompleteness}% complete</span>
-              <span className="text-white/38">•</span>
-              <span>{profileCompletenessLabel}</span>
-            </div>
-            <p className="text-xs sm:text-sm text-white/70 truncate">{email}</p>
-            <p className="text-[10px] sm:text-xs text-white/50 mt-0.5">
+            <p className="truncate text-xs text-white/70 sm:text-sm">{email}</p>
+            <p className="mt-0.5 text-[10px] text-white/50 sm:text-xs">
               Member since {new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
             </p>
           </div>

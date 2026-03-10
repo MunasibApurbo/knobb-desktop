@@ -10,8 +10,11 @@ const authMocks = vi.hoisted(() => ({
   signInWithDiscord: vi.fn(),
   signUp: vi.fn(),
   requestPasswordReset: vi.fn(),
+  completePasswordRecovery: vi.fn(),
   resendSignUpConfirmation: vi.fn(),
   user: null,
+  isPasswordRecovery: false,
+  isPasswordRecoveryPending: false,
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -22,9 +25,30 @@ vi.mock("@/components/auth/TurnstileWidget", () => ({
   TurnstileWidget: () => null,
 }));
 
+vi.mock("@/hooks/useMotionPreferences", () => ({
+  useMotionPreferences: () => ({
+    motionEnabled: true,
+    websiteMode: "roundish" as const,
+  }),
+}));
+
 vi.mock("framer-motion", () => ({
   motion: {
-    div: ({ children, ...props }: ComponentPropsWithoutRef<"div">) => <div {...props}>{children}</div>,
+    div: ({
+      animate,
+      initial,
+      transition,
+      whileHover,
+      whileTap,
+      children,
+      ...props
+    }: ComponentPropsWithoutRef<"div"> & {
+      animate?: unknown;
+      initial?: unknown;
+      transition?: unknown;
+      whileHover?: unknown;
+      whileTap?: unknown;
+    }) => <div {...props}>{children}</div>,
   },
 }));
 
@@ -35,8 +59,11 @@ describe("AuthPage", () => {
     authMocks.signInWithDiscord.mockReset();
     authMocks.signUp.mockReset();
     authMocks.requestPasswordReset.mockReset();
+    authMocks.completePasswordRecovery.mockReset();
     authMocks.resendSignUpConfirmation.mockReset();
     authMocks.user = null;
+    authMocks.isPasswordRecovery = false;
+    authMocks.isPasswordRecoveryPending = false;
   });
 
   function renderPage(initialEntry = "/auth?next=%2Fsettings") {
@@ -83,6 +110,31 @@ describe("AuthPage", () => {
     expect(screen.getByRole("button", { name: /send reset link/i })).toBeInTheDocument();
   });
 
+  it("stays on the recovery screen instead of redirecting an existing session", () => {
+    authMocks.user = { id: "user-1" };
+    authMocks.isPasswordRecoveryPending = true;
+
+    renderPage("/auth?next=%2Fsettings#type=recovery");
+
+    expect(screen.getByText(/verifying your reset link/i)).toBeInTheDocument();
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+  });
+
+  it("submits a new password while recovery mode is active", async () => {
+    authMocks.isPasswordRecovery = true;
+    authMocks.completePasswordRecovery.mockResolvedValue({ error: null });
+
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText(/^new password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByPlaceholderText(/^confirm new password$/i), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+
+    await waitFor(() => {
+      expect(authMocks.completePasswordRecovery).toHaveBeenCalledWith("password123");
+    });
+  });
+
   it("shows a clearer message when the email is already registered", async () => {
     authMocks.signUp.mockResolvedValue({
       error: "An account already exists with this email. Sign in instead.",
@@ -99,5 +151,12 @@ describe("AuthPage", () => {
     await waitFor(() => {
       expect(screen.getByText("An account already exists with this email. Sign in instead.")).toBeInTheDocument();
     });
+  });
+
+  it("keeps the auth screen inside the mobile page shell", () => {
+    const { container } = renderPage();
+
+    expect(container.querySelector(".mobile-page-shell")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
   });
 });

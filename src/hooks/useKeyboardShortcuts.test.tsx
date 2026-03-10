@@ -28,6 +28,10 @@ const selectionMocks = vi.hoisted(() => ({
 
 vi.mock("@/contexts/PlayerContext", () => ({
   usePlayer: () => playerMocks,
+  usePlayerTimeline: () => ({
+    currentTime: playerMocks.currentTime,
+    duration: playerMocks.duration,
+  }),
 }));
 
 vi.mock("@/contexts/TrackSelectionShortcutsContext", () => ({

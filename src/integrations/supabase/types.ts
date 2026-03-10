@@ -105,7 +105,6 @@ export type Database = {
       playback_sessions: {
         Row: {
           created_at: string
-          current_time: number
           current_track_data: Json | null
           device_id: string
           device_name: string
@@ -113,6 +112,7 @@ export type Database = {
           id: string
           is_playing: boolean
           last_seen_at: string
+          position_seconds: number
           quality: string
           queue_data: Json
           updated_at: string
@@ -120,7 +120,6 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          current_time?: number
           current_track_data?: Json | null
           device_id: string
           device_name: string
@@ -128,6 +127,7 @@ export type Database = {
           id?: string
           is_playing?: boolean
           last_seen_at?: string
+          position_seconds?: number
           quality?: string
           queue_data?: Json
           updated_at?: string
@@ -135,7 +135,6 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          current_time?: number
           current_track_data?: Json | null
           device_id?: string
           device_name?: string
@@ -143,6 +142,7 @@ export type Database = {
           id?: string
           is_playing?: boolean
           last_seen_at?: string
+          position_seconds?: number
           quality?: string
           queue_data?: Json
           updated_at?: string

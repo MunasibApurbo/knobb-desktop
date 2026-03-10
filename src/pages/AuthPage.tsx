@@ -4,9 +4,12 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useMotionPreferences } from "@/hooks/useMotionPreferences";
+import { getControlHover, getControlTap, getMotionProfile } from "@/lib/motion";
 import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate, useLocation } from "react-router-dom";
+import { PUBLIC_HOME_PATH } from "@/lib/routes";
 
 function resolveReturnTo(location: ReturnType<typeof useLocation>) {
   const routeState = location.state as { from?: string } | null;
@@ -54,15 +57,32 @@ function DiscordIcon() {
   );
 }
 
+const SOCIAL_AUTH_BUTTON_CLASS =
+  "menu-sweep-hover website-form-control w-full border-white/10 bg-white/[0.03] text-foreground hover:bg-white/[0.05] hover:text-black focus-visible:text-black";
+
 export default function AuthPage() {
-  const { signIn, signInWithGoogle, signInWithDiscord, signUp, requestPasswordReset, resendSignUpConfirmation, user } = useAuth();
+  const {
+    signIn,
+    signInWithGoogle,
+    signInWithDiscord,
+    signUp,
+    requestPasswordReset,
+    completePasswordRecovery,
+    resendSignUpConfirmation,
+    user,
+    isPasswordRecovery,
+    isPasswordRecoveryPending,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { motionEnabled, websiteMode } = useMotionPreferences();
+  const motionProfile = getMotionProfile(websiteMode);
   const routeState = location.state as { from?: string; prompt?: string } | null;
   const [isSignUp, setIsSignUp] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -70,15 +90,21 @@ export default function AuthPage() {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
   const [activeOAuthProvider, setActiveOAuthProvider] = useState<"google" | "discord" | null>(null);
+  const [recoveryVerificationTimedOut, setRecoveryVerificationTimedOut] = useState(false);
 
   const returnTo = resolveReturnTo(location);
   const returnToLabel = returnTo === "/" ? "home" : returnTo.replace(/^\//, "");
   const accessPrompt = routeState?.prompt;
   const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || "";
   const captchaEnabled = Boolean(turnstileSiteKey);
-  const showSocialAuth = !isResetMode;
+  const showPasswordRecoveryFlow = isPasswordRecovery || (isPasswordRecoveryPending && !recoveryVerificationTimedOut);
+  const showResetRequestForm = isResetMode && !showPasswordRecoveryFlow;
+  const showRecoveryVerification = showPasswordRecoveryFlow && !isPasswordRecovery;
+  const showSocialAuth = !showResetRequestForm && !showPasswordRecoveryFlow;
   const googleLabel = isSignUp ? "Continue with Google" : "Sign in with Google";
   const discordLabel = isSignUp ? "Continue with Discord" : "Sign in with Discord";
+  const controlHover = getControlHover(motionEnabled, websiteMode);
+  const controlTap = getControlTap(motionEnabled, websiteMode);
 
   const resetCaptcha = () => {
     if (!captchaEnabled) return;
@@ -87,15 +113,43 @@ export default function AuthPage() {
   };
 
   useEffect(() => {
-    if (user) navigate(returnTo, { replace: true });
-  }, [navigate, returnTo, user]);
+    if (user && !showPasswordRecoveryFlow) navigate(returnTo, { replace: true });
+  }, [navigate, returnTo, showPasswordRecoveryFlow, user]);
+
+  useEffect(() => {
+    if (!isPasswordRecoveryPending || isPasswordRecovery || loading) {
+      setRecoveryVerificationTimedOut(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setRecoveryVerificationTimedOut(true);
+      setError((currentError) => currentError ?? "This reset link is invalid or expired. Request a new reset email and try again.");
+    }, 1500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isPasswordRecovery, isPasswordRecoveryPending, loading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    if (captchaEnabled && !captchaToken) {
+    if (showRecoveryVerification) {
+      return;
+    }
+
+    if (isPasswordRecovery) {
+      if (password.length < 6) {
+        setError("Use at least 6 characters for your new password.");
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
+    } else if (captchaEnabled && !captchaToken) {
       setError("Complete captcha verification to continue.");
       return;
     }
@@ -103,7 +157,14 @@ export default function AuthPage() {
     setLoading(true);
 
     try {
-      if (isResetMode) {
+      if (isPasswordRecovery) {
+        const { error } = await completePasswordRecovery(password);
+        if (error) setError(error);
+        else {
+          setSuccess("Password updated. Redirecting...");
+          navigate(returnTo, { replace: true });
+        }
+      } else if (showResetRequestForm) {
         const { error } = await requestPasswordReset(email, captchaToken ?? undefined);
         if (error) setError(error);
         else setSuccess("Password reset email sent. Check your inbox.");
@@ -153,13 +214,13 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background px-4 py-6 md:p-6">
+    <div className="mobile-page-shell min-h-full bg-background py-3 md:p-6">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mx-auto grid w-full max-w-5xl gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(20rem,25rem)]"
+        className="mx-auto grid w-full max-w-5xl gap-4 md:gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(20rem,25rem)]"
       >
-        <div className="hidden overflow-hidden rounded-[var(--panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(61,223,179,0.12),_transparent_34%),radial-gradient(circle_at_85%_18%,_rgba(63,191,255,0.14),_transparent_26%),linear-gradient(180deg,_rgba(255,255,255,0.06),_rgba(255,255,255,0.02))] p-8 md:flex md:flex-col md:justify-between">
+        <div className="hidden overflow-hidden rounded-[var(--panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_85%_18%,_rgba(63,191,255,0.14),_transparent_26%),linear-gradient(180deg,_rgba(255,255,255,0.06),_rgba(255,255,255,0.02))] p-8 md:flex md:flex-col md:justify-between">
           <div className="space-y-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-[calc(var(--control-radius)+4px)] border border-white/10 bg-white/[0.06] shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
               <BrandLogo markClassName="h-8 w-8" />
@@ -190,19 +251,31 @@ export default function AuthPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-[var(--panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.06),_transparent_42%),rgba(0,0,0,0.42)] p-5 md:p-6">
+        <div className="mobile-page-panel overflow-hidden rounded-[var(--panel-radius)] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.06),_transparent_42%),rgba(0,0,0,0.42)] p-4 sm:p-5 md:p-6">
           <div className="text-center space-y-2">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[calc(var(--control-radius)+4px)] border border-white/10 bg-white/[0.06] shadow-[0_10px_30px_rgba(0,0,0,0.35)] md:hidden">
               <BrandLogo markClassName="h-8 w-8" className="justify-center" />
             </div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Knobb</p>
             <h1 className="text-2xl font-bold text-foreground">
-              {isResetMode ? "Reset Password" : isSignUp ? "Create Account" : "Welcome Back"}
+              {showRecoveryVerification
+                ? "Reset Your Password"
+                : isPasswordRecovery
+                  ? "Set New Password"
+                  : showResetRequestForm
+                    ? "Reset Password"
+                    : isSignUp
+                      ? "Create Account"
+                      : "Welcome Back"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {isResetMode
-                ? "Enter your Knobb account email for a reset link"
-                : isSignUp
+              {showRecoveryVerification
+                ? "Verifying your reset link..."
+                : isPasswordRecovery
+                  ? "Enter a new password to finish resetting your account"
+                  : showResetRequestForm
+                    ? "Enter your Knobb account email for a reset link"
+                    : isSignUp
                   ? "Create your account to save playlists, likes, and listening history"
                   : `Sign in to continue to ${returnToLabel}`}
             </p>
@@ -217,27 +290,41 @@ export default function AuthPage() {
           <div className="mt-6 space-y-4">
             {showSocialAuth ? (
               <div className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full border-white/10 bg-white/[0.03] text-foreground hover:bg-white/[0.08]"
-                    disabled={loading}
-                    onClick={() => void handleGoogleSignIn()}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <motion.div
+                    className="w-full"
+                    whileHover={loading ? undefined : controlHover}
+                    whileTap={loading ? undefined : controlTap}
+                    transition={motionProfile.spring.control}
                   >
-                    {activeOAuthProvider === "google" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GoogleIcon />}
-                    <span>{googleLabel}</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full border-white/10 bg-white/[0.03] text-foreground hover:bg-white/[0.08]"
-                    disabled={loading}
-                    onClick={() => void handleDiscordSignIn()}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={SOCIAL_AUTH_BUTTON_CLASS}
+                      disabled={loading}
+                      onClick={() => void handleGoogleSignIn()}
+                    >
+                      {activeOAuthProvider === "google" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GoogleIcon />}
+                      <span>{googleLabel}</span>
+                    </Button>
+                  </motion.div>
+                  <motion.div
+                    className="w-full"
+                    whileHover={loading ? undefined : controlHover}
+                    whileTap={loading ? undefined : controlTap}
+                    transition={motionProfile.spring.control}
                   >
-                    {activeOAuthProvider === "discord" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DiscordIcon />}
-                    <span>{discordLabel}</span>
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={SOCIAL_AUTH_BUTTON_CLASS}
+                      disabled={loading}
+                      onClick={() => void handleDiscordSignIn()}
+                    >
+                      {activeOAuthProvider === "discord" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DiscordIcon />}
+                      <span>{discordLabel}</span>
+                    </Button>
+                  </motion.div>
                 </div>
                 <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/35">
                   <div className="h-px flex-1 bg-white/10" />
@@ -247,7 +334,15 @@ export default function AuthPage() {
               </div>
             ) : null}
             <form onSubmit={handleSubmit} className="space-y-4">
-              {isSignUp && !isResetMode && (
+              {showRecoveryVerification ? (
+                <div className="rounded-[calc(var(--control-radius)+2px)] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-white/72">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Checking the reset link from your email</span>
+                  </div>
+                </div>
+              ) : null}
+              {isSignUp && !showResetRequestForm && !showPasswordRecoveryFlow && (
                 <Input
                   placeholder="Display name"
                   value={displayName}
@@ -255,26 +350,51 @@ export default function AuthPage() {
                   className="bg-card border-border/30"
                 />
               )}
-              <Input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="bg-card border-border/30"
-              />
-              <Input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required={!isResetMode}
-                minLength={6}
-                disabled={isResetMode}
-                className="bg-card border-border/30"
-              />
+              {isPasswordRecovery ? (
+                <>
+                  <Input
+                    type="password"
+                    placeholder="New password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="bg-card border-border/30"
+                  />
+                  <Input
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="bg-card border-border/30"
+                  />
+                </>
+              ) : (
+                <>
+                  <Input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="bg-card border-border/30"
+                  />
+                  <Input
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required={!showResetRequestForm}
+                    minLength={6}
+                    disabled={showResetRequestForm}
+                    className="bg-card border-border/30"
+                  />
+                </>
+              )}
 
-              {captchaEnabled ? (
+              {captchaEnabled && !showPasswordRecoveryFlow ? (
                 <TurnstileWidget
                   siteKey={turnstileSiteKey}
                   resetSignal={captchaResetSignal}
@@ -317,14 +437,29 @@ export default function AuthPage() {
                 </div>
               )}
 
-              <Button
-                type="submit"
-                className="w-full border border-white/10 bg-white/[0.92] text-black hover:bg-white"
-                disabled={loading}
-              >
-                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {isResetMode ? "Send Reset Link" : isSignUp ? "Sign Up" : "Sign In"}
-              </Button>
+              {!showRecoveryVerification ? (
+                <motion.div
+                  className="w-full"
+                  whileHover={loading ? undefined : controlHover}
+                  whileTap={loading ? undefined : controlTap}
+                  transition={motionProfile.spring.control}
+                >
+                  <Button
+                    type="submit"
+                    className="website-form-control w-full border border-white/10 bg-white/[0.92] text-black hover:bg-white"
+                    disabled={loading}
+                  >
+                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {isPasswordRecovery
+                      ? "Update Password"
+                      : showResetRequestForm
+                        ? "Send Reset Link"
+                        : isSignUp
+                          ? "Sign Up"
+                          : "Sign In"}
+                  </Button>
+                </motion.div>
+              ) : null}
             </form>
           </div>
 
@@ -336,6 +471,7 @@ export default function AuthPage() {
                 onClick={() => {
                   setIsSignUp(!isSignUp);
                   setIsResetMode(false);
+                  setConfirmPassword("");
                   setError(null);
                   setSuccess(null);
                 }}
@@ -344,12 +480,13 @@ export default function AuthPage() {
                 {isSignUp ? "Sign In" : "Sign Up"}
               </button>
             </p>
-            {!isSignUp && (
+            {!isSignUp && !showPasswordRecoveryFlow ? (
               <p>
                 <button
                   type="button"
                   onClick={() => {
                     setIsResetMode((prev) => !prev);
+                    setConfirmPassword("");
                     setError(null);
                     setSuccess(null);
                   }}
@@ -358,11 +495,11 @@ export default function AuthPage() {
                   {isResetMode ? "Back to sign in" : "Forgot password?"}
                 </button>
               </p>
-            )}
+            ) : null}
             <p>
               <button
                 type="button"
-                onClick={() => navigate("/")}
+                onClick={() => navigate(PUBLIC_HOME_PATH)}
                 className="font-semibold text-foreground hover:underline"
               >
                 Continue in guest mode

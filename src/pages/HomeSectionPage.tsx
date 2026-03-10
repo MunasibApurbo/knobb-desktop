@@ -12,6 +12,7 @@ import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { useSavedAlbums } from "@/hooks/useSavedAlbums";
 import { ArtistCardWrapper, HomeAlbumCard, TrackCard } from "@/components/home/HomeMediaCards";
 import { HOME_SECTION_CONFIG, isHomeSectionKey } from "@/lib/homeSections";
+import { APP_HOME_PATH } from "@/lib/routes";
 
 const stagger = {
   hidden: { opacity: 0 },
@@ -44,7 +45,7 @@ export default function HomeSectionPage() {
   });
 
   if (!section || !isHomeSectionKey(section)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={APP_HOME_PATH} replace />;
   }
 
   const config = HOME_SECTION_CONFIG[section];
@@ -168,7 +169,7 @@ export default function HomeSectionPage() {
           </motion.div>
         ) : (
           <div className="border border-white/10 px-5 py-10 text-center text-muted-foreground">
-            Nothing to show here right now. <Link to="/" className="underline underline-offset-4">Go back home</Link>.
+            Nothing to show here right now. <Link to={APP_HOME_PATH} className="underline underline-offset-4">Go back home</Link>.
           </div>
         )}
       </div>

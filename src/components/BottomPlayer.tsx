@@ -18,12 +18,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { lazy, Suspense } from "react";
 
 import { ArtistsLink } from "@/components/ArtistsLink";
+import { PlayerSeekRow } from "@/components/player/PlayerSeekRow";
 import { Button } from "@/components/ui/button";
 import { VolumeBar } from "@/components/VolumeBar";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useSettings } from "@/contexts/SettingsContext";
-import { useSmoothedPlaybackTime } from "@/hooks/useSmoothedPlaybackTime";
 import { useMotionPreferences } from "@/hooks/useMotionPreferences";
 import { formatAudioQualityLabel } from "@/lib/audioQuality";
 import {
@@ -31,7 +31,6 @@ import {
   getControlTap,
   getMotionProfile,
 } from "@/lib/motion";
-import { formatDuration } from "@/lib/utils";
 
 type BottomPlayerProps = {
   onOpenFullScreen?: () => void;
@@ -46,85 +45,15 @@ const LazyConnectDeviceDialog = lazy(async () => {
   const module = await import("@/components/ConnectDeviceDialog");
   return { default: module.ConnectDeviceDialog };
 });
-const LazyVisualizerSelector = lazy(async () => {
-  const module = await import("@/components/visualizers/VisualizerSelector");
-  return { default: module.VisualizerSelector };
-});
 
 function UtilityControlFallback() {
   return <div className="h-9 w-9 shrink-0 bg-transparent" aria-hidden="true" />;
-}
-
-type BottomPlayerProgressRowProps = {
-  currentTime: number;
-  duration: number;
-  isPlaying: boolean;
-  playbackSpeed: number;
-  currentTrackId: string;
-  motionEnabled: boolean;
-  motionProfile: ReturnType<typeof getMotionProfile>;
-  onSeek: (time: number) => void;
-};
-
-function BottomPlayerProgressRow({
-  currentTime,
-  duration,
-  isPlaying,
-  playbackSpeed,
-  currentTrackId,
-  motionEnabled,
-  motionProfile,
-  onSeek,
-}: BottomPlayerProgressRowProps) {
-  const smoothedCurrentTime = useSmoothedPlaybackTime({
-    currentTime,
-    duration,
-    isPlaying,
-    playbackSpeed,
-  });
-
-  return (
-    <div className="flex-1 flex items-center gap-3 px-4 pb-2">
-      <motion.span
-        className="w-10 text-right font-mono text-xs font-semibold tabular-nums"
-        style={{ color: `hsl(var(--dynamic-accent))` }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: motionEnabled ? motionProfile.duration.fast : 0 }}
-      >
-        {formatDuration(Math.floor(smoothedCurrentTime))}
-      </motion.span>
-      <motion.div
-        key={`visualizer-${currentTrackId}`}
-        className="relative h-10 flex-1 cursor-pointer overflow-hidden rounded-[2px]"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const pct = (event.clientX - rect.left) / rect.width;
-          onSeek(pct * duration);
-        }}
-        initial={motionEnabled ? { opacity: 0.76, y: 8 } : false}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{
-          duration: motionEnabled ? motionProfile.duration.base : 0,
-          ease: motionProfile.ease.smooth,
-        }}
-      >
-        <Suspense fallback={null}>
-          <LazyVisualizerSelector className="h-full" currentTime={smoothedCurrentTime} />
-        </Suspense>
-      </motion.div>
-      <span className="w-10 font-mono text-xs tabular-nums text-white/62">
-        {formatDuration(Math.floor(duration))}
-      </span>
-    </div>
-  );
 }
 
 export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
   const {
     currentTrack,
     isPlaying,
-    currentTime,
-    duration,
     playbackSpeed,
     shuffle,
     repeat,
@@ -145,13 +74,13 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
   const motionProfile = getMotionProfile(websiteMode);
   const isBlackBottomPlayer = bottomPlayerStyle === "black";
   const transportControlClassName =
-    "bottom-player-control h-10 w-10 rounded-none bg-white/[0.035] text-white/84 transition-[background-color,color,transform] duration-100 hover:bg-white/[0.09] hover:text-white";
+    "bottom-player-control menu-sweep-hover relative h-10 w-10 overflow-hidden rounded-md text-white/84 transition-colors hover:text-white";
   const utilityControlClassName =
-    "player-chrome-utility h-9 w-9 bg-white/[0.035] text-white/68 hover:bg-white/[0.085] hover:text-white";
+    "player-chrome-utility menu-sweep-hover relative h-9 w-9 overflow-hidden rounded-md text-white/68 transition-colors hover:text-white";
 
   if (!currentTrack) return null;
 
-  const trackDuration = duration || currentTrack.duration;
+  const trackDuration = currentTrack.duration;
   const playerControlHover = getControlHover(motionEnabled, websiteMode);
   const playerControlTap = getControlTap(motionEnabled, websiteMode);
   const playerControlTransition = motionEnabled
@@ -166,12 +95,12 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 48, opacity: 0 }}
         transition={motionProfile.spring.shell}
-        className={`bottom-player-shell bottom-player-shell-${bottomPlayerStyle} bottom-player-shell-buttons-${playerButtonsLayout} relative h-[124px] shrink-0 overflow-hidden chrome-bar border-t border-white/10 shadow-[0_-18px_54px_rgba(0,0,0,0.52)] flex flex-col`}
+        className={`bottom-player-shell bottom-player-shell-${bottomPlayerStyle} bottom-player-shell-buttons-${playerButtonsLayout} relative z-20 isolate h-[124px] shrink-0 overflow-hidden chrome-bar border-t border-white/10 shadow-[0_-18px_54px_rgba(0,0,0,0.52)] flex flex-col`}
       >
         <AnimatePresence mode="wait">
           <motion.div
             key={`player-ambient-${currentTrack.id}`}
-            className="absolute inset-0"
+            className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
             initial={motionEnabled ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
             exit={motionEnabled ? { opacity: 0 } : undefined}
@@ -180,6 +109,14 @@ export function BottomPlayer({ onOpenFullScreen }: BottomPlayerProps) {
               ease: motionProfile.ease.smooth,
             }}
           >
+            <div className="shell-artwork-wash" aria-hidden="true">
+              <img
+                src={currentTrack.coverUrl || "/placeholder.svg"}
+                alt=""
+                loading="eager"
+                decoding="async"
+              />
+            </div>
             <div
               className="absolute inset-0"
               style={{
@@ -244,7 +181,7 @@ linear-gradient(180deg, hsl(0 0% 100% / 0.08), hsl(0 0% 3% / 0.22) 18%, hsl(0 0%
                       />
                     </div>
                     {currentTrack.audioQuality &&
-                    (currentTrack.audioQuality === "LOSSLESS" || currentTrack.audioQuality === "MAX") ? (
+                      (currentTrack.audioQuality === "LOSSLESS" || currentTrack.audioQuality === "MAX") ? (
                       <motion.span
                         className="player-quality-badge shrink-0 self-center"
                         initial={motionEnabled ? { opacity: 0, scale: 0.85 } : false}
@@ -272,13 +209,13 @@ linear-gradient(180deg, hsl(0 0% 100% / 0.08), hsl(0 0% 3% / 0.22) 18%, hsl(0 0%
               <MotionButton
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 shrink-0 self-center bg-white/[0.035] text-white/68 hover:bg-white/[0.085] hover:text-white"
+                className={`${utilityControlClassName} shrink-0 self-center`}
                 onClick={() => toggleLike(currentTrack)}
                 whileHover={getControlHover(motionEnabled, websiteMode)}
                 whileTap={getControlTap(motionEnabled, websiteMode)}
                 transition={motionProfile.spring.control}
               >
-                <Heart className={`h-5 w-5 transition-colors ${isLiked(currentTrack.id) ? "text-[hsl(var(--dynamic-accent))] fill-current" : "text-white/68 hover:text-white"}`} />
+                <Heart className={`h-5 w-5 transition-colors ${isLiked(currentTrack.id) ? "fill-current text-white" : "text-white/68 hover:text-white"}`} />
               </MotionButton>
             </div>
 
@@ -305,13 +242,13 @@ linear-gradient(180deg, hsl(0 0% 100% / 0.08), hsl(0 0% 3% / 0.22) 18%, hsl(0 0%
                 whileTap={playerControlTap}
                 transition={playerControlTransition}
               >
-                <SkipBack className="h-[22px] w-[22px] fill-current" />
+                <SkipBack className="h-[22px] w-[22px]" absoluteStrokeWidth />
               </MotionButton>
               <MotionButton
                 allowGlobalShortcuts
                 variant="ghost"
                 size="icon"
-                className="bottom-player-control bottom-player-primary-control h-14 w-14 rounded-none border border-white/16 shadow-[0_12px_24px_rgba(0,0,0,0.32)] transition-[transform,background-color,color] duration-100"
+                className="bottom-player-control bottom-player-primary-control menu-sweep-hover relative h-14 w-14 overflow-hidden rounded-full border border-white/16 shadow-[0_12px_24px_rgba(0,0,0,0.32)] transition-[transform,background-color,color] duration-100"
                 style={{
                   backgroundColor: "hsl(0 0% 100%)",
                   color: "hsl(0 0% 8%)",
@@ -340,7 +277,7 @@ linear-gradient(180deg, hsl(0 0% 100% / 0.08), hsl(0 0% 3% / 0.22) 18%, hsl(0 0%
                 whileTap={playerControlTap}
                 transition={playerControlTransition}
               >
-                <SkipForward className="h-[22px] w-[22px] fill-current" />
+                <SkipForward className="h-[22px] w-[22px]" absoluteStrokeWidth />
               </MotionButton>
               <MotionButton
                 allowGlobalShortcuts
@@ -413,15 +350,15 @@ linear-gradient(180deg, hsl(0 0% 100% / 0.08), hsl(0 0% 3% / 0.22) 18%, hsl(0 0%
             </div>
           </div>
 
-          <BottomPlayerProgressRow
-            currentTime={currentTime}
-            duration={trackDuration}
+          <PlayerSeekRow
+            fallbackDuration={trackDuration}
             isPlaying={isPlaying}
             playbackSpeed={playbackSpeed}
             currentTrackId={currentTrack.id}
             motionEnabled={motionEnabled}
             motionProfile={motionProfile}
             onSeek={seek}
+            variant="desktop"
           />
         </div>
       </motion.div>

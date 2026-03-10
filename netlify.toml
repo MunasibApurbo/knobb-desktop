@@ -8,6 +8,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/tidal-browse"
+  to = "/.netlify/functions/tidal-browse-proxy"
+  status = 200
+
+[[redirects]]
   from = "/embed/track/:trackId"
   to = "/.netlify/functions/embed-track?trackId=:trackId"
   status = 200

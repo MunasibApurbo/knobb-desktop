@@ -5,7 +5,7 @@ import { useMotionPreferences } from "@/hooks/useMotionPreferences";
 const motionPreferenceMocks = vi.hoisted(() => ({
   animationsEnabled: true,
   blurEffects: true,
-  websiteMode: "edgy" as "edgy" | "roundish",
+  websiteMode: "roundish" as const,
   animationMode: "full" as "full" | "off" | "reduced",
   isMobile: false,
   prefersReducedMotion: false,
@@ -36,7 +36,7 @@ describe("useMotionPreferences", () => {
   beforeEach(() => {
     motionPreferenceMocks.animationsEnabled = true;
     motionPreferenceMocks.blurEffects = true;
-    motionPreferenceMocks.websiteMode = "edgy";
+    motionPreferenceMocks.websiteMode = "roundish";
     motionPreferenceMocks.animationMode = "full";
     motionPreferenceMocks.isMobile = false;
     motionPreferenceMocks.prefersReducedMotion = false;
@@ -44,11 +44,11 @@ describe("useMotionPreferences", () => {
     motionPreferenceMocks.strongDesktopEffects = false;
   });
 
-  it("keeps the saved website mode on desktop", () => {
+  it("keeps roundish motion preferences on desktop", () => {
     const { result } = renderHook(() => useMotionPreferences());
 
-    expect(result.current.websiteMode).toBe("edgy");
-    expect(result.current.isRoundish).toBe(false);
+    expect(result.current.websiteMode).toBe("roundish");
+    expect(result.current.isRoundish).toBe(true);
     expect(result.current.motionEnabled).toBe(true);
   });
 

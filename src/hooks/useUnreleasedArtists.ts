@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { fetchUnreleasedArtists, type UnreleasedArtist } from "@/lib/unreleasedApi";
+import {
+  fetchUnreleasedArtists,
+  getCachedUnreleasedArtists,
+  type UnreleasedArtist,
+} from "@/lib/unreleasedApi";
 
 export function useUnreleasedArtists() {
-  const [artists, setArtists] = useState<UnreleasedArtist[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedArtists = getCachedUnreleasedArtists();
+  const [artists, setArtists] = useState<UnreleasedArtist[]>(cachedArtists);
+  const [loading, setLoading] = useState(cachedArtists.length === 0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

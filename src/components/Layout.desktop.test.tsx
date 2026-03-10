@@ -5,6 +5,22 @@ import { MemoryRouter } from "react-router-dom";
 import { Layout, useSidebarCollapsed } from "@/components/Layout";
 
 const desktopLayoutMocks = vi.hoisted(() => {
+  type DesktopLayoutState = {
+    currentTrack: {
+      id: string;
+      title: string;
+      artist: string;
+      album: string;
+      duration: number;
+      year: number;
+      coverUrl: string;
+      canvasColor: string;
+    };
+    hasPlaybackStarted: boolean;
+    showRightPanel: boolean;
+    rightPanelTab: "lyrics" | "queue";
+  };
+
   const baseState = {
     currentTrack: {
       id: "track-1",
@@ -21,7 +37,7 @@ const desktopLayoutMocks = vi.hoisted(() => {
     rightPanelTab: "lyrics" as const,
   };
 
-  let state = { ...baseState };
+  let state: DesktopLayoutState = { ...baseState };
   const listeners = new Set<() => void>();
 
   const emit = () => {

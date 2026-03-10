@@ -12,6 +12,7 @@ import {
 } from "@/hooks/usePlaylists";
 import { getUserPlaylistCoverUrl } from "@/components/user-playlist/userPlaylistUtils";
 import { copyPlainTextToClipboard } from "@/lib/mediaNavigation";
+import { APP_HOME_PATH } from "@/lib/routes";
 import { useMainScrollY } from "@/hooks/useMainScrollY";
 
 export function useUserPlaylistPage() {
@@ -165,7 +166,7 @@ export function useUserPlaylistPage() {
     if (!confirmed) return;
     await deletePlaylist(playlist.id);
     toast.success("Playlist deleted");
-    navigate("/");
+    navigate(APP_HOME_PATH);
   }, [deletePlaylist, navigate, playlist]);
 
   const handleSaveMetadata = useCallback(async () => {

@@ -1,7 +1,6 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { LikedSongsProvider } from "@/contexts/LikedSongsContext";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -15,12 +14,14 @@ import { MetadataProvider } from "@/components/MetadataProvider";
 import { RequireAdmin, RequireAuth } from "@/components/RequireAuth";
 import { PlaylistsProvider } from "@/hooks/usePlaylists";
 import { useLowEndDevice } from "@/lib/performanceProfile";
+import { APP_HOME_PATH, PUBLIC_HOME_PATH } from "@/lib/routes";
 
 
 const Index = lazy(() => import("./pages/Index"));
 const AlbumPage = lazy(() => import("./pages/AlbumPage"));
 const PlaylistPage = lazy(() => import("./pages/PlaylistPage"));
 const SearchPage = lazy(() => import("./pages/SearchPage"));
+const LibraryPage = lazy(() => import("./pages/LibraryPage"));
 const ArtistPage = lazy(() => import("./pages/ArtistPage"));
 const ArtistMixPage = lazy(() => import("./pages/ArtistMixPage"));
 const TrackMixPage = lazy(() => import("./pages/TrackMixPage"));
@@ -87,8 +88,8 @@ function useDeferredChromeMount() {
       return () => window.cancelIdleCallback(idleId);
     }
 
-    const timeoutId = window.setTimeout(activate, 900);
-    return () => window.clearTimeout(timeoutId);
+    const timeoutId = setTimeout(activate, 900);
+    return () => clearTimeout(timeoutId);
   }, [enabled]);
 
   return enabled;
@@ -100,75 +101,76 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        {deferredChromeReady ? (
-          <Suspense fallback={null}>
-            <LazyToaster />
-            <LazySonner />
-          </Suspense>
-        ) : null}
-        {deferredChromeReady && !lowEndDevice ? <div className="noise-bg fixed inset-0" /> : null}
-        <AuthProvider>
-          <LanguageProvider>
-            <SettingsProvider>
-              <LocalFilesProvider>
-                <PlayerProvider>
-                  <LikedSongsProvider>
-                    <FavoriteArtistsProvider>
-                      <PlaylistsProvider>
-                        <BrowserRouter>
-                          <MetadataProvider>
-                            <SearchProvider>
-                              <Layout>
-                                <Suspense fallback={<RouteLoader />}>
-                                  <Routes>
-                                    <Route path="/" element={<Index />} />
-                                    <Route path="/album/:id" element={<AlbumPage />} />
-                                    <Route path="/playlist/:id" element={<PlaylistPage />} />
-                                    <Route path="/my-playlist/:id" element={<RequireAuth><UserPlaylistPage /></RequireAuth>} />
-                                    <Route path="/shared-playlist/:token" element={<SharedPlaylistPage />} />
-                                    <Route path="/track/:trackId" element={<TrackSharePage />} />
-                                    <Route path="/embed/track/:trackId" element={<TrackEmbedPage />} />
-                                    <Route path="/embed-player/track/:trackId" element={<TrackEmbedPage />} />
-                                    <Route path="/search" element={<SearchPage />} />
-                                    <Route path="/mix/:mixId" element={<TrackMixPage />} />
-                                    <Route path="/artist/:id/mix" element={<ArtistMixPage />} />
-                                    <Route path="/artist/:id" element={<ArtistPage />} />
-                                    <Route path="/genre" element={<GenrePage />} />
-                                    <Route path="/browse" element={<BrowsePage />} />
-                                    <Route path="/home-section/:section" element={<HomeSectionPage />} />
-                                    <Route path="/unreleased" element={<UnreleasedPage />} />
-                                    <Route path="/unreleased/:sheetId/:projectName" element={<UnreleasedProjectPage />} />
-                                    <Route path="/unreleased/:sheetId" element={<UnreleasedArtistPage />} />
-                                    <Route path="/liked" element={<RequireAuth><LikedSongsPage /></RequireAuth>} />
-                                    <Route path="/local-files" element={<LocalFilesPage />} />
-                                    <Route path="/history" element={<RequireAuth><HistoryPage /></RequireAuth>} />
-                                    <Route path="/auth" element={<AuthPage />} />
-                                    <Route path="/settings" element={<SettingsPage />} />
-                                    <Route path="/stats" element={<RequireAuth><ListeningStatsPage /></RequireAuth>} />
-                                    <Route path="/favorite-artists" element={<RequireAuth><FavoriteArtistsPage /></RequireAuth>} />
-                                    <Route path="/notifications" element={<NotificationsPage />} />
-                                    <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
-                                    <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
-                                    <Route path="/legal/privacy" element={<PrivacyPage />} />
-                                    <Route path="/legal/terms" element={<TermsPage />} />
-                                    <Route path="/legal/cookies" element={<CookiesPage />} />
-                                    <Route path="*" element={<NotFound />} />
-                                  </Routes>
-                                </Suspense>
-                              </Layout>
-                            </SearchProvider>
-                          </MetadataProvider>
-                        </BrowserRouter>
-                      </PlaylistsProvider>
-                    </FavoriteArtistsProvider>
-                  </LikedSongsProvider>
-                </PlayerProvider>
-              </LocalFilesProvider>
-            </SettingsProvider>
-          </LanguageProvider>
-        </AuthProvider>
-      </TooltipProvider>
+      {deferredChromeReady ? (
+        <Suspense fallback={null}>
+          <LazyToaster />
+          <LazySonner />
+        </Suspense>
+      ) : null}
+      {deferredChromeReady && !lowEndDevice ? <div className="noise-bg fixed inset-0" /> : null}
+      <AuthProvider>
+        <LanguageProvider>
+          <SettingsProvider>
+            <LocalFilesProvider>
+              <PlayerProvider>
+                <LikedSongsProvider>
+                  <FavoriteArtistsProvider>
+                    <PlaylistsProvider>
+                      <BrowserRouter>
+                        <MetadataProvider>
+                          <SearchProvider>
+                            <Suspense fallback={<RouteLoader />}>
+                              <Routes>
+                                <Route path={PUBLIC_HOME_PATH} element={<Navigate to={APP_HOME_PATH} replace />} />
+                                <Route element={<Layout />}>
+                                  <Route path={APP_HOME_PATH} element={<Index />} />
+                                  <Route path="/album/:id" element={<AlbumPage />} />
+                                  <Route path="/playlist/:id" element={<PlaylistPage />} />
+                                  <Route path="/my-playlist/:id" element={<RequireAuth><UserPlaylistPage /></RequireAuth>} />
+                                  <Route path="/shared-playlist/:token" element={<SharedPlaylistPage />} />
+                                  <Route path="/track/:trackId" element={<TrackSharePage />} />
+                                  <Route path="/embed/track/:trackId" element={<TrackEmbedPage />} />
+                                  <Route path="/embed-player/track/:trackId" element={<TrackEmbedPage />} />
+                                  <Route path="/search" element={<SearchPage />} />
+                                  <Route path="/library" element={<LibraryPage />} />
+                                  <Route path="/mix/:mixId" element={<TrackMixPage />} />
+                                  <Route path="/artist/:id/mix" element={<ArtistMixPage />} />
+                                  <Route path="/artist/:id" element={<ArtistPage />} />
+                                  <Route path="/genre" element={<GenrePage />} />
+                                  <Route path="/browse" element={<BrowsePage />} />
+                                  <Route path="/made-for-you" element={<Navigate to={APP_HOME_PATH} replace />} />
+                                  <Route path="/home-section/:section" element={<HomeSectionPage />} />
+                                  <Route path="/unreleased" element={<UnreleasedPage />} />
+                                  <Route path="/unreleased/:sheetId/:projectName" element={<UnreleasedProjectPage />} />
+                                  <Route path="/unreleased/:sheetId" element={<UnreleasedArtistPage />} />
+                                  <Route path="/liked" element={<RequireAuth><LikedSongsPage /></RequireAuth>} />
+                                  <Route path="/local-files" element={<LocalFilesPage />} />
+                                  <Route path="/history" element={<RequireAuth><HistoryPage /></RequireAuth>} />
+                                  <Route path="/auth" element={<AuthPage />} />
+                                  <Route path="/settings" element={<SettingsPage />} />
+                                  <Route path="/stats" element={<RequireAuth><ListeningStatsPage /></RequireAuth>} />
+                                  <Route path="/favorite-artists" element={<RequireAuth><FavoriteArtistsPage /></RequireAuth>} />
+                                  <Route path="/notifications" element={<NotificationsPage />} />
+                                  <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+                                  <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
+                                  <Route path="/legal/privacy" element={<PrivacyPage />} />
+                                  <Route path="/legal/terms" element={<TermsPage />} />
+                                  <Route path="/legal/cookies" element={<CookiesPage />} />
+                                  <Route path="*" element={<NotFound />} />
+                                </Route>
+                              </Routes>
+                            </Suspense>
+                          </SearchProvider>
+                        </MetadataProvider>
+                      </BrowserRouter>
+                    </PlaylistsProvider>
+                  </FavoriteArtistsProvider>
+                </LikedSongsProvider>
+              </PlayerProvider>
+            </LocalFilesProvider>
+          </SettingsProvider>
+        </LanguageProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 };

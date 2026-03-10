@@ -100,7 +100,7 @@ export default function UnreleasedProjectPage() {
   return (
     <PageTransition>
       <div className="space-y-0 pb-24">
-        <section className="border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.24),_transparent_58%),linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0.015))]">
+        <section className="border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.04),_rgba(255,255,255,0.015))]">
           <div className="grid gap-0 lg:grid-cols-[320px_minmax(0,1fr)]">
             <div className="border-b border-white/10 lg:border-b-0 lg:border-r lg:border-white/10">
               <div className="relative aspect-square min-h-[320px] w-full overflow-hidden bg-black">

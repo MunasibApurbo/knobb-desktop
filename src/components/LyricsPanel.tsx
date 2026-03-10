@@ -230,12 +230,7 @@ export function LyricsPanel({
 
     return track.artist;
   }, [track.artist, track.artists]);
-  const albumLabel =
-    typeof track.album === "string"
-      ? track.album
-      : typeof track.album === "object" && track.album
-        ? track.album.title
-        : "";
+  const albumLabel = track.album;
   const isrc = "isrc" in track && typeof track.isrc === "string" ? track.isrc : "";
   const syncedTimeMs = Math.max(0, Math.round(currentTime * 1000));
 
@@ -356,7 +351,9 @@ export function LyricsPanel({
           }
         >
           <LazyAmLyrics
-            ref={lyricsRef}
+            ref={(instance) => {
+              lyricsRef.current = instance as unknown as LyricsHostElement | null;
+            }}
             key={trackStorageKey}
             className="knobb-am-lyrics block h-full w-full"
             autoScroll

@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { filterAudioTracks, searchTracks, tidalTrackToAppTrack } from "@/lib/musicApi";
 import { Track } from "@/types/music";
 import { usePlayer } from "@/contexts/PlayerContext";
@@ -12,32 +13,23 @@ import {
   MEDIA_CARD_TITLE_CLASS,
 } from "@/components/mediaCardStyles";
 import { isSameTrack } from "@/lib/trackIdentity";
-
-const GENRES = [
-  { id: "pop", label: "Pop", query: "pop hits 2025", color: "330 80% 55%" },
-  { id: "hiphop", label: "Hip-Hop", query: "hip hop new 2025", color: "35 90% 55%" },
-  { id: "rock", label: "Rock", query: "rock anthems", color: "0 70% 50%" },
-  { id: "electronic", label: "Electronic", query: "electronic dance", color: "200 80% 55%" },
-  { id: "rnb", label: "R&B", query: "r&b soul 2025", color: "280 60% 55%" },
-  { id: "jazz", label: "Jazz", query: "jazz classics modern", color: "45 70% 50%" },
-  { id: "classical", label: "Classical", query: "classical masterpieces", color: "220 50% 55%" },
-  { id: "indie", label: "Indie", query: "indie alternative", color: "160 60% 45%" },
-  { id: "latin", label: "Latin", query: "latin reggaeton 2025", color: "15 85% 55%" },
-  { id: "kpop", label: "K-Pop", query: "kpop trending", color: "310 70% 60%" },
-  { id: "metal", label: "Metal", query: "heavy metal", color: "0 0% 35%" },
-  { id: "country", label: "Country", query: "country hits 2025", color: "30 60% 45%" },
-];
+import { BROWSE_GENRES, type BrowseGenreDefinition } from "@/lib/browseGenres";
 
 const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
 const fadeUp = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
 
 export default function GenrePage() {
   const { play, currentTrack, isPlaying } = usePlayer();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
+  const genresById = useMemo(
+    () => new Map(BROWSE_GENRES.map((genre) => [genre.id, genre])),
+    [],
+  );
 
-  const loadGenre = useCallback(async (genre: typeof GENRES[0]) => {
+  const loadGenre = useCallback(async (genre: BrowseGenreDefinition) => {
     setSelectedGenre(genre.id);
     setLoading(true);
     try {
@@ -50,17 +42,38 @@ export default function GenrePage() {
     }
   }, []);
 
+  useEffect(() => {
+    const requestedGenreId = searchParams.get("genre");
+    if (!requestedGenreId || requestedGenreId === selectedGenre) {
+      return;
+    }
+
+    const genre = genresById.get(requestedGenreId);
+    if (!genre) {
+      return;
+    }
+
+    void loadGenre(genre);
+  }, [genresById, loadGenre, searchParams, selectedGenre]);
+
+  const handleSelectGenre = useCallback((genre: BrowseGenreDefinition) => {
+    setSearchParams({ genre: genre.id });
+    if (selectedGenre !== genre.id) {
+      void loadGenre(genre);
+    }
+  }, [loadGenre, selectedGenre, setSearchParams]);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
       <h1 className="text-2xl font-bold text-foreground mb-6">Browse All</h1>
 
       {/* Genre Grid */}
       <motion.div variants={stagger} initial="hidden" animate="show" className="media-card-grid gap-4 mb-8">
-        {GENRES.map((genre) => (
+        {BROWSE_GENRES.map((genre) => (
           <motion.button
             key={genre.id}
             variants={fadeUp}
-            onClick={() => loadGenre(genre)}
+            onClick={() => handleSelectGenre(genre)}
             className={`relative h-28  overflow-hidden text-left p-4 transition-all hover:scale-[1.02] active:scale-[0.98] ${selectedGenre === genre.id ? "ring-2 ring-foreground/30" : ""
               }`}
             style={{
@@ -76,7 +89,7 @@ export default function GenrePage() {
       {selectedGenre && (
         <div>
           <h2 className="text-xl font-bold text-foreground mb-4">
-            {GENRES.find((g) => g.id === selectedGenre)?.label}
+            {BROWSE_GENRES.find((g) => g.id === selectedGenre)?.label}
           </h2>
           {loading ? (
             <div className="flex items-center justify-center h-32">

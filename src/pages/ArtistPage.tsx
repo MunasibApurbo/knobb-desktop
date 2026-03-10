@@ -1,10 +1,6 @@
 import {
-  type CSSProperties,
-  type MouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
@@ -17,8 +13,7 @@ import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { Play, Pause, Shuffle, Heart, Share, Music, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { TrackListSkeleton } from "@/components/LoadingSkeleton";
+import { ArtistDetailSkeleton, TrackListSkeleton } from "@/components/LoadingSkeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ArtistCard } from "@/components/ArtistCard";
@@ -35,11 +30,22 @@ import { Track } from "@/types/music";
 import { buildArtistMixPath, copyPlainTextToClipboard } from "@/lib/mediaNavigation";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useResponsiveMediaCardCount } from "@/hooks/useResponsiveMediaCardCount";
+import { useCarousel } from "@/hooks/useCarousel";
+import { CarouselSection } from "@/components/carousel/CarouselSection";
 import type { HomeAlbum } from "@/hooks/useHomeFeeds";
 import { PageTransition } from "@/components/PageTransition";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { isSameTrack } from "@/lib/trackIdentity";
+import {
+  MOBILE_ACTION_BUTTON_CLASS,
+  MOBILE_SECONDARY_BUTTON_CLASS,
+  MobileExperiencePage,
+  MobileHero,
+  MobileMetaChip,
+  MobileRail,
+  MobileSection,
+} from "@/components/mobile/MobileExperienceLayout";
 
 type PlayTrackHandler = ReturnType<typeof usePlayer>["play"];
 type IsTrackLikedHandler = ReturnType<typeof useLikedSongs>["isLiked"];
@@ -47,11 +53,6 @@ type ToggleLikeHandler = ReturnType<typeof useLikedSongs>["toggleLike"];
 type BioLinkType = "artist" | "album" | "track" | "playlist";
 
 const BIO_LINK_TYPES: BioLinkType[] = ["artist", "album", "track", "playlist"];
-const CARD_ROW_FRAME = "artist-page-grid home-section-grid hover-desaturate-grid home-section-carousel-frame border-l border-t border-white/10";
-
-function getCarouselTransform(pageIndex: number, dragOffset = 0) {
-  return `translate3d(calc(${-pageIndex * 100}% + ${dragOffset}px), 0, 0)`;
-}
 
 function ArtistSectionHeader({
   title,
@@ -69,7 +70,7 @@ function ArtistSectionHeader({
   canPageForward?: boolean;
 }) {
   return (
-    <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center justify-between border border-white/10 border-b-0 px-4 py-3">
+    <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center justify-between px-4 py-3">
       <h2 className="text-xl font-bold text-foreground">{title}</h2>
       <div className="flex items-center gap-3">
         {showPager && (
@@ -280,8 +281,8 @@ function ArtistTrackSection({
 }) {
   if (loading && tracks.length === 0) {
     return (
-      <section className="artist-page-section border border-white/10 border-t-0 bg-white/[0.02]">
-        <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center border-b border-white/10 px-4 py-3">
+      <section className="artist-page-section mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
+        <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center px-4 py-3">
           <h2 className="text-lg font-bold text-foreground">{title}</h2>
         </div>
         <TrackListSkeleton count={5} />
@@ -296,8 +297,8 @@ function ArtistTrackSection({
   const displayedTracks = showAll ? tracks : tracks.slice(0, initialVisibleCount);
 
   return (
-    <section className="artist-page-section border border-white/10 border-t-0 bg-white/[0.02]">
-      <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center justify-between border-b border-white/10 px-4 py-3">
+    <section className="artist-page-section mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
+      <div className="artist-page-header home-section-header hover-desaturate-meta flex items-center justify-between px-4 py-3">
         <h2 className="text-lg font-bold text-foreground">{title}</h2>
         {tracks.length > initialVisibleCount && (
           <button
@@ -344,54 +345,6 @@ function ArtistTrackSection({
   );
 }
 
-function ArtistPageSkeleton({ artistName }: { artistName: string }) {
-  const hasName = artistName.trim().length > 0;
-
-  return (
-    <div className="artist-page-shell mobile-page-shell hover-desaturate-page animate-fade-in">
-      <DetailHero
-        artworkUrl="/placeholder.svg"
-        label="Artist"
-        title={
-          hasName ? (
-            artistName
-          ) : (
-            <Skeleton className="h-14 w-[18rem] max-w-full bg-white/10 md:h-16" />
-          )
-        }
-        body={
-          <div className="max-w-3xl space-y-2">
-            <Skeleton className="h-4 w-[18rem] max-w-full bg-white/10" />
-            <Skeleton className="h-4 w-[24rem] max-w-full bg-white/10" />
-          </div>
-        }
-        meta={
-          <>
-            {Array.from({ length: 4 }).map((_, index) => (
-              <Skeleton key={index} className="h-10 w-24 rounded-full bg-white/10" />
-            ))}
-          </>
-        }
-      />
-
-      <DetailActionBar columns={5}>
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="flex h-14 items-center px-4 md:px-6">
-            <Skeleton className="h-4 w-24 bg-white/10" />
-          </div>
-        ))}
-      </DetailActionBar>
-
-      <section className="artist-page-section border border-white/10 bg-white/[0.02]">
-        <div className="px-4 h-14 border-b border-white/10 flex items-center">
-          <h2 className="text-lg font-bold text-foreground">Popular</h2>
-        </div>
-        <TrackListSkeleton count={5} />
-      </section>
-    </div>
-  );
-}
-
 export default function ArtistPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -419,318 +372,11 @@ export default function ArtistPage() {
     tracksLoading,
   } = useArtistPageData({ artistName, id, includeRadio: false });
   const [bioDialogOpen, setBioDialogOpen] = useState(false);
-  const [sectionPageIndexes, setSectionPageIndexes] = useState<Record<string, number>>({});
-  const [draggingSections, setDraggingSections] = useState<Record<string, boolean>>({});
-  const frameRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const trackRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const sectionItemCountsRef = useRef<Record<string, number>>({});
-  const dragSessionsRef = useRef<Record<string, { pointerId: number; startX: number; lastOffset: number; moved: boolean }>>({});
-  const dragAnimationFramesRef = useRef<Record<string, number | undefined>>({});
-  const pendingTransformsRef = useRef<Record<string, { pageIndex: number; dragOffset: number } | undefined>>({});
-  const clickSuppressionRef = useRef<Record<string, number>>({});
+  const carousel = useCarousel(initialVisibleCount);
 
   useEffect(() => {
     setBioDialogOpen(false);
   }, [artistName, id]);
-
-  const getPageCount = (itemsLength: number) =>
-    Math.max(1, Math.ceil(itemsLength / Math.max(1, initialVisibleCount)));
-
-  const getCurrentPage = (section: string, itemsLength: number) =>
-    Math.min(sectionPageIndexes[section] ?? 0, getPageCount(itemsLength) - 1);
-
-  function getSectionPages<T>(items: T[]) {
-    const pageSize = Math.max(1, initialVisibleCount);
-    const pages: T[][] = [];
-
-    for (let index = 0; index < items.length; index += pageSize) {
-      pages.push(items.slice(index, index + pageSize));
-    }
-
-    return pages;
-  }
-
-  const moveSectionPage = (section: string, itemsLength: number, direction: -1 | 1) => {
-    setSectionPageIndexes((previous) => {
-      const pageCount = getPageCount(itemsLength);
-      const currentPage = Math.min(previous[section] ?? 0, pageCount - 1);
-      const nextPage = Math.max(0, Math.min(pageCount - 1, currentPage + direction));
-      if (nextPage === currentPage) return previous;
-      return { ...previous, [section]: nextPage };
-    });
-  };
-
-  const shouldShowPager = (_section: string, itemsLength: number) =>
-    getPageCount(itemsLength) > 1;
-
-  const rowStyle = {
-    "--home-row-columns": Math.max(1, initialVisibleCount),
-  } as CSSProperties;
-
-  const setFrameRef = (section: string) => (node: HTMLDivElement | null) => {
-    frameRefs.current[section] = node;
-  };
-
-  const setTrackRef = (section: string) => (node: HTMLDivElement | null) => {
-    trackRefs.current[section] = node;
-  };
-
-  const getTrackedItemsLength = (section: string) => sectionItemCountsRef.current[section] ?? 0;
-
-  const snapSectionTransform = (section: string, pageIndex: number, dragOffset = 0) => {
-    const track = trackRefs.current[section];
-    if (!track) return;
-    track.style.transform = getCarouselTransform(pageIndex, dragOffset);
-  };
-
-  const flushSectionTransform = (section: string) => {
-    const pendingTransform = pendingTransformsRef.current[section];
-    const track = trackRefs.current[section];
-    dragAnimationFramesRef.current[section] = undefined;
-
-    if (!pendingTransform || !track) return;
-
-    track.style.transform = getCarouselTransform(pendingTransform.pageIndex, pendingTransform.dragOffset);
-  };
-
-  const scheduleSectionTransform = (section: string, pageIndex: number, dragOffset: number) => {
-    pendingTransformsRef.current[section] = { pageIndex, dragOffset };
-
-    if (dragAnimationFramesRef.current[section] != null) return;
-
-    dragAnimationFramesRef.current[section] = window.requestAnimationFrame(() => {
-      flushSectionTransform(section);
-    });
-  };
-
-  const clearSectionAnimationFrame = (section: string) => {
-    const frame = dragAnimationFramesRef.current[section];
-    if (frame == null) return;
-    window.cancelAnimationFrame(frame);
-    dragAnimationFramesRef.current[section] = undefined;
-  };
-
-  useEffect(() => {
-    const activeFrames = dragAnimationFramesRef.current;
-    return () => {
-      Object.keys(activeFrames).forEach((section) => {
-        const frame = activeFrames[section];
-        if (frame == null) return;
-        window.cancelAnimationFrame(frame);
-      });
-    };
-  }, []);
-
-  const setSectionDragging = (section: string, next: boolean) => {
-    setDraggingSections((previous) => {
-      if (!!previous[section] === next) return previous;
-      if (!next && !previous[section]) return previous;
-      if (!next) {
-        const rest = { ...previous };
-        delete rest[section];
-        return rest;
-      }
-      return { ...previous, [section]: true };
-    });
-  };
-
-  const cancelCarouselDrag = (
-    section: string,
-    currentTarget?: HTMLDivElement,
-    pointerId?: number,
-  ) => {
-    const session = dragSessionsRef.current[section];
-    if (!session) return;
-
-    delete dragSessionsRef.current[section];
-    clearSectionAnimationFrame(section);
-    pendingTransformsRef.current[section] = undefined;
-
-    if (currentTarget && pointerId != null && currentTarget.hasPointerCapture(pointerId)) {
-      currentTarget.releasePointerCapture(pointerId);
-    }
-
-    setSectionDragging(section, false);
-    snapSectionTransform(section, getCurrentPage(section, getTrackedItemsLength(section)));
-  };
-
-  const cancelCarouselDragRef = useRef(cancelCarouselDrag);
-  cancelCarouselDragRef.current = cancelCarouselDrag;
-
-  const handleCarouselPointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
-    section: string,
-    itemsLength: number,
-  ) => {
-    if (getPageCount(itemsLength) <= 1) return;
-    if (event.button !== 0) return;
-
-    const target = event.target as HTMLElement;
-    if (target.closest("button, a, input, textarea, select, [role='button'], [data-no-carousel-drag='true']")) {
-      return;
-    }
-
-    dragSessionsRef.current[section] = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      lastOffset: 0,
-      moved: false,
-    };
-
-    clearSectionAnimationFrame(section);
-    pendingTransformsRef.current[section] = undefined;
-  };
-
-  const handleCarouselPointerMove = (
-    event: ReactPointerEvent<HTMLDivElement>,
-    section: string,
-    itemsLength: number,
-  ) => {
-    const session = dragSessionsRef.current[section];
-    if (!session || session.pointerId !== event.pointerId) return;
-
-    if (event.buttons === 0) {
-      cancelCarouselDrag(section, event.currentTarget, event.pointerId);
-      return;
-    }
-
-    const pageCount = getPageCount(itemsLength);
-    const currentPage = getCurrentPage(section, itemsLength);
-    const rawDelta = event.clientX - session.startX;
-    const isOverscrollingStart = currentPage === 0 && rawDelta > 0;
-    const isOverscrollingEnd = currentPage === pageCount - 1 && rawDelta < 0;
-    const nextOffset = (isOverscrollingStart || isOverscrollingEnd ? rawDelta * 0.28 : rawDelta * 0.94);
-
-    session.lastOffset = nextOffset;
-    if (Math.abs(rawDelta) > 6) {
-      if (!session.moved) {
-        session.moved = true;
-        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }
-        setSectionDragging(section, true);
-      }
-    }
-
-    if (!session.moved) return;
-
-    scheduleSectionTransform(section, currentPage, nextOffset);
-  };
-
-  const finishCarouselDrag = (
-    event: ReactPointerEvent<HTMLDivElement>,
-    section: string,
-    itemsLength: number,
-  ) => {
-    const session = dragSessionsRef.current[section];
-    if (!session || session.pointerId !== event.pointerId) return;
-
-    delete dragSessionsRef.current[section];
-    clearSectionAnimationFrame(section);
-    pendingTransformsRef.current[section] = undefined;
-
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    if (!session.moved) return;
-
-    setSectionDragging(section, false);
-
-    const frameWidth = frameRefs.current[section]?.clientWidth ?? event.currentTarget.clientWidth;
-    const threshold = Math.max(56, frameWidth * 0.14);
-
-    if (Math.abs(session.lastOffset) >= threshold) {
-      moveSectionPage(section, itemsLength, session.lastOffset < 0 ? 1 : -1);
-    }
-
-    clickSuppressionRef.current[section] = Date.now() + 220;
-  };
-
-  const handleCarouselClickCapture = (event: MouseEvent<HTMLDivElement>, section: string) => {
-    const suppressUntil = clickSuppressionRef.current[section];
-    if (!suppressUntil || suppressUntil < Date.now()) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    delete clickSuppressionRef.current[section];
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const cancelAllCarouselDrags = () => {
-      Object.keys(dragSessionsRef.current).forEach((section) => {
-        cancelCarouselDragRef.current(section);
-      });
-    };
-
-    window.addEventListener("blur", cancelAllCarouselDrags);
-    document.addEventListener("visibilitychange", cancelAllCarouselDrags);
-
-    return () => {
-      window.removeEventListener("blur", cancelAllCarouselDrags);
-      document.removeEventListener("visibilitychange", cancelAllCarouselDrags);
-    };
-  }, []);
-
-  function renderArtistSectionRow<T>(
-    items: T[],
-    section: string,
-    renderItem: (item: T, index: number) => ReactNode,
-  ) {
-    sectionItemCountsRef.current[section] = items.length;
-
-    if (isMobile) {
-      return (
-        <div
-          className="overflow-x-auto border-l border-r border-b border-white/10 scrollbar-hide"
-          style={{ ["--home-row-columns" as string]: 1.16 }}
-        >
-          <div className="home-section-inline-row scrollbar-hide">
-            {items.map((item, index) => (
-              <div key={`${section}-${index}`} className="home-section-inline-item">
-                {renderItem(item, index)}
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    const pages = getSectionPages(items);
-    const currentPage = getCurrentPage(section, items.length);
-    const isDragging = !!draggingSections[section];
-
-    return (
-      <div
-        ref={setFrameRef(section)}
-        className={`${CARD_ROW_FRAME} ${isDragging ? "is-dragging" : ""}`}
-        style={rowStyle}
-        onDragStart={(event) => event.preventDefault()}
-        onPointerDown={(event) => handleCarouselPointerDown(event, section, items.length)}
-        onPointerMove={(event) => handleCarouselPointerMove(event, section, items.length)}
-        onPointerUp={(event) => finishCarouselDrag(event, section, items.length)}
-        onPointerCancel={(event) => cancelCarouselDrag(section, event.currentTarget, event.pointerId)}
-        onLostPointerCapture={(event) => cancelCarouselDrag(section, event.currentTarget, event.pointerId)}
-        onClickCapture={(event) => handleCarouselClickCapture(event, section)}
-      >
-        <div
-          ref={setTrackRef(section)}
-          className={`home-section-carousel-track ${isDragging ? "is-dragging" : ""}`}
-          style={{
-            transform: getCarouselTransform(currentPage),
-          }}
-        >
-          {pages.map((pageItems, pageIndex) => (
-            <div key={`${section}-page-${pageIndex}`} className="home-section-carousel-page">
-              {pageItems.map((item, itemIndex) => renderItem(item, pageIndex * initialVisibleCount + itemIndex))}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   const artistImageUrl = useResolvedArtistImage(
     artist?.id,
@@ -739,8 +385,8 @@ export default function ArtistPage() {
   );
   const artistDescription = artist
     ? sanitizeArtistBio(bio) ||
-      sanitizeArtistBio(artist.bio || "") ||
-      `Discover popular tracks, albums and related artists from ${artist.name}.`
+    sanitizeArtistBio(artist.bio || "") ||
+    `Discover popular tracks, albums and related artists from ${artist.name}.`
     : "";
 
   usePageMetadata(artist ? {
@@ -763,7 +409,7 @@ export default function ArtistPage() {
   } : null);
 
   if (loading && !artist) {
-    return <ArtistPageSkeleton artistName={artistName} />;
+    return <ArtistDetailSkeleton artistName={artistName} />;
   }
 
   if (!artist) {
@@ -919,6 +565,199 @@ export default function ArtistPage() {
     play(shuffledTracks[0], shuffledTracks);
   };
 
+  if (isMobile) {
+    return (
+      <PageTransition>
+        <MobileExperiencePage artworkUrl={artistImageUrl || topTracks[0]?.coverUrl} accentColor={topTracks[0]?.canvasColor}>
+          <MobileHero
+            artworkUrl={artistImageUrl || topTracks[0]?.coverUrl || "/placeholder.svg"}
+            artworkAlt={artist.name}
+            artworkShape="round"
+            accentColor={topTracks[0]?.canvasColor}
+            eyebrow="Artist"
+            title={artist.name}
+            description={(
+              <div className="space-y-3">
+                <p className="text-sm leading-6 text-white/76">{heroBio}</p>
+                {hasDedicatedBiography ? (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold uppercase tracking-[0.18em] text-white/58 underline underline-offset-4 transition-colors hover:text-white"
+                    onClick={() => setBioDialogOpen(true)}
+                  >
+                    Read more
+                  </button>
+                ) : null}
+              </div>
+            )}
+            meta={(
+              <>
+                <MobileMetaChip label="Top" value={topTracks.length} />
+                {albums.length > 0 ? <MobileMetaChip label="Albums" value={albums.length} /> : null}
+                {singlesAndEps.length > 0 ? <MobileMetaChip label="Singles" value={singlesAndEps.length} /> : null}
+                {relatedArtists.length > 0 ? <MobileMetaChip label="Related" value={relatedArtists.length} /> : null}
+              </>
+            )}
+            actions={(
+              <>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_ACTION_BUTTON_CLASS}
+                  onClick={() => {
+                    if (isCurrentArtist) togglePlay();
+                    else if (topTracks.length) play(topTracks[0], topTracks);
+                  }}
+                >
+                  {isCurrentArtist && isPlaying ? (
+                    <Pause className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Play className="h-4 w-4 fill-current" />
+                  )}
+                  Play
+                </Button>
+                <Button variant="ghost" className={MOBILE_SECONDARY_BUTTON_CLASS} onClick={handleShuffleArtist}>
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => navigate(buildArtistMixPath(artist.id, artist.name))}
+                >
+                  <Music className="h-4 w-4" />
+                  {hasArtistMix ? "Mix" : "Radio"}
+                </Button>
+                <Button variant="ghost" className={MOBILE_SECONDARY_BUTTON_CLASS} onClick={handleToggleFavorite}>
+                  <Heart className={favorite ? "h-4 w-4 fill-current text-[hsl(var(--player-waveform))]" : "h-4 w-4"} />
+                  {favorite ? "Favorited" : "Add"}
+                </Button>
+              </>
+            )}
+            footer={(
+              <div className="flex items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-black/18 px-4 py-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">Artist link</p>
+                  <p className="mt-1 text-sm text-white/72">Share the profile or keep moving through mixes and albums.</p>
+                </div>
+                <Button variant="ghost" className={MOBILE_SECONDARY_BUTTON_CLASS} onClick={handleShareArtist}>
+                  <Share className="h-4 w-4" />
+                  Share
+                </Button>
+              </div>
+            )}
+          />
+
+          <MobileSection
+            eyebrow={showAllTracks ? "Full list" : "Top selection"}
+            title="Popular"
+            action={topTracks.length > initialVisibleCount ? (
+              <button
+                type="button"
+                className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/58 transition-colors hover:text-white"
+                onClick={() => setShowAllTracks((prev) => !prev)}
+              >
+                {showAllTracks ? "Show Less" : "See More"}
+              </button>
+            ) : null}
+            contentClassName="px-0 pb-0"
+          >
+            <VirtualizedTrackList
+              items={showAllTracks ? topTracks : topTracks.slice(0, initialVisibleCount)}
+              getItemKey={(track) => track.id}
+              rowHeight={86}
+              renderRow={(track, i) => {
+                const isCurrent = isSameTrack(currentTrack, track);
+
+                return (
+                  <TrackContextMenu key={track.id} track={track} tracks={topTracks}>
+                    <TrackListRow
+                      dragHandleLabel={`Drag ${track.title} to a playlist`}
+                      index={i}
+                      isCurrent={isCurrent}
+                      isLiked={isLiked(track.id)}
+                      isPlaying={isPlaying}
+                      mobileMeta={track.album || undefined}
+                      onDragHandleStart={(event) => {
+                        startPlaylistDrag(event.dataTransfer, {
+                          label: track.title,
+                          source: "track",
+                          tracks: [track],
+                        });
+                      }}
+                      onPlay={() => play(track, topTracks)}
+                      onToggleLike={() => toggleLike(track)}
+                      track={track}
+                    />
+                  </TrackContextMenu>
+                );
+              }}
+            />
+          </MobileSection>
+
+          {albums.length > 0 ? (
+            <MobileSection eyebrow="Full projects" title="Albums">
+              <MobileRail itemClassName="w-[min(72vw,18rem)]">
+                {albums.map((album, index) => (
+                  <HomeAlbumCard
+                    key={album.id}
+                    album={mapArtistAlbumToHomeAlbum(album)}
+                    saved={isAlbumSaved(album.id)}
+                    onToggleSave={() => void handleToggleSavedAlbum(album)}
+                    isPriority={index < 4}
+                  />
+                ))}
+              </MobileRail>
+            </MobileSection>
+          ) : null}
+
+          {singlesAndEps.length > 0 ? (
+            <MobileSection eyebrow="Shorter runs" title="Singles & EPs">
+              <MobileRail itemClassName="w-[min(72vw,18rem)]">
+                {singlesAndEps.map((album, index) => (
+                  <HomeAlbumCard
+                    key={album.id}
+                    album={mapArtistAlbumToHomeAlbum(album)}
+                    saved={isAlbumSaved(album.id)}
+                    onToggleSave={() => void handleToggleSavedAlbum(album)}
+                    isPriority={index < 4}
+                  />
+                ))}
+              </MobileRail>
+            </MobileSection>
+          ) : null}
+
+          {relatedArtists.length > 0 ? (
+            <MobileSection eyebrow="Next connections" title="Related Artists">
+              <MobileRail itemClassName="w-[min(68vw,17rem)]">
+                {relatedArtists.map((relatedArtist) => (
+                  <ArtistCard
+                    key={relatedArtist.id}
+                    id={relatedArtist.id}
+                    name={relatedArtist.name}
+                    imageUrl={relatedArtist.picture}
+                  />
+                ))}
+              </MobileRail>
+            </MobileSection>
+          ) : null}
+
+          <Dialog open={bioDialogOpen} onOpenChange={setBioDialogOpen}>
+            <DialogContent className="w-[min(92vw,42rem)] p-0">
+              <DialogHeader className="border-b border-white/10 px-6 py-5">
+                <DialogTitle className="text-2xl font-bold tracking-tight">Artist Biography</DialogTitle>
+              </DialogHeader>
+              <div className="max-h-[72vh] overflow-y-auto px-6 py-6">
+                <div className="space-y-6 text-[1rem] leading-8 text-white/92">
+                  {biographyContent}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </MobileExperiencePage>
+      </PageTransition>
+    );
+  }
+
   return (
     <PageTransition>
       <div ref={containerRef} className="artist-page-shell mobile-page-shell hover-desaturate-page">
@@ -937,149 +776,174 @@ export default function ArtistPage() {
         />
 
         <DetailActionBar columns={5}>
-        <Button
-          variant="secondary"
-          className={DETAIL_ACTION_BUTTON_CLASS}
-          onClick={() => {
-            if (isCurrentArtist) togglePlay();
-            else if (topTracks.length) play(topTracks[0], topTracks);
-          }}
-        >
-          {isCurrentArtist && isPlaying ? (
-            <Pause className="hero-action-icon w-4 h-4 mr-2 fill-current" />
-          ) : (
-            <Play className="hero-action-icon w-4 h-4 mr-2 fill-current" />
-          )}
-          <span className="hero-action-label relative z-10">Play</span>
-        </Button>
-        <Button
-          variant="secondary"
-          className={DETAIL_ACTION_BUTTON_CLASS}
-          onClick={handleShuffleArtist}
-        >
-          <Shuffle className="hero-action-icon w-4 h-4 mr-2" />
-          <span className="hero-action-label relative z-10">Shuffle</span>
-        </Button>
-        <Button
-          variant="secondary"
-          className={DETAIL_ACTION_BUTTON_CLASS}
-          onClick={() => navigate(buildArtistMixPath(artist.id, artist.name))}
-        >
-          <Music className="hero-action-icon w-4 h-4 mr-2" />
-          <span className="hero-action-label relative z-10">{hasArtistMix ? "Mix" : "Radio"}</span>
-        </Button>
-        <Button
-          variant="secondary"
-          className={DETAIL_ACTION_BUTTON_CLASS}
-          onClick={handleToggleFavorite}
-        >
-          <Heart
-            className={`hero-action-icon w-4 h-4 mr-2 transition-colors ${favorite
-              ? "fill-current text-[hsl(var(--player-waveform))] group-hover:text-[hsl(var(--dynamic-accent-foreground))]"
-              : ""
-              }`}
-          />
-          <span className="hero-action-label relative z-10">{favorite ? "Favorited" : "Add"}</span>
-        </Button>
-        <Button
-          variant="secondary"
-          className={DETAIL_ACTION_BUTTON_CLASS}
-          onClick={handleShareArtist}
-        >
-          <Share className="hero-action-icon w-4 h-4 mr-2" />
-          <span className="hero-action-label relative z-10">Share</span>
-        </Button>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={() => {
+              if (isCurrentArtist) togglePlay();
+              else if (topTracks.length) play(topTracks[0], topTracks);
+            }}
+          >
+            {isCurrentArtist && isPlaying ? (
+              <Pause className="hero-action-icon w-4 h-4 mr-2 fill-current" />
+            ) : (
+              <Play className="hero-action-icon w-4 h-4 mr-2 fill-current" />
+            )}
+            <span className="hero-action-label relative z-10">Play</span>
+          </Button>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={handleShuffleArtist}
+          >
+            <Shuffle className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">Shuffle</span>
+          </Button>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={() => navigate(buildArtistMixPath(artist.id, artist.name))}
+          >
+            <Music className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">{hasArtistMix ? "Mix" : "Radio"}</span>
+          </Button>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={handleToggleFavorite}
+          >
+            <Heart
+              className={`hero-action-icon w-4 h-4 mr-2 transition-colors ${favorite
+                ? "fill-current text-[hsl(var(--player-waveform))] group-hover:text-[hsl(var(--dynamic-accent-foreground))]"
+                : ""
+                }`}
+            />
+            <span className="hero-action-label relative z-10">{favorite ? "Favorited" : "Add"}</span>
+          </Button>
+          <Button
+            variant="secondary"
+            className={DETAIL_ACTION_BUTTON_CLASS}
+            onClick={handleShareArtist}
+          >
+            <Share className="hero-action-icon w-4 h-4 mr-2" />
+            <span className="hero-action-label relative z-10">Share</span>
+          </Button>
         </DetailActionBar>
 
-      <ArtistTrackSection
-        title="Popular"
-        tracks={topTracks}
-        currentTrack={currentTrack}
-        isPlaying={isPlaying}
-        loading={tracksLoading}
-        play={play}
-        isLiked={isLiked}
-        toggleLike={toggleLike}
-        initialVisibleCount={initialVisibleCount}
-        showAll={showAllTracks}
-        onToggleShowAll={() => setShowAllTracks((prev) => !prev)}
-      />
+        <ArtistTrackSection
+          title="Popular"
+          tracks={topTracks}
+          currentTrack={currentTrack}
+          isPlaying={isPlaying}
+          loading={tracksLoading}
+          play={play}
+          isLiked={isLiked}
+          toggleLike={toggleLike}
+          initialVisibleCount={initialVisibleCount}
+          showAll={showAllTracks}
+          onToggleShowAll={() => setShowAllTracks((prev) => !prev)}
+        />
 
-      {albums.length > 0 && (
-        <section>
-          <ArtistSectionHeader
-            title="Albums"
-            showPager={!isMobile && shouldShowPager("albums", albums.length)}
-            onPageBack={() => moveSectionPage("albums", albums.length, -1)}
-            onPageForward={() => moveSectionPage("albums", albums.length, 1)}
-            canPageBack={getCurrentPage("albums", albums.length) > 0}
-            canPageForward={getCurrentPage("albums", albums.length) < getPageCount(albums.length) - 1}
-          />
-          {renderArtistSectionRow(albums, "albums", (album) => (
-            <HomeAlbumCard
-              key={album.id}
-              album={mapArtistAlbumToHomeAlbum(album)}
-              saved={isAlbumSaved(album.id)}
-              onToggleSave={() => void handleToggleSavedAlbum(album)}
+        {albums.length > 0 && (
+          <section>
+            <ArtistSectionHeader
+              title="Albums"
+              showPager={!isMobile && carousel.shouldShowPager("albums", albums.length)}
+              onPageBack={() => carousel.moveSectionPage("albums", albums.length, -1)}
+              onPageForward={() => carousel.moveSectionPage("albums", albums.length, 1)}
+              canPageBack={carousel.getCurrentPage("albums", albums.length) > 0}
+              canPageForward={carousel.getCurrentPage("albums", albums.length) < carousel.getPageCount(albums.length) - 1}
             />
-          ))}
-        </section>
-      )}
-
-      {singlesAndEps.length > 0 && (
-        <section>
-          <ArtistSectionHeader
-            title="Singles & EPs"
-            showPager={!isMobile && shouldShowPager("singles-and-eps", singlesAndEps.length)}
-            onPageBack={() => moveSectionPage("singles-and-eps", singlesAndEps.length, -1)}
-            onPageForward={() => moveSectionPage("singles-and-eps", singlesAndEps.length, 1)}
-            canPageBack={getCurrentPage("singles-and-eps", singlesAndEps.length) > 0}
-            canPageForward={getCurrentPage("singles-and-eps", singlesAndEps.length) < getPageCount(singlesAndEps.length) - 1}
-          />
-          {renderArtistSectionRow(singlesAndEps, "singles-and-eps", (album) => (
-            <HomeAlbumCard
-              key={album.id}
-              album={mapArtistAlbumToHomeAlbum(album)}
-              saved={isAlbumSaved(album.id)}
-              onToggleSave={() => void handleToggleSavedAlbum(album)}
+            <CarouselSection
+              items={albums}
+              sectionKey="albums"
+              carousel={carousel}
+              isMobile={isMobile}
+              mobileColumns={1.16}
+              className="artist-page-grid"
+              renderItem={(album, index) => (
+                <HomeAlbumCard
+                  key={album.id}
+                  album={mapArtistAlbumToHomeAlbum(album)}
+                  saved={isAlbumSaved(album.id)}
+                  onToggleSave={() => void handleToggleSavedAlbum(album)}
+                  isPriority={index < 5}
+                />
+              )}
             />
-          ))}
-        </section>
-      )}
+          </section>
+        )}
 
-      {relatedArtists.length > 0 && (
-        <section>
-          <ArtistSectionHeader
-            title="Related Artists"
-            showPager={!isMobile && shouldShowPager("related-artists", relatedArtists.length)}
-            onPageBack={() => moveSectionPage("related-artists", relatedArtists.length, -1)}
-            onPageForward={() => moveSectionPage("related-artists", relatedArtists.length, 1)}
-            canPageBack={getCurrentPage("related-artists", relatedArtists.length) > 0}
-            canPageForward={getCurrentPage("related-artists", relatedArtists.length) < getPageCount(relatedArtists.length) - 1}
-          />
-          {renderArtistSectionRow(relatedArtists, "related-artists", (relatedArtist) => (
-            <ArtistCard
-              key={relatedArtist.id}
-              id={relatedArtist.id}
-              name={relatedArtist.name}
-              imageUrl={relatedArtist.picture}
+        {singlesAndEps.length > 0 && (
+          <section>
+            <ArtistSectionHeader
+              title="Singles & EPs"
+              showPager={!isMobile && carousel.shouldShowPager("singles-and-eps", singlesAndEps.length)}
+              onPageBack={() => carousel.moveSectionPage("singles-and-eps", singlesAndEps.length, -1)}
+              onPageForward={() => carousel.moveSectionPage("singles-and-eps", singlesAndEps.length, 1)}
+              canPageBack={carousel.getCurrentPage("singles-and-eps", singlesAndEps.length) > 0}
+              canPageForward={carousel.getCurrentPage("singles-and-eps", singlesAndEps.length) < carousel.getPageCount(singlesAndEps.length) - 1}
             />
-          ))}
-        </section>
-      )}
+            <CarouselSection
+              items={singlesAndEps}
+              sectionKey="singles-and-eps"
+              carousel={carousel}
+              isMobile={isMobile}
+              mobileColumns={1.16}
+              className="artist-page-grid"
+              renderItem={(album) => (
+                <HomeAlbumCard
+                  key={album.id}
+                  album={mapArtistAlbumToHomeAlbum(album)}
+                  saved={isAlbumSaved(album.id)}
+                  onToggleSave={() => void handleToggleSavedAlbum(album)}
+                />
+              )}
+            />
+          </section>
+        )}
 
-      <Dialog open={bioDialogOpen} onOpenChange={setBioDialogOpen}>
-        <DialogContent className="w-[min(1120px,calc(100vw-32px))] max-w-[1120px] p-0">
-          <DialogHeader className="border-b border-white/10 px-8 py-6">
-            <DialogTitle className="text-2xl font-bold tracking-tight">Artist Biography</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[72vh] overflow-y-auto px-8 py-8">
-            <div className="space-y-6 text-[1.05rem] leading-[1.95] text-white/92">
-              {biographyContent}
+        {relatedArtists.length > 0 && (
+          <section>
+            <ArtistSectionHeader
+              title="Related Artists"
+              showPager={!isMobile && carousel.shouldShowPager("related-artists", relatedArtists.length)}
+              onPageBack={() => carousel.moveSectionPage("related-artists", relatedArtists.length, -1)}
+              onPageForward={() => carousel.moveSectionPage("related-artists", relatedArtists.length, 1)}
+              canPageBack={carousel.getCurrentPage("related-artists", relatedArtists.length) > 0}
+              canPageForward={carousel.getCurrentPage("related-artists", relatedArtists.length) < carousel.getPageCount(relatedArtists.length) - 1}
+            />
+            <CarouselSection
+              items={relatedArtists}
+              sectionKey="related-artists"
+              carousel={carousel}
+              isMobile={isMobile}
+              mobileColumns={1.16}
+              className="artist-page-grid"
+              renderItem={(relatedArtist) => (
+                <ArtistCard
+                  key={relatedArtist.id}
+                  id={relatedArtist.id}
+                  name={relatedArtist.name}
+                  imageUrl={relatedArtist.picture}
+                />
+              )}
+            />
+          </section>
+        )}
+
+        <Dialog open={bioDialogOpen} onOpenChange={setBioDialogOpen}>
+          <DialogContent className="w-[min(1120px,calc(100vw-32px))] max-w-[1120px] p-0">
+            <DialogHeader className="border-b border-white/10 px-8 py-6">
+              <DialogTitle className="text-2xl font-bold tracking-tight">Artist Biography</DialogTitle>
+            </DialogHeader>
+            <div className="max-h-[72vh] overflow-y-auto px-8 py-8">
+              <div className="space-y-6 text-[1.05rem] leading-[1.95] text-white/92">
+                {biographyContent}
+              </div>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageTransition>
   );

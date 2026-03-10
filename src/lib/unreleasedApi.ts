@@ -3,6 +3,8 @@ import type { Track } from "@/types/music";
 const ARTISTGRID_ASSETS_URL = "https://assets.artistgrid.cx";
 const DEFAULT_CANVAS_COLOR = "352 88% 60%";
 const UNRELEASED_PROXY_URL = "/api/unreleased";
+const UNRELEASED_CACHE_VERSION = 1;
+const UNRELEASED_CACHE_TTL_MS = 1000 * 60 * 30;
 
 type ArtistGridArtistRecord = {
   name?: string;
@@ -88,6 +90,12 @@ export type UnreleasedProject = {
 
 const artistCache = new Map<string, UnreleasedArtist[]>();
 const trackerCache = new Map<string, UnreleasedProject[]>();
+
+type UnreleasedCacheSnapshot<T> = {
+  timestamp: number;
+  value: T;
+  version: number;
+};
 
 function normalizeArtistName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -182,6 +190,53 @@ function parseTimelineYear(timeline: string) {
   return Number.parseInt(matches[matches.length - 1], 10);
 }
 
+function getArtistsCacheStorageKey() {
+  return "knobb-unreleased-artists";
+}
+
+function getProjectsCacheStorageKey(sheetId: string) {
+  return `knobb-unreleased-projects:${sheetId}`;
+}
+
+function readCachedSnapshot<T>(storageKey: string) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<UnreleasedCacheSnapshot<T>>;
+    if (
+      parsed.version !== UNRELEASED_CACHE_VERSION ||
+      typeof parsed.timestamp !== "number" ||
+      Date.now() - parsed.timestamp >= UNRELEASED_CACHE_TTL_MS
+    ) {
+      window.localStorage.removeItem(storageKey);
+      return null;
+    }
+
+    return parsed.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSnapshot<T>(storageKey: string, value: T) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const payload: UnreleasedCacheSnapshot<T> = {
+      timestamp: Date.now(),
+      value,
+      version: UNRELEASED_CACHE_VERSION,
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 async function fetchArtistPopularity() {
   try {
     const response = await fetch(`${UNRELEASED_PROXY_URL}?resource=trends`);
@@ -209,6 +264,12 @@ export async function fetchUnreleasedArtists() {
   const cacheKey = "artists";
   const cached = artistCache.get(cacheKey);
   if (cached) return cached;
+
+  const cachedSnapshot = readCachedSnapshot<UnreleasedArtist[]>(getArtistsCacheStorageKey());
+  if (cachedSnapshot && cachedSnapshot.length > 0) {
+    artistCache.set(cacheKey, cachedSnapshot);
+    return cachedSnapshot;
+  }
 
   const [popularity, response] = await Promise.all([
     fetchArtistPopularity(),
@@ -247,7 +308,13 @@ export async function fetchUnreleasedArtists() {
     .sort((left, right) => right.popularity - left.popularity || left.name.localeCompare(right.name));
 
   artistCache.set(cacheKey, artists);
+  writeCachedSnapshot(getArtistsCacheStorageKey(), artists);
   return artists;
+}
+
+export function getCachedUnreleasedArtists() {
+  const cacheKey = "artists";
+  return artistCache.get(cacheKey) || readCachedSnapshot<UnreleasedArtist[]>(getArtistsCacheStorageKey()) || [];
 }
 
 function mapSongRecord(song: TrackerSongRecord, project: TrackerEraRecord, index: number): UnreleasedSong {
@@ -314,6 +381,12 @@ export async function fetchUnreleasedProjects(sheetId: string) {
   const cached = trackerCache.get(sheetId);
   if (cached) return cached;
 
+  const cachedSnapshot = readCachedSnapshot<UnreleasedProject[]>(getProjectsCacheStorageKey(sheetId));
+  if (cachedSnapshot && cachedSnapshot.length > 0) {
+    trackerCache.set(sheetId, cachedSnapshot);
+    return cachedSnapshot;
+  }
+
   const response = await fetch(`${UNRELEASED_PROXY_URL}?resource=tracker&sheetId=${encodeURIComponent(sheetId)}`);
   if (!response.ok) {
     throw new Error("Failed to load unreleased projects");
@@ -325,6 +398,7 @@ export async function fetchUnreleasedProjects(sheetId: string) {
     .filter((project) => project.trackCount > 0);
 
   trackerCache.set(sheetId, projects);
+  writeCachedSnapshot(getProjectsCacheStorageKey(sheetId), projects);
   return projects;
 }
 

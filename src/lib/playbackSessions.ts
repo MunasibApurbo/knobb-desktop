@@ -110,7 +110,7 @@ function mapPlaybackSession(row: PlaybackSessionRow): PlaybackSessionSnapshot {
     : "HIGH";
 
   return {
-    currentTime: Number.isFinite(row.current_time) ? row.current_time : 0,
+    currentTime: Number.isFinite(row.position_seconds) ? row.position_seconds : 0,
     currentTrack: parseTrack(row.current_track_data),
     deviceId: row.device_id,
     deviceName: row.device_name,
@@ -145,7 +145,7 @@ export async function upsertPlaybackSession(input: {
       queue_data: input.queue
         .filter((track) => !track.isLocal)
         .map((track) => sanitizeTrack(track)) as unknown as Json,
-      current_time: input.currentTime,
+      position_seconds: input.currentTime,
       duration: input.duration,
       is_playing: input.isPlaying,
       quality: input.quality,

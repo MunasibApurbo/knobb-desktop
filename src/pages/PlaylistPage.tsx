@@ -28,6 +28,15 @@ import { downloadTracks } from "@/lib/downloadHelpers";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { isSameTrack } from "@/lib/trackIdentity";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  MOBILE_ACTION_BUTTON_CLASS,
+  MOBILE_SECONDARY_BUTTON_CLASS,
+  MobileExperiencePage,
+  MobileHero,
+  MobileMetaChip,
+  MobileSection,
+} from "@/components/mobile/MobileExperienceLayout";
 
 export default function PlaylistPage() {
   const { id } = useParams();
@@ -35,6 +44,7 @@ export default function PlaylistPage() {
   const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
   const { isLiked, toggleLike } = useLikedSongs();
   const isEmbedMode = useEmbedMode();
+  const isMobile = useIsMobile();
   const { user } = useAuth();
   const { downloadFormat } = useSettings();
   const { isFavoritePlaylist, toggleFavoritePlaylist } = useFavoritePlaylists();
@@ -195,7 +205,7 @@ export default function PlaylistPage() {
   if (isEmbedMode) {
     return (
       <div className="min-h-screen bg-[#050505] p-4 text-white">
-        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_48%),rgba(255,255,255,0.03)] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
+        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
           <div className="grid gap-5 border-b border-white/10 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:p-5">
             <img src={playlist.coverUrl || "/placeholder.svg"} alt={playlist.title} className="aspect-square w-full rounded-[22px] object-cover" />
             <div className="min-w-0">
@@ -250,6 +260,123 @@ export default function PlaylistPage() {
           </div>
         </section>
       </div>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <PageTransition>
+        <MobileExperiencePage artworkUrl={playlist.coverUrl}>
+          <MobileHero
+            artworkUrl={playlist.coverUrl || "/placeholder.svg"}
+            artworkAlt={playlist.title}
+            eyebrow="Playlist"
+            title={<PlaylistLink title={playlist.title} playlistId={playlistId} className="text-inherit" />}
+            description={playlist.description ? <p>{playlist.description}</p> : <p>Handpicked sequencing with desktop-complete playback.</p>}
+            meta={(
+              <>
+                <MobileMetaChip label="Tracks" value={tracks.length} />
+                {tracks.length > 0 ? <MobileMetaChip label="Runtime" value={getTotalDuration(tracks)} /> : null}
+                <MobileMetaChip label="Source" value="TIDAL" />
+              </>
+            )}
+            actions={(
+              <>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_ACTION_BUTTON_CLASS}
+                  onClick={() => {
+                    if (isCurrentPlaylist) togglePlay();
+                    else if (tracks.length > 0) play(tracks[0], tracks);
+                  }}
+                >
+                  {isCurrentPlaylist && isPlaying ? (
+                    <Pause className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Play className="h-4 w-4 fill-current" />
+                  )}
+                  Play
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => {
+                    if (tracks.length === 0) return;
+                    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+                    play(shuffled[0], shuffled);
+                  }}
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={handleToggleFavoritePlaylist}
+                >
+                  <Heart className={isSavedPlaylist ? "h-4 w-4 fill-current text-[hsl(var(--player-waveform))]" : "h-4 w-4"} />
+                  {isSavedPlaylist ? "Saved" : "Add"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => void handleDownloadPlaylist()}
+                  disabled={tracks.length === 0 || isDownloading}
+                >
+                  <Download className="h-4 w-4" />
+                  {isDownloading ? "Downloading..." : "Download"}
+                </Button>
+              </>
+            )}
+            footer={(
+              <div className="flex items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-black/18 px-4 py-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">Share ready</p>
+                  <p className="mt-1 text-sm text-white/72">Open, copy, or drag the playlist like a first-class library object.</p>
+                </div>
+                <PlaylistShareDropdownButton
+                  title={playlist.title}
+                  kind="tidal"
+                  playlistId={playlistId}
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                />
+              </div>
+            )}
+          />
+
+          <MobileSection eyebrow={`${tracks.length} tracks`} title="Track Order" contentClassName="px-0 pb-0">
+            <VirtualizedTrackList
+              items={tracks}
+              getItemKey={(track) => track.id}
+              rowHeight={86}
+              renderRow={(track, i) => {
+                const isCurrent = isSameTrack(currentTrack, track);
+                return (
+                  <TrackContextMenu key={track.id} track={track} tracks={tracks}>
+                    <TrackListRow
+                      dragHandleLabel={`Drag ${track.title} to a playlist`}
+                      index={i}
+                      isCurrent={isCurrent}
+                      isLiked={isLiked(track.id)}
+                      isPlaying={isPlaying}
+                      onDragHandleStart={(event) => {
+                        startPlaylistDrag(event.dataTransfer, {
+                          label: track.title,
+                          source: "track",
+                          tracks: [track],
+                        });
+                      }}
+                      onPlay={() => play(track, tracks)}
+                      onToggleLike={() => toggleLike(track)}
+                      track={track}
+                    />
+                  </TrackContextMenu>
+                );
+              }}
+            />
+          </MobileSection>
+        </MobileExperiencePage>
+      </PageTransition>
     );
   }
 
@@ -341,7 +468,7 @@ export default function PlaylistPage() {
         </DetailActionBar>
 
         {tracks.length > 0 && (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className="mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
             <VirtualizedTrackList
               items={tracks}
               getItemKey={(track, index) => `${track.id}-${index}`}

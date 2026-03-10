@@ -801,14 +801,14 @@ export class AudioEngine {
 
   on<K extends keyof AudioEngineEventMap>(event: K, callback: AudioEngineEventMap[K]) {
     switch (event) {
-      case "play": this.onPlay = callback; break;
-      case "pause": this.onPause = callback; break;
-      case "ended": this.onEnded = callback; break;
-      case "timeupdate": this.onTimeUpdate = callback; break;
-      case "error": this.onError = callback; break;
-      case "loadstart": this.onLoadStart = callback; break;
-      case "canplay": this.onCanPlay = callback; break;
-      case "crossfade": this.onCrossfadeNeeded = callback; break;
+      case "play": this.onPlay = callback as AudioEventCallback; break;
+      case "pause": this.onPause = callback as AudioEventCallback; break;
+      case "ended": this.onEnded = callback as AudioEventCallback; break;
+      case "timeupdate": this.onTimeUpdate = callback as TimeUpdateCallback; break;
+      case "error": this.onError = callback as (error: string) => void; break;
+      case "loadstart": this.onLoadStart = callback as AudioEventCallback; break;
+      case "canplay": this.onCanPlay = callback as AudioEventCallback; break;
+      case "crossfade": this.onCrossfadeNeeded = callback as AudioEventCallback; break;
     }
   }
 

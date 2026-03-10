@@ -1,4 +1,4 @@
-const CACHE_NAME = "knobb-shell-v2";
+const CACHE_NAME = "knobb-shell-v3";
 const APP_SHELL_ASSETS = [
   "/",
   "/index.html",
@@ -34,6 +34,17 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  const isViteDevAsset =
+    url.pathname.startsWith("/src/") ||
+    url.pathname.startsWith("/@vite") ||
+    url.pathname.startsWith("/node_modules/") ||
+    url.searchParams.has("v") ||
+    url.searchParams.has("t");
+  if (isViteDevAsset) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
@@ -54,18 +65,17 @@ self.addEventListener("fetch", (event) => {
   if (!shouldCacheAsset) return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-
-      return cached || networkFetch;
+    caches.match(request).then(async (cached) => {
+      try {
+        const response = await fetch(request);
+        if (response && response.status === 200) {
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      } catch {
+        return cached || Response.error();
+      }
     }),
   );
 });

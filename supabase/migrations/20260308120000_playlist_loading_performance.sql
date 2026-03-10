@@ -80,7 +80,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.get_playlist_tracks(target_playlist_id UUID)
 RETURNS TABLE (
-  position INTEGER,
+  "position" INTEGER,
   added_at TIMESTAMPTZ,
   track_data JSONB
 )
@@ -90,7 +90,7 @@ STABLE
 SET search_path = public
 AS $$
   SELECT
-    pt.position,
+    pt.position AS "position",
     pt.added_at,
     pt.track_data
   FROM public.playlist_tracks pt

@@ -41,7 +41,13 @@ export function UnreleasedArtistCard({
         </div>
       </div>
 
-      <div className={MEDIA_CARD_BODY_CLASS}>
+      <div className={`${MEDIA_CARD_BODY_CLASS} relative`}>
+        <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+          <div className="shell-artwork-wash">
+            <img src={artist.imageUrl} alt="" loading="lazy" decoding="async" />
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+        </div>
         <p className={`${MEDIA_CARD_TITLE_CLASS} truncate font-medium`}>{artist.name}</p>
         <p className={`${MEDIA_CARD_META_CLASS} truncate`}>ArtistGrid archive</p>
       </div>

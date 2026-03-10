@@ -122,7 +122,7 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       aria-label={hasRowDrag ? dragHandleLabel || `Drag ${track.title} to a playlist` : undefined}
       data-allow-global-shortcuts="true"
       draggable={hasRowDrag && !disabled}
-      style={isCurrent ? { backgroundColor: "hsl(var(--dynamic-accent) / 0.94)" } : undefined}
+      style={isCurrent ? { backgroundColor: "hsl(var(--player-waveform) / 0.95)" } : undefined}
       tabIndex={0}
       onClick={(event) => {
         if (suppressClickRef.current) {

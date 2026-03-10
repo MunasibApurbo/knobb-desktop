@@ -138,7 +138,7 @@ export async function fetchPlaylistTracks(playlistId: string): Promise<Track[] |
         return null;
       }
 
-      return ((fallback.data || []) as PlaylistTrackRpcRecord[]).map((row) => ({
+      return ((fallback.data || []) as unknown as PlaylistTrackRpcRecord[]).map((row) => ({
         ...(row.track_data as Track),
         addedAt: row.added_at,
       }));
@@ -148,7 +148,7 @@ export async function fetchPlaylistTracks(playlistId: string): Promise<Track[] |
     return null;
   }
 
-  return ((data || []) as PlaylistTrackRpcRecord[]).map((row) => ({
+  return ((data || []) as unknown as PlaylistTrackRpcRecord[]).map((row) => ({
     ...(row.track_data as Track),
     addedAt: row.added_at,
   }));

@@ -102,9 +102,9 @@ if (exists("dist/assets")) {
 }
 
 console.log("\nExternal deploy inputs still required:");
-console.log("1) Production site URL");
-console.log("2) Netlify environment values for VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY");
-console.log("3) Applied Supabase migrations in the target project");
-console.log("4) Deployed Netlify functions and any required Supabase edge functions");
-console.log("5) Supabase Auth redirect URLs and Google OAuth settings");
-console.log("6) Live smoke test on the deployed site");
+console.log("1) GitHub repository variables for VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY");
+console.log("2) GitHub secrets for NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID, SUPABASE_ACCESS_TOKEN, and SUPABASE_DB_PASSWORD");
+console.log("3) Netlify environment values matching the production frontend config");
+console.log("4) Supabase Auth redirect URLs and Google OAuth settings");
+console.log("5) Apple and optional Windows signing secrets if desktop release publishing should be fully automated");
+console.log("6) Live smoke test on the deployed site and latest desktop release");

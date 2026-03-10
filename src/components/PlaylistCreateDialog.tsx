@@ -31,9 +31,9 @@ type PlaylistCreateDialogProps = {
 
 const IMPORT_TABS: PlaylistImportFormat[] = ["csv", "jspf", "xspf", "xml", "m3u"];
 const DIALOG_CONTENT_CLASS =
-  "max-w-[36rem] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.14),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl";
+  "playlist-create-dialog w-[min(34rem,calc(100vw-32px))] max-w-[34rem] max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border border-white/10 p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] sm:max-h-[calc(100vh-4rem)]";
 const DIALOG_SECTION_CLASS =
-  "website-panel-surface overflow-hidden rounded-[var(--surface-radius-lg)] border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.045),_rgba(255,255,255,0.02))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
+  "playlist-create-section overflow-hidden rounded-[var(--surface-radius-lg)] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 const FIELD_CLASS =
   "website-form-control h-11 rounded-[var(--surface-radius-lg)] border border-white/10 bg-white/[0.03] px-4 text-sm font-medium text-white placeholder:text-white/38 focus-visible:border-white/18 focus-visible:ring-0 focus-visible:ring-offset-0";
 const TEXTAREA_CLASS =
@@ -134,7 +134,7 @@ export function PlaylistCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={DIALOG_CONTENT_CLASS}>
+      <DialogContent aria-describedby={undefined} className={DIALOG_CONTENT_CLASS}>
         <DialogHeader className="border-b border-white/10 px-6 py-5 text-left">
           <div className="mb-1.5 flex items-center gap-2 text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-white/42">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(var(--player-waveform))" }} />
@@ -144,7 +144,7 @@ export function PlaylistCreateDialog({
         </DialogHeader>
 
         <form
-          className="space-y-4 px-6 py-5"
+          className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]"
           onSubmit={async (event) => {
             event.preventDefault();
             if (!isValid || disabled || isSubmitting) return;
@@ -187,181 +187,183 @@ export function PlaylistCreateDialog({
             }
           }}
         >
-          <Input
-            placeholder={placeholder}
-            value={value}
-            onChange={(event) => onValueChange(event.target.value)}
-            autoFocus
-            className={cn(FIELD_CLASS, "text-[0.95rem]")}
-          />
-
-          <div className={cn(DIALOG_SECTION_CLASS, "p-3")}>
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-white/10 pb-2.5">
-              <div>
-                <p className="text-sm font-semibold text-white">Cover artwork</p>
-                <p className="mt-0.5 text-[11px] leading-5 text-white/52">Optional.</p>
-              </div>
-              {coverFileName ? <span className="truncate text-xs font-medium text-white/58">{coverFileName}</span> : null}
-            </div>
-            <input
-              ref={coverFileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                const dataUrl = await fileToDataUrl(file);
-                setCoverDataUrl(dataUrl);
-                setCoverFileName(file.name);
-              }}
+          <div className="space-y-4 overflow-y-auto px-6 py-5">
+            <Input
+              placeholder={placeholder}
+              value={value}
+              onChange={(event) => onValueChange(event.target.value)}
+              autoFocus
+              className={cn(FIELD_CLASS, "text-[0.95rem]")}
             />
-            <div className="grid gap-3 sm:grid-cols-[auto_1fr]">
-              {coverDataUrl ? (
-                <img
-                  src={coverDataUrl}
-                  alt="Playlist cover preview"
-                  className="h-14 w-14 shrink-0 rounded-[var(--surface-radius-sm)] object-cover"
-                />
-              ) : (
-                <div
-                  className={PREVIEW_TILE_CLASS}
-                  style={{ color: "hsl(var(--player-waveform))" }}
-                >
-                  <Upload className="h-4 w-4" />
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  coverFileInputRef.current?.click();
-                }}
-                className={cn(
-                  SWEEP_BUTTON_CLASS,
-                  "flex h-14 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold",
-                )}
-              >
-                <Upload className="h-4 w-4" style={{ color: "hsl(var(--player-waveform))" }} />
-                {coverFileName || "Upload cover"}
-              </button>
-            </div>
-          </div>
 
-          <textarea
-            placeholder="Description (optional)"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            className={TEXTAREA_CLASS}
-          />
-
-          {allowImports ? (
-            <section className={cn(DIALOG_SECTION_CLASS, "p-3")}>
-              <div className="mb-3 border-b border-white/10 pb-2.5">
-                <div className="mb-2.5">
-                  <p className="text-sm font-semibold text-white">Import source</p>
-                  <p className="mt-0.5 text-[11px] text-white/52">Playlist transfer</p>
-                </div>
-                <div className={cn(SEGMENTED_GROUP_CLASS, "w-full grid-cols-5")}>
-                  {IMPORT_TABS.map((tab, index) => (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => {
-                        setActiveTab(tab);
-                        setImportFile(null);
-                      }}
-                      className={`${SEGMENTED_BUTTON_CLASS} h-10 text-[0.68rem] uppercase tracking-[0.16em] ${
-                        activeTab === tab
-                          ? "bg-[hsl(var(--player-waveform))] text-black"
-                          : "menu-sweep-hover text-white/68 hover:text-black"
-                      }`}
-                      style={index === 0 ? undefined : { borderLeft: "1px solid hsl(0 0% 100% / 0.06)" }}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
+            <div className={cn(DIALOG_SECTION_CLASS, "p-3")}>
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-white/10 pb-2.5">
                 <div>
-                  <div className="text-[0.95rem] font-semibold tracking-tight text-white">
-                    {`Import from ${activeTab.toUpperCase()}`}
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-white/52">{importHelpText}</p>
+                  <p className="text-sm font-semibold text-white">Cover artwork</p>
+                  <p className="mt-0.5 text-[11px] leading-5 text-white/52">Optional.</p>
                 </div>
+                {coverFileName ? <span className="truncate text-xs font-medium text-white/58">{coverFileName}</span> : null}
+              </div>
+              <input
+                ref={coverFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  const dataUrl = await fileToDataUrl(file);
+                  setCoverDataUrl(dataUrl);
+                  setCoverFileName(file.name);
+                }}
+              />
+              <div className="grid gap-3 sm:grid-cols-[auto_1fr]">
+                {coverDataUrl ? (
+                  <img
+                    src={coverDataUrl}
+                    alt="Playlist cover preview"
+                    className="h-14 w-14 shrink-0 rounded-[var(--surface-radius-sm)] object-cover"
+                  />
+                ) : (
+                  <div
+                    className={PREVIEW_TILE_CLASS}
+                    style={{ color: "hsl(var(--player-waveform))" }}
+                  >
+                    <Upload className="h-4 w-4" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    coverFileInputRef.current?.click();
+                  }}
+                  className={cn(
+                    SWEEP_BUTTON_CLASS,
+                    "flex h-14 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold",
+                  )}
+                >
+                  <Upload className="h-4 w-4" style={{ color: "hsl(var(--player-waveform))" }} />
+                  {coverFileName || "Upload cover"}
+                </button>
+              </div>
+            </div>
 
-                {activeTab === "csv" ? (
-                  <div className={cn(SEGMENTED_GROUP_CLASS, "md:grid-cols-3")}>
-                    {providerOptions.map((provider, index) => (
+            <textarea
+              placeholder="Description (optional)"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className={TEXTAREA_CLASS}
+            />
+
+            {allowImports ? (
+              <section className={cn(DIALOG_SECTION_CLASS, "p-3")}>
+                <div className="mb-3 border-b border-white/10 pb-2.5">
+                  <div className="mb-2.5">
+                    <p className="text-sm font-semibold text-white">Import source</p>
+                    <p className="mt-0.5 text-[11px] text-white/52">Playlist transfer</p>
+                  </div>
+                  <div className={cn(SEGMENTED_GROUP_CLASS, "w-full grid-cols-5")}>
+                    {IMPORT_TABS.map((tab, index) => (
                       <button
-                        key={provider.id}
+                        key={tab}
                         type="button"
                         onClick={() => {
-                          setCsvProvider(provider.id);
+                          setActiveTab(tab);
                           setImportFile(null);
                         }}
-                        className={`${SEGMENTED_BUTTON_CLASS} h-11 px-3 ${
-                          csvProvider === provider.id
+                        className={`${SEGMENTED_BUTTON_CLASS} h-10 text-[0.68rem] uppercase tracking-[0.16em] ${
+                          activeTab === tab
                             ? "bg-[hsl(var(--player-waveform))] text-black"
-                            : "menu-sweep-hover bg-transparent text-white/74 hover:text-black"
+                            : "menu-sweep-hover text-white/68 hover:text-black"
                         }`}
                         style={index === 0 ? undefined : { borderLeft: "1px solid hsl(0 0% 100% / 0.06)" }}
                       >
-                        {provider.label}
+                        {tab}
                       </button>
                     ))}
                   </div>
-                ) : null}
-
-                {activeTab === "csv" && csvProvider === "youtubeMusic" ? (
-                  <Input
-                    type="url"
-                    placeholder="https://music.youtube.com/playlist?list=..."
-                    value={youtubeMusicUrl}
-                    onChange={(event) => setYoutubeMusicUrl(event.target.value)}
-                    className={FIELD_CLASS}
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    <input
-                      ref={importFileInputRef}
-                      type="file"
-                      className="hidden"
-                      accept={getAcceptForFormat(activeTab)}
-                      onChange={(event) => setImportFile(event.target.files?.[0] || null)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => importFileInputRef.current?.click()}
-                      className={cn(SWEEP_BUTTON_CLASS, "flex h-11 w-full items-center justify-center gap-2 px-4 text-sm font-semibold")}
-                    >
-                      <Upload className="h-4 w-4" style={{ color: "hsl(var(--player-waveform))" }} />
-                      {importFile?.name || `Upload ${activeTab.toUpperCase()} file`}
-                    </button>
-                  </div>
-                )}
-
-                <div className="rounded-[var(--surface-radius-sm)] border border-amber-400/20 bg-amber-400/10 px-3 py-2.5 text-xs leading-5 text-amber-100/85">
-                  <span className="font-semibold text-amber-100">Import note:</span> matches can be imperfect. Review the playlist after saving and remove anything unwanted.
                 </div>
-              </div>
-            </section>
-          ) : null}
 
-          <div className={cn(DIALOG_SECTION_CLASS, "flex items-center justify-between px-3.5 py-3")}>
-            <div className="space-y-0.5">
-              <div className="text-sm font-semibold tracking-tight text-white">Public playlist</div>
-              <p className="text-xs text-white/52">Visible to anyone with the link.</p>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[0.95rem] font-semibold tracking-tight text-white">
+                      {`Import from ${activeTab.toUpperCase()}`}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-white/52">{importHelpText}</p>
+                  </div>
+
+                  {activeTab === "csv" ? (
+                    <div className={cn(SEGMENTED_GROUP_CLASS, "md:grid-cols-3")}>
+                      {providerOptions.map((provider, index) => (
+                        <button
+                          key={provider.id}
+                          type="button"
+                          onClick={() => {
+                            setCsvProvider(provider.id);
+                            setImportFile(null);
+                          }}
+                          className={`${SEGMENTED_BUTTON_CLASS} h-11 px-3 ${
+                            csvProvider === provider.id
+                              ? "bg-[hsl(var(--player-waveform))] text-black"
+                              : "menu-sweep-hover bg-transparent text-white/74 hover:text-black"
+                          }`}
+                          style={index === 0 ? undefined : { borderLeft: "1px solid hsl(0 0% 100% / 0.06)" }}
+                        >
+                          {provider.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {activeTab === "csv" && csvProvider === "youtubeMusic" ? (
+                    <Input
+                      type="url"
+                      placeholder="https://music.youtube.com/playlist?list=..."
+                      value={youtubeMusicUrl}
+                      onChange={(event) => setYoutubeMusicUrl(event.target.value)}
+                      className={FIELD_CLASS}
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        ref={importFileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept={getAcceptForFormat(activeTab)}
+                        onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => importFileInputRef.current?.click()}
+                        className={cn(SWEEP_BUTTON_CLASS, "flex h-11 w-full items-center justify-center gap-2 px-4 text-sm font-semibold")}
+                      >
+                        <Upload className="h-4 w-4" style={{ color: "hsl(var(--player-waveform))" }} />
+                        {importFile?.name || `Upload ${activeTab.toUpperCase()} file`}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="rounded-[var(--surface-radius-sm)] border border-amber-400/20 bg-amber-400/10 px-3 py-2.5 text-xs leading-5 text-amber-100/85">
+                    <span className="font-semibold text-amber-100">Import note:</span> matches can be imperfect. Review the playlist after saving and remove anything unwanted.
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            <div className={cn(DIALOG_SECTION_CLASS, "flex items-center justify-between px-3.5 py-3")}>
+              <div className="space-y-0.5">
+                <div className="text-sm font-semibold tracking-tight text-white">Public playlist</div>
+                <p className="text-xs text-white/52">Visible to anyone with the link.</p>
+              </div>
+              <Switch
+                checked={visibility === "public"}
+                onCheckedChange={(checked) => setVisibility(checked ? "public" : "private")}
+                className="h-7 w-12 rounded-[var(--settings-switch-radius)] border border-white/10 data-[state=unchecked]:bg-white/[0.06] data-[state=checked]:bg-[hsl(var(--player-waveform))]"
+              />
             </div>
-            <Switch
-              checked={visibility === "public"}
-              onCheckedChange={(checked) => setVisibility(checked ? "public" : "private")}
-              className="h-7 w-12 rounded-[var(--settings-switch-radius)] border border-white/10 data-[state=unchecked]:bg-white/[0.06] data-[state=checked]:bg-[hsl(var(--player-waveform))]"
-            />
           </div>
 
-          <div className="-mx-6 border-t border-white/10 px-6 pt-4">
+          <div className="border-t border-white/10 px-6 py-4">
             <div className="flex justify-end gap-3">
               <button
                 type="button"

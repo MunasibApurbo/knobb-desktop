@@ -1,26 +1,33 @@
 import { usePlayer } from "@/contexts/PlayerContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import type { ImperativePanelHandle } from "react-resizable-panels";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
 import { useEmbedMode } from "@/hooks/useEmbedMode";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMotionPreferences } from "@/hooks/useMotionPreferences";
 import { TrackSelectionShortcutsProvider } from "@/contexts/TrackSelectionShortcutsContext";
+import { AuthContext } from "@/contexts/AuthContext";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useSmoothScroll } from "@/hooks/useSmoothScroll";
 import { lazy, Suspense, useState, useCallback, useEffect, useRef, createContext, useContext } from "react";
-import { DesktopUpdateGate } from "@/components/DesktopUpdateGate";
+import { APP_HOME_PATH } from "@/lib/routes";
+import { BackToTopButton } from "@/components/BackToTopButton";
 
-const LazyAppSidebar = lazy(async () => {
-  const module = await import("@/components/AppSidebar");
-  return { default: module.AppSidebar };
+const LazyLayoutDesktopShell = lazy(async () => {
+  const module = await import("@/components/LayoutDesktopShell");
+  return { default: module.LayoutDesktopShell };
 });
 
 const LazyMobileNav = lazy(async () => {
   const module = await import("@/components/MobileNav");
   return { default: module.MobileNav };
+});
+
+const LazyMobileTopBar = lazy(async () => {
+  const module = await import("@/components/mobile/MobileTopBar");
+  return { default: module.MobileTopBar };
 });
 
 const LazyMobileMiniPlayer = lazy(async () => {
@@ -36,11 +43,6 @@ const LazyMobilePlayerSheet = lazy(async () => {
 const LazyBottomPlayer = lazy(async () => {
   const module = await import("@/components/BottomPlayer");
   return { default: module.BottomPlayer };
-});
-
-const LazyRightPanel = lazy(async () => {
-  const module = await import("@/components/RightPanel");
-  return { default: module.RightPanel };
 });
 
 const LazyAppDiagnosticsInbox = lazy(async () => {
@@ -98,8 +100,44 @@ function SidebarFallback() {
   return <div className="h-full w-full border-r border-white/5 chrome-bar bg-black/15" />;
 }
 
+function DesktopShellFallback({
+  content,
+  scrollRef,
+  showDesktopSidebar,
+  showShellTopGlow,
+}: {
+  content: React.ReactNode;
+  scrollRef: React.RefObject<HTMLDivElement>;
+  showDesktopSidebar: boolean;
+  showShellTopGlow: boolean;
+}) {
+  return (
+    <div className="relative flex h-full min-h-0">
+      {showDesktopSidebar ? (
+        <div className="h-full w-[18rem] shrink-0 overflow-hidden">
+          <SidebarFallback />
+        </div>
+      ) : null}
+      <div className="relative flex flex-1 min-h-0 flex-col">
+        {showShellTopGlow ? (
+          <div
+            aria-hidden="true"
+            className="shell-top-glow pointer-events-none absolute inset-x-0 top-0 z-20 h-24 opacity-[0.18]"
+          />
+        ) : null}
+        <ScrollArea className="flex-1" ref={scrollRef} viewportProps={{ "data-main-scroll-viewport": "true" }}>
+          <main className="shell-main-content desktop-shell-main-content pb-8 overflow-x-hidden">
+            {content}
+          </main>
+        </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
 export function Layout({ children }: React.PropsWithChildren) {
   const { currentTrack, hasPlaybackStarted, setRightPanelOpen, setRightPanelTab, showRightPanel } = usePlayer();
+  const user = useContext(AuthContext)?.user ?? null;
   const { showSidebar, libraryOpenState } = useSettings();
   const location = useLocation();
   const navigate = useNavigate();
@@ -131,6 +169,7 @@ export function Layout({ children }: React.PropsWithChildren) {
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1600 : window.innerWidth,
   );
+  useSmoothScroll(!isMobile);
   const panelSizeFromPx = useCallback(
     (px: number) => (px / Math.max(viewportWidth, 1)) * 100,
     [viewportWidth],
@@ -162,6 +201,7 @@ export function Layout({ children }: React.PropsWithChildren) {
   const rightPanelMaxSize = panelSizeFromPx(rightPanelTargetWidth + (isCompactDesktop ? 56 : 84));
   const rightPanelMinWidth = rightPanelTargetWidth;
   const showShellChrome = isMobile || allowShellDepthMotion || allowShellAmbientMotion;
+  const showShellTopGlow = showShellChrome && location.pathname !== "/settings";
   const showRightPanelHandle = shouldShowRightPanel || !rightPanelCollapsed;
   const shouldRenderRightPanel = shouldShowRightPanel || !rightPanelCollapsed;
   const effectiveSidebarDefaultSize = effectiveSidebarCollapsed
@@ -169,9 +209,9 @@ export function Layout({ children }: React.PropsWithChildren) {
     : Math.max(collapsedSidebarSize, sidebarExpandedSizeRef.current || sidebarDefaultSize);
   const effectiveRightPanelDefaultSize = shouldShowRightPanel
     ? Math.min(
-        Math.max(rightPanelExpandedSizeRef.current || rightPanelDefaultSize, rightPanelMinSize),
-        rightPanelMaxSize,
-      )
+      Math.max(rightPanelExpandedSizeRef.current || rightPanelDefaultSize, rightPanelMinSize),
+      rightPanelMaxSize,
+    )
     : 0;
   const effectiveCenterDefaultSize = 100 - (showDesktopSidebar ? effectiveSidebarDefaultSize : 0) - effectiveRightPanelDefaultSize;
 
@@ -242,23 +282,25 @@ export function Layout({ children }: React.PropsWithChildren) {
     if (hasRestoredRouteRef.current) return;
     hasRestoredRouteRef.current = true;
 
-    if (location.pathname !== "/" || location.search || location.hash) {
+    if (!user || location.pathname !== APP_HOME_PATH || location.search || location.hash) {
       return;
     }
 
     const storedRoute = readStoredRoute();
-    if (!storedRoute || storedRoute === "/" || storedRoute.startsWith("/auth")) {
+    if (!storedRoute || storedRoute === APP_HOME_PATH || storedRoute.startsWith("/auth")) {
       return;
     }
 
     navigate(storedRoute, { replace: true });
-  }, [location.hash, location.pathname, location.search, navigate]);
+  }, [location.hash, location.pathname, location.search, navigate, user]);
 
   useEffect(() => {
     if (location.pathname.startsWith("/auth")) return;
     const currentRoute = `${location.pathname}${location.search}${location.hash}`;
     writeStoredValue(LAST_ROUTE_KEY, currentRoute);
   }, [location.hash, location.pathname, location.search]);
+
+  const content = children ?? <Outlet />;
 
   useEffect(() => {
     writeStoredValue(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
@@ -466,15 +508,14 @@ export function Layout({ children }: React.PropsWithChildren) {
       <TrackSelectionShortcutsProvider>
         <LayoutShortcutBindings />
         <div
-          className="h-screen w-screen flex flex-col relative overflow-hidden"
+          className="relative flex h-screen min-h-screen w-full max-w-full flex-col overflow-hidden supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:min-h-[100dvh]"
           // Keep the app feeling native by suppressing the browser context menu.
           onContextMenu={(event) => {
             if (!isEmbedMode) event.preventDefault();
           }}
         >
-          <DesktopUpdateGate />
           {isEmbedMode ? (
-            <main className="min-h-screen bg-[#050505]">{children}</main>
+            <main className="min-h-screen bg-[#050505]">{content}</main>
           ) : (
             <>
               {!lowEndDevice ? (
@@ -486,100 +527,60 @@ export function Layout({ children }: React.PropsWithChildren) {
 
               <div className="flex-1 min-h-0 relative z-10">
                 {!isMobile ? (
-                  <ResizablePanelGroup key={panelGroupVersion} id="app-shell-panels" direction="horizontal" className="h-full">
-                    {showDesktopSidebar ? (
-                      <>
-                        <ResizablePanel
-                          id="app-shell-sidebar"
-                          order={1}
-                          ref={sidebarPanelRef}
-                          defaultSize={effectiveSidebarDefaultSize}
-                          collapsible={false}
-                          collapsedSize={collapsedSidebarSize}
-                          minSize={collapsedSidebarSize}
-                          maxSize={isCompactDesktop ? 24 : 30}
-                          onCollapse={handleSidebarCollapse}
-                          onExpand={handleSidebarExpand}
-                          onResize={handleSidebarResize}
-                        >
-                          <div
-                            className="h-full overflow-hidden"
-                            style={{
-                              opacity: 1,
-                              transform: "translate3d(0, 0, 0)",
-                            }}
-                          >
-                            <Suspense fallback={<SidebarFallback />}>
-                              <LazyAppSidebar />
-                            </Suspense>
-                          </div>
-                        </ResizablePanel>
-                        <ResizableHandle
-                          className="relative z-50 -mx-1.5 w-3 cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-white/0 hover:after:bg-white/10 transition-colors"
-                          onDragging={handleSidebarDragging}
-                        />
-                      </>
-                    ) : null}
-
-                    <ResizablePanel id="app-shell-main" order={2} defaultSize={effectiveCenterDefaultSize} minSize={40}>
-                      <div className="relative flex flex-col h-full min-h-0">
-                        {showShellChrome ? (
-                          <div
-                            aria-hidden="true"
-                            className="shell-top-glow pointer-events-none absolute inset-x-0 top-0 z-20 h-24 opacity-[0.18]"
-                          />
-                        ) : null}
-                        <ScrollArea className="flex-1" ref={scrollRef} viewportProps={{ "data-main-scroll-viewport": "true" }}>
-                          <main className="shell-main-content desktop-shell-main-content pb-8 overflow-x-hidden">
-                            {children}
-                          </main>
-                        </ScrollArea>
-                      </div>
-                    </ResizablePanel>
-
-                    <ResizableHandle
-                      className={`relative z-50 -mx-1 w-2 cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-white/0 hover:after:bg-white/10 transition-colors ${!showRightPanelHandle ? "hidden" : ""}`}
-                      hitAreaMargins={{ fine: 2, coarse: 6 }}
-                      onDragging={handleRightHandleDragging}
+                  <Suspense
+                    fallback={(
+                      <DesktopShellFallback
+                        content={content}
+                        scrollRef={scrollRef}
+                        showDesktopSidebar={showDesktopSidebar}
+                        showShellTopGlow={showShellTopGlow}
+                      />
+                    )}
+                  >
+                    <LazyLayoutDesktopShell
+                      panelGroupVersion={panelGroupVersion}
+                      showDesktopSidebar={showDesktopSidebar}
+                      sidebarPanelRef={sidebarPanelRef}
+                      rightPanelRef={rightPanelRef}
+                      effectiveSidebarDefaultSize={effectiveSidebarDefaultSize}
+                      collapsedSidebarSize={collapsedSidebarSize}
+                      isCompactDesktop={isCompactDesktop}
+                      handleSidebarCollapse={handleSidebarCollapse}
+                      handleSidebarExpand={handleSidebarExpand}
+                      handleSidebarResize={handleSidebarResize}
+                      handleSidebarDragging={handleSidebarDragging}
+                      effectiveCenterDefaultSize={effectiveCenterDefaultSize}
+                      showShellTopGlow={showShellTopGlow}
+                      scrollRef={scrollRef}
+                      content={content}
+                      showRightPanelHandle={showRightPanelHandle}
+                      handleRightHandleDragging={handleRightHandleDragging}
+                      effectiveRightPanelDefaultSize={effectiveRightPanelDefaultSize}
+                      rightPanelMinSize={rightPanelMinSize}
+                      rightPanelMaxSize={rightPanelMaxSize}
+                      isRightPanelDragging={isRightPanelDragging}
+                      handleRightPanelCollapse={handleRightPanelCollapse}
+                      handleRightPanelExpand={handleRightPanelExpand}
+                      handleRightPanelResize={handleRightPanelResize}
+                      shouldShowRightPanel={shouldShowRightPanel}
+                      shouldRenderRightPanel={shouldRenderRightPanel}
+                      rightPanelMinWidth={rightPanelMinWidth}
                     />
-                    <ResizablePanel
-                      id="app-shell-right-panel"
-                      order={3}
-                      ref={rightPanelRef}
-                      defaultSize={effectiveRightPanelDefaultSize}
-                      minSize={rightPanelMinSize}
-                      maxSize={rightPanelMaxSize}
-                      collapsible={true}
-                      collapsedSize={0}
-                      className={isRightPanelDragging ? "" : "transition-[flex] duration-500"}
-                      style={isRightPanelDragging ? undefined : { transitionTimingFunction: "cubic-bezier(0.33,1,0.68,1)" }}
-                      onCollapse={handleRightPanelCollapse}
-                      onExpand={handleRightPanelExpand}
-                      onResize={handleRightPanelResize}
-                    >
-                      <div
-                        className="w-full h-full"
-                        style={{ minWidth: shouldShowRightPanel ? `${rightPanelMinWidth}px` : "0px" }}
-                      >
-                        {shouldRenderRightPanel ? (
-                          <Suspense fallback={null}>
-                            <LazyRightPanel />
-                          </Suspense>
-                        ) : null}
-                      </div>
-                    </ResizablePanel>
-                  </ResizablePanelGroup>
+                  </Suspense>
                 ) : (
-                  <div className="relative flex flex-col flex-1 min-h-0">
-                    {showShellChrome ? (
+                  <div className="relative flex h-full min-h-0 flex-col">
+                    <Suspense fallback={null}>
+                      <LazyMobileTopBar />
+                    </Suspense>
+                    {showShellTopGlow ? (
                       <div
                         aria-hidden="true"
-                        className="shell-top-glow pointer-events-none absolute inset-x-0 top-0 z-20 h-20 opacity-[0.14]"
+                        className="shell-top-glow pointer-events-none absolute inset-x-0 top-0 z-20 h-24 opacity-[0.14]"
                       />
                     ) : null}
-                    <ScrollArea className="flex-1" ref={scrollRef} viewportProps={{ "data-main-scroll-viewport": "true" }}>
-                      <main className="shell-main-content mobile-main-content px-4 pb-8 pt-3">
-                        {children}
+                    <ScrollArea className="flex-1 pt-[calc(var(--mobile-header-height)+0.25rem)]" ref={scrollRef} viewportProps={{ "data-main-scroll-viewport": "true" }}>
+                      <main className="shell-main-content mobile-main-content mx-auto w-full max-w-[42rem] px-4 pb-[11rem]">
+                        {content}
                       </main>
                     </ScrollArea>
                   </div>
@@ -617,6 +618,7 @@ export function Layout({ children }: React.PropsWithChildren) {
               ) : null}
             </>
           )}
+          <BackToTopButton />
         </div>
       </TrackSelectionShortcutsProvider>
     </SidebarContext.Provider>

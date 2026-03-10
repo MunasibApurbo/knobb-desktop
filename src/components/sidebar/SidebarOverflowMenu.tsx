@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +23,7 @@ export function SidebarOverflowMenu({ align, buttonClassName }: SidebarOverflowM
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className={buttonClassName}>
+        <Button variant="ghost" size="icon" className={cn(buttonClassName, "menu-sweep-hover relative")}>
           <MoreHorizontal className="h-5 w-5" absoluteStrokeWidth />
         </Button>
       </DropdownMenuTrigger>

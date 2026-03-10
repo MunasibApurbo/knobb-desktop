@@ -79,7 +79,13 @@ export function UnreleasedProjectCard({
         </div>
       </div>
 
-      <div className={MEDIA_CARD_BODY_CLASS}>
+      <div className={`${MEDIA_CARD_BODY_CLASS} relative`}>
+        <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+          <div className="shell-artwork-wash">
+            <img src={project.imageUrl || artist.imageUrl} alt="" loading="lazy" decoding="async" />
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+        </div>
         <p className={`${MEDIA_CARD_TITLE_CLASS} line-clamp-2 font-medium`}>{project.name}</p>
         <p className={`${MEDIA_CARD_META_CLASS} truncate`}>
           {artist.name} • {project.trackCount} tracks

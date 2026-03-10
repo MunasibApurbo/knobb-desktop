@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 
 export const MAIN_SCROLL_VIEWPORT_SELECTOR = "[data-main-scroll-viewport='true']";
+const DEFAULT_SCROLL_STEP_PX = 8;
 
 function getMainScrollViewport() {
   return document.querySelector<HTMLElement>(MAIN_SCROLL_VIEWPORT_SELECTOR);
 }
 
-export function useMainScrollY(enabled = true) {
+function quantizeScrollY(value: number, step: number) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (step <= 1) return value;
+  return Math.round(value / step) * step;
+}
+
+export function useMainScrollY(enabled = true, step = DEFAULT_SCROLL_STEP_PX) {
   const [scrollY, setScrollY] = useState(0);
 
   useEffect(() => {
@@ -32,7 +39,7 @@ export function useMainScrollY(enabled = true) {
         scrollFrame = window.requestAnimationFrame(() => {
           scrollFrame = 0;
           setScrollY((previous) => {
-            const next = scrollContainer.scrollTop;
+            const next = quantizeScrollY(scrollContainer.scrollTop, step);
             return previous === next ? previous : next;
           });
         });
@@ -55,7 +62,7 @@ export function useMainScrollY(enabled = true) {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
       detach?.();
     };
-  }, [enabled]);
+  }, [enabled, step]);
 
   return scrollY;
 }

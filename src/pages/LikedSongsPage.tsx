@@ -25,10 +25,21 @@ import { copyPlainTextToClipboard } from "@/lib/mediaNavigation";
 import { filterPlayableTracks, isTrackPlayable } from "@/lib/trackPlayback";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { isSameTrack } from "@/lib/trackIdentity";
+import { getLatestLikedSongsArtwork } from "@/lib/likedSongsArtwork";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  MOBILE_ACTION_BUTTON_CLASS,
+  MOBILE_SECONDARY_BUTTON_CLASS,
+  MobileExperiencePage,
+  MobileHero,
+  MobileMetaChip,
+  MobileSection,
+} from "@/components/mobile/MobileExperienceLayout";
 
 export default function LikedSongsPage() {
   const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
   const { likedSongs, isLiked, toggleLike } = useLikedSongs();
+  const isMobile = useIsMobile();
   const { setActiveScope } = useTrackSelectionShortcutsContext();
   const { language } = useLanguage();
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -40,7 +51,7 @@ export default function LikedSongsPage() {
   const scrollY = useMainScrollY();
 
   const isCurrentLiked = currentTrack && likedSongs.some((track) => track.id === currentTrack.id);
-  const coverUrl = likedSongs[0]?.coverUrl || "/placeholder.svg";
+  const coverUrl = getLatestLikedSongsArtwork(likedSongs) || "/placeholder.svg";
 
   const handleShuffle = () => {
     if (playableLikedSongs.length === 0) return;
@@ -138,6 +149,156 @@ export default function LikedSongsPage() {
     setLastSelectedIndex(index);
   };
 
+  if (isMobile) {
+    return (
+      <PageTransition>
+        <MobileExperiencePage artworkUrl={coverUrl}>
+          <MobileHero
+            artworkUrl={coverUrl}
+            artworkAlt="Liked Songs"
+            eyebrow="Your Library"
+            title="Liked Songs"
+            description={<p>Every saved favorite, with full desktop depth and direct playback.</p>}
+            meta={(
+              <>
+                <MobileMetaChip label="Tracks" value={likedSongs.length} />
+                {likedSongs.length > 0 ? <MobileMetaChip label="Runtime" value={getTotalDuration(likedSongs)} /> : null}
+                <MobileMetaChip label="Mood" value="Personal" />
+              </>
+            )}
+            actions={(
+              <>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_ACTION_BUTTON_CLASS}
+                  onClick={() => {
+                    if (isCurrentLiked) togglePlay();
+                    else if (firstPlayableLikedSong) play(firstPlayableLikedSong, likedSongs);
+                  }}
+                  disabled={!isCurrentLiked && !firstPlayableLikedSong}
+                >
+                  {isCurrentLiked && isPlaying ? (
+                    <Pause className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Play className="h-4 w-4 fill-current" />
+                  )}
+                  Play
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={handleShuffle}
+                  disabled={playableLikedSongs.length === 0}
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle
+                </Button>
+                <Button variant="ghost" className={MOBILE_SECONDARY_BUTTON_CLASS} disabled>
+                  <Heart className="h-4 w-4 fill-white text-white" />
+                  Liked
+                </Button>
+                <Button variant="ghost" className={MOBILE_SECONDARY_BUTTON_CLASS} onClick={handleShare}>
+                  <Share className="h-4 w-4" />
+                  Share
+                </Button>
+              </>
+            )}
+          />
+
+          <MobileSection
+            eyebrow={selectedTrackIds.length > 0 ? `${selectedTrackIds.length} selected` : `${likedSongs.length} saved`}
+            title="Saved Queue"
+            contentClassName="px-0 pb-0"
+          >
+            {likedSongs.length > 0 ? (
+              <VirtualizedTrackList
+                items={likedSongs}
+                getItemKey={(track) => track.id}
+                rowHeight={86}
+                renderRow={(track, i) => {
+                  const isCurrent = isSameTrack(currentTrack, track);
+                  const trackPlayable = isTrackPlayable(track);
+                  const isSelected = selectedTrackIds.includes(track.id);
+                  const draggedTracks =
+                    isSelected && selectedTrackIds.length > 0
+                      ? likedSongs.filter((entry) => selectedTrackIds.includes(entry.id))
+                      : [track];
+
+                  return (
+                    <TrackContextMenu key={track.id} track={track} tracks={likedSongs}>
+                      <TrackListRow
+                        className={!isCurrent && isSelected ? "bg-white/[0.08]" : undefined}
+                        desktopMeta={(
+                          <div
+                            className={`truncate text-sm ${
+                              isCurrent
+                                ? "text-black"
+                                : trackPlayable
+                                  ? "text-muted-foreground transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground))]"
+                                  : "text-muted-foreground/70"
+                            }`}
+                            title={formatTrackAddedAtTooltip(track.addedAt, addedAtLocale) || undefined}
+                          >
+                            {formatTrackAddedAt(track.addedAt, addedAtLocale) || "-"}
+                          </div>
+                        )}
+                        disabled={!trackPlayable}
+                        disabledLabel="Unavailable"
+                        dragHandleLabel={
+                          draggedTracks.length > 1
+                            ? `Drag ${draggedTracks.length} selected tracks to a playlist`
+                            : `Drag ${track.title} to a playlist`
+                        }
+                        index={i}
+                        isCurrent={isCurrent}
+                        isLiked={isLiked(track.id)}
+                        isPlaying={isPlaying}
+                        onDragHandleStart={(event) => {
+                          startPlaylistDrag(event.dataTransfer, {
+                            label: draggedTracks.length > 1 ? "Liked Songs selection" : track.title,
+                            source: draggedTracks.length > 1 ? "selection" : "track",
+                            tracks: draggedTracks,
+                          });
+                        }}
+                        onPlay={(event) => handleTrackRowClick(event, track, i)}
+                        onToggleLike={() => toggleLike(track)}
+                        mobileMeta={formatTrackAddedAt(track.addedAt, addedAtLocale) || "-"}
+                        leadingSlot={
+                          <button
+                            type="button"
+                            className={`relative z-10 flex h-6 w-6 items-center justify-center text-sm tabular-nums text-center ${
+                              isSelected
+                                ? "border border-white/30 bg-white/12 text-white"
+                                : isCurrent
+                                  ? "text-black"
+                                  : trackPlayable
+                                    ? "text-muted-foreground transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground))]"
+                                    : "text-muted-foreground/70"
+                            }`}
+                            onClick={(event) => handleTrackSelectionClick(event, track, i)}
+                            aria-label={isSelected ? "Deselect track" : "Select track"}
+                          >
+                            {isSelected ? "✓" : `${i + 1}.`}
+                          </button>
+                        }
+                        track={track}
+                        trailingContent={trackPlayable ? formatDuration(track.duration) : "Unavailable"}
+                      />
+                    </TrackContextMenu>
+                  );
+                }}
+              />
+            ) : (
+              <div className="px-4 pb-8 text-center text-sm text-white/58">
+                Songs you like will appear here.
+              </div>
+            )}
+          </MobileSection>
+        </MobileExperiencePage>
+      </PageTransition>
+    );
+  }
+
   return (
     <PageTransition>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
@@ -200,7 +361,7 @@ export default function LikedSongsPage() {
         </DetailActionBar>
 
         {likedSongs.length > 0 ? (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className="mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
             <VirtualizedTrackList
               items={likedSongs}
               getItemKey={(track) => track.id}
@@ -279,7 +440,7 @@ export default function LikedSongsPage() {
             />
           </section>
         ) : (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className="mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
             <p className="text-muted-foreground text-sm py-10 text-center">Songs you like will appear here.</p>
           </section>
         )}

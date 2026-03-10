@@ -31,9 +31,10 @@ export interface ArtistCardProps {
     name: string;
     imageUrl: string;
     className?: string;
+    isPriority?: boolean;
 }
 
-export function ArtistCard({ id, name, imageUrl, className = "" }: ArtistCardProps) {
+export function ArtistCard({ id, name, imageUrl, className = "", isPriority }: ArtistCardProps) {
     const navigate = useNavigate();
     const { playArtist } = usePlayer();
     const { motionEnabled, websiteMode } = useMotionPreferences();
@@ -78,7 +79,8 @@ export function ArtistCard({ id, name, imageUrl, className = "" }: ArtistCardPro
                     <img
                         src={resolvedImageUrl}
                         alt={name}
-                        loading="lazy"
+                        loading={isPriority ? "eager" : "lazy"}
+                        fetchPriority={isPriority ? "high" : "auto"}
                         decoding="async"
                         draggable={false}
                         className={MEDIA_CARD_ARTWORK_CLASS}
@@ -112,7 +114,19 @@ export function ArtistCard({ id, name, imageUrl, className = "" }: ArtistCardPro
                     </motion.button>
                 </div>
 
-                <div className={MEDIA_CARD_BODY_CLASS}>
+                <div className={`${MEDIA_CARD_BODY_CLASS} relative`}>
+                    <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+                        <div className="shell-artwork-wash">
+                            <img
+                                src={resolvedImageUrl}
+                                alt=""
+                                loading={isPriority ? "eager" : "lazy"}
+                                fetchPriority={isPriority ? "high" : "auto"}
+                                decoding="async"
+                            />
+                        </div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                    </div>
                     <p className={`${MEDIA_CARD_TITLE_CLASS} font-medium truncate`}>
                         {name}
                     </p>

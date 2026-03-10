@@ -1,4 +1,4 @@
-import { buildMediaSessionArtwork } from "@/contexts/PlayerContext";
+import { buildMediaSessionArtwork, buildMediaSessionPositionState } from "@/contexts/PlayerContext";
 
 describe("buildMediaSessionArtwork", () => {
   it("expands Tidal artwork into multiple sized images", () => {
@@ -23,5 +23,28 @@ describe("buildMediaSessionArtwork", () => {
         type: "image/png",
       },
     ]);
+  });
+});
+
+describe("buildMediaSessionPositionState", () => {
+  it("clamps the position to the current track duration", () => {
+    expect(buildMediaSessionPositionState(215, 180, 1.25)).toEqual({
+      duration: 180,
+      playbackRate: 1.25,
+      position: 180,
+    });
+  });
+
+  it("falls back to normal playback speed when the rate is invalid", () => {
+    expect(buildMediaSessionPositionState(42, 180, 0)).toEqual({
+      duration: 180,
+      playbackRate: 1,
+      position: 42,
+    });
+  });
+
+  it("returns null when the duration is not playable yet", () => {
+    expect(buildMediaSessionPositionState(5, 0, 1)).toBeNull();
+    expect(buildMediaSessionPositionState(5, Number.NaN, 1)).toBeNull();
   });
 });

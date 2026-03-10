@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { PlaylistLink } from "@/components/PlaylistLink";
 import { TrackContextMenu } from "@/components/TrackContextMenu";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
+import { APP_HOME_PATH } from "@/lib/routes";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { isSameTrack } from "@/lib/trackIdentity";
 
@@ -168,7 +169,7 @@ export default function SharedPlaylistPage() {
       <div className="text-center py-20 space-y-4">
         <Music className="w-10 h-10 text-muted-foreground mx-auto" />
         <p className="text-muted-foreground">Shared playlist unavailable</p>
-        <Button variant="outline" onClick={() => navigate("/")}>
+        <Button variant="outline" onClick={() => navigate(APP_HOME_PATH)}>
           Go Home
         </Button>
       </div>
@@ -184,7 +185,7 @@ export default function SharedPlaylistPage() {
   if (isEmbedMode) {
     return (
       <div className="min-h-screen bg-[#050505] p-4 text-white">
-        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_48%),rgba(255,255,255,0.03)] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
+        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
           <div className="grid gap-5 border-b border-white/10 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:p-5">
             <img src={cover} alt={playlist.name} className="aspect-square w-full rounded-[22px] object-cover" />
             <div className="min-w-0">
@@ -315,7 +316,7 @@ export default function SharedPlaylistPage() {
         />
       </DetailActionBar>
 
-      <section className="border border-t-0 border-white/10 bg-white/[0.02]">
+      <section className="mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
         {tracks.map((track, index) => {
           const isCurrent = isSameTrack(currentTrack, track);
           return (

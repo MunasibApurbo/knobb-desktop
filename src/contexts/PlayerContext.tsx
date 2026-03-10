@@ -45,16 +45,20 @@ import { getRecoveryQualityOrder, isAudioQuality } from "@/lib/audioQuality";
 import { getResolvableTidalId } from "@/lib/trackIdentity";
 import { filterPlayableTracks, isTrackPlayable } from "@/lib/trackPlayback";
 import { Track } from "@/types/music";
-import { toast } from "sonner";
 import { pushAppDiagnostic } from "@/lib/appDiagnostics";
 import { syncDiscordPresence } from "@/lib/discordPresence";
 import { useSettings } from "@/contexts/SettingsContext";
+import { showErrorToast, showInfoToast } from "@/lib/toast";
 
 const MEDIA_SESSION_SKIP_SECONDS = 10;
 const MEDIA_SESSION_ARTWORK_SIZES = ["96x96", "128x128", "192x192", "256x256", "384x384", "512x512"] as const;
+const MEDIA_SESSION_FALLBACK_ARTWORK_URL = "/brand/logo-k-black-square-512.png";
 const AUDIO_ERROR_CODE_REGEX = /\(code\s+(\d+)\)/i;
 const PLAYER_PROGRESS_RENDER_STEP_SECONDS = 0.25;
 const PLAYER_DURATION_RENDER_EPSILON_SECONDS = 0.5;
+
+type PlayerTimelineState = Pick<PlayerState, "currentTime" | "duration">;
+type PlayerContextState = Omit<PlayerState, "currentTime" | "duration">;
 
 function getAudioErrorCode(error: string) {
   const match = error.match(AUDIO_ERROR_CODE_REGEX);
@@ -111,7 +115,7 @@ function buildTrackMixQueue(seedTrack: Track, candidateTracks: Track[]) {
   return queue;
 }
 
-interface PlayerContextType extends PlayerState {
+interface PlayerContextType extends PlayerContextState {
   play: (track: Track, queue?: Track[]) => void;
   playAlbum: (album: AlbumPlaybackTarget) => Promise<void>;
   addToQueue: (track: Track) => void;
@@ -147,6 +151,7 @@ interface PlayerContextType extends PlayerState {
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
+const PlayerTimelineContext = createContext<PlayerTimelineState | null>(null);
 
 type SyncedPlayerPreferences = Pick<
   PlayerState,
@@ -284,7 +289,7 @@ function updateMediaSessionMetadata(track: Track | null) {
     return;
   }
 
-  const artwork = buildMediaSessionArtwork(track.coverUrl);
+  const artwork = buildMediaSessionArtwork(track.coverUrl || MEDIA_SESSION_FALLBACK_ARTWORK_URL);
 
   mediaSession.metadata = new MediaMetadata({
     title: getTrackDisplayTitle(track),
@@ -303,6 +308,38 @@ function updateMediaSessionPlaybackState(isPlaying: boolean, hasCurrentTrack: bo
     : "none";
 }
 
+type MediaSessionPositionStateInput = {
+  duration: number;
+  playbackRate: number;
+  position: number;
+};
+
+export function buildMediaSessionPositionState(
+  position: number,
+  duration: number,
+  playbackRate: number,
+): MediaSessionPositionStateInput | null {
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+
+  return {
+    duration,
+    playbackRate: Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1,
+    position: Math.min(Math.max(position, 0), duration),
+  };
+}
+
+function clearMediaSessionPositionState() {
+  const mediaSession = getMediaSession();
+  const setPositionState = mediaSession?.setPositionState as ((state?: MediaSessionPositionStateInput) => void) | undefined;
+  if (!setPositionState) return;
+
+  try {
+    setPositionState();
+  } catch {
+    // Ignore platform-specific Media Session failures.
+  }
+}
+
 function updateMediaSessionPositionState(
   position: number,
   duration: number,
@@ -310,14 +347,15 @@ function updateMediaSessionPositionState(
 ) {
   const mediaSession = getMediaSession();
   if (!mediaSession || typeof mediaSession.setPositionState !== "function") return;
-  if (!Number.isFinite(duration) || duration <= 0) return;
+
+  const nextPositionState = buildMediaSessionPositionState(position, duration, playbackRate);
+  if (!nextPositionState) {
+    clearMediaSessionPositionState();
+    return;
+  }
 
   try {
-    mediaSession.setPositionState({
-      duration,
-      playbackRate: Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1,
-      position: Math.min(Math.max(position, 0), duration),
-    });
+    mediaSession.setPositionState(nextPositionState);
   } catch {
     // Ignore platform-specific Media Session failures.
   }
@@ -369,7 +407,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth();
   const user = auth?.user ?? null;
   const { discordPresenceEnabled, rightPanelAutoOpen, rightPanelDefaultTab } = useSettings();
-  const [state, setState] = useState<PlayerState>(() => createInitialPlayerState());
+  const initialPlayerStateRef = useRef<PlayerState | null>(null);
+  if (!initialPlayerStateRef.current) {
+    initialPlayerStateRef.current = createInitialPlayerState();
+  }
+
+  const [state, setState] = useState<PlayerState>(initialPlayerStateRef.current);
+  const [timeline, setTimeline] = useState<PlayerTimelineState>(() => ({
+    currentTime: initialPlayerStateRef.current?.currentTime ?? 0,
+    duration: initialPlayerStateRef.current?.duration ?? 0,
+  }));
   const [engineReadyVersion, setEngineReadyVersion] = useState(0);
 
   const engineRef = useRef<AudioEngine | null>(null);
@@ -383,8 +430,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playbackDeviceNameRef = useRef(getPlaybackDeviceName());
   const syncedPlaybackUserIdRef = useRef<string | null>(null);
   const lastProgressRenderRef = useRef({
-    currentTime: state.currentTime,
-    duration: state.duration,
+    currentTime: timeline.currentTime,
+    duration: timeline.duration,
     isPlaying: state.isPlaying,
     trackId: state.currentTrack?.id ?? null,
   });
@@ -398,7 +445,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     attemptedQualities: [],
     active: false,
   });
-  stateRef.current = state;
+  stateRef.current = {
+    ...state,
+    currentTime: timeline.currentTime,
+    duration: timeline.duration,
+  };
   const syncedPlayerPreferences = useMemo<SyncedPlayerPreferences>(() => ({
     autoQualityEnabled: state.autoQualityEnabled,
     quality: state.quality,
@@ -429,12 +480,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     lastProgressRenderRef.current = {
-      currentTime: state.currentTime,
-      duration: state.duration,
+      currentTime: timeline.currentTime,
+      duration: timeline.duration,
       isPlaying: state.isPlaying,
       trackId: state.currentTrack?.id ?? null,
     };
-  }, [state.currentTime, state.currentTrack?.id, state.duration, state.isPlaying]);
+  }, [timeline.currentTime, timeline.duration, state.currentTrack?.id, state.isPlaying]);
 
   useEffect(() => {
     if (!user) {
@@ -735,13 +786,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const nextTrack = nextIndex === null ? null : currentState.queue[nextIndex];
 
     if (nextTrack && nextTrack.id !== track.id) {
-      toast.error(`"${track.title}" is unavailable right now. Skipping to the next track.`);
+      showErrorToast(`"${track.title}" is unavailable right now. Skipping to the next track.`);
       await loadAndPlayRef.current(nextTrack);
       return;
     }
 
-    toast.error(`"${track.title}" is unavailable to play right now.`);
+    showErrorToast(`"${track.title}" is unavailable to play right now.`);
     clearCurrentStatus();
+    setTimeline({
+      currentTime: 0,
+      duration: 0,
+    });
     setState((prev) => ({
       ...prev,
       currentTrack: null,
@@ -820,14 +875,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
           setState((prev) => ({
             ...prev,
-            currentTime: engine.currentTime || resumeTime,
             duration: engine.duration || track.duration || prev.duration,
             isLoading: false,
             isPlaying: true,
           }));
+          setTimeline({
+            currentTime: engine.currentTime || resumeTime,
+            duration: engine.duration || track.duration || currentState.duration,
+          });
 
           if (nextQuality !== currentState.quality) {
-            toast.info(`"${track.title}" resumed at ${nextQuality.toLowerCase()} quality.`);
+            showInfoToast(`"${track.title}" resumed at ${nextQuality.toLowerCase()} quality.`);
           }
 
           return true;
@@ -865,6 +923,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       isLoading: true,
       isPlaying: false,
     }));
+    setTimeline({
+      currentTime: 0,
+      duration: track.duration,
+    });
 
     const playFromResolvedUrl = async (forceRefresh = false) => {
       const source = await resolvePlaybackSource(track, stateRef.current.quality, forceRefresh);
@@ -953,18 +1015,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setState((prev) => ({
         ...prev,
         quality,
-        currentTime: engine.currentTime || resumeTime,
         duration: engine.duration || track.duration || prev.duration,
         isLoading: false,
         isPlaying: shouldResume && !engine.paused,
       }));
+      setTimeline({
+        currentTime: engine.currentTime || resumeTime,
+        duration: engine.duration || track.duration || currentState.duration,
+      });
     } catch (error) {
       console.error("Failed to switch audio quality:", error);
       void reportClientErrorLazy(error, "player_quality_switch_failed", {
         trackId: track.id,
         quality,
       });
-      toast.error("Couldn't switch audio quality right now.");
+      showErrorToast("Couldn't switch audio quality right now.");
       persistAudioQuality(previousQuality);
       setState((prev) => ({
         ...prev,
@@ -1027,7 +1092,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         isPlaying: false,
         sleepTimerEndsAt: null,
       }));
-      toast.info("Sleep timer ended. Playback paused.");
+      showInfoToast("Sleep timer ended. Playback paused.");
       return;
     }
 
@@ -1038,7 +1103,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         isPlaying: false,
         sleepTimerEndsAt: null,
       }));
-      toast.info("Sleep timer ended. Playback paused.");
+      showInfoToast("Sleep timer ended. Playback paused.");
     }, remainingMs);
 
     return () => window.clearTimeout(timeoutId);
@@ -1072,10 +1137,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
 
       lastProgressRenderRef.current = nextSnapshot;
+      setTimeline((prev) => (
+        prev.currentTime === currentTime && prev.duration === nextDuration
+          ? prev
+          : {
+            currentTime,
+            duration: nextDuration,
+          }
+      ));
 
       setState((prev) => {
         if (
-          prev.currentTime === currentTime &&
           prev.duration === nextDuration &&
           prev.isPlaying === nextIsPlaying
         ) {
@@ -1084,7 +1156,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         return {
           ...prev,
-          currentTime,
           duration: nextDuration,
           isPlaying: nextIsPlaying,
         };
@@ -1130,6 +1201,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (nextIndex === null) return;
 
       const nextTrack = currentState.queue[nextIndex];
+      setTimeline({
+        currentTime: 0,
+        duration: nextTrack.duration,
+      });
       setState((prev) => ({
         ...prev,
         currentTrack: nextTrack,
@@ -1217,16 +1292,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [state.currentTrack, state.isPlaying]);
 
   useEffect(() => {
-    if (!state.currentTrack) return;
+    if (!state.currentTrack) {
+      clearMediaSessionPositionState();
+      return;
+    }
 
     updateMediaSessionPositionState(
-      state.currentTime,
-      state.duration || state.currentTrack.duration,
+      timeline.currentTime,
+      timeline.duration || state.currentTrack.duration,
       state.playbackSpeed,
     );
-  }, [state.currentTime, state.currentTrack, state.duration, state.playbackSpeed]);
+  }, [timeline.currentTime, timeline.duration, state.currentTrack, state.isPlaying, state.playbackSpeed]);
 
-  const discordPresenceTimeBucket = Math.floor(state.currentTime / 15);
+  const discordPresenceTimeBucket = Math.floor(timeline.currentTime / 15);
 
   useEffect(() => {
     void syncDiscordPresence({
@@ -1342,6 +1420,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       : [currentTrack, ...requestedQueue];
     const resumeTime = Math.max(0, snapshot.currentTime || 0);
     const nextQuality = snapshot.quality || stateRef.current.quality;
+    const initialDuration = snapshot.duration || currentTrack.duration || previousState.duration;
 
     setState((prev) => ({
       ...applyAutoRightPanelPreference(prev),
@@ -1354,6 +1433,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       isPlaying: false,
       quality: nextQuality,
     }));
+    setTimeline({
+      currentTime: resumeTime,
+      duration: initialDuration,
+    });
 
     try {
       const engine = await ensureEngine();
@@ -1385,13 +1468,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         ...applyAutoRightPanelPreference(prev),
         currentTrack,
         queue,
-        currentTime: engine.currentTime || resumeTime,
         duration: engine.duration || snapshot.duration || currentTrack.duration || prev.duration,
         hasPlaybackStarted: true,
         isLoading: false,
         isPlaying: snapshot.isPlaying && !engine.paused,
         quality: nextQuality,
       }));
+      setTimeline({
+        currentTime: engine.currentTime || resumeTime,
+        duration: engine.duration || snapshot.duration || currentTrack.duration || initialDuration,
+      });
     } catch (error) {
       console.error("Failed to restore remote session:", error);
       void reportClientErrorLazy(error, "player_remote_restore_failed", {
@@ -1436,6 +1522,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         clearCurrentStatus();
       }
 
+      setTimeline({
+        currentTime: previousTime,
+        duration: previousState.duration,
+      });
       setState(previousState);
       throw error;
     }
@@ -1468,7 +1558,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         isLoading: false,
       }));
       if (!isTrackPlayable(track)) {
-        toast.error(`"${track.title}" is unavailable to play right now.`);
+        showErrorToast(`"${track.title}" is unavailable to play right now.`);
       }
       return;
     }
@@ -1595,7 +1685,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      toast.error("Mix unavailable for this track");
+      showErrorToast("Mix unavailable for this track");
       setState((prev) => ({ ...prev, isLoading: false }));
     } catch (error) {
       console.error("Failed to start track mix:", error);
@@ -1610,7 +1700,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         trackId: track.id,
         tidalId: track.tidalId,
       });
-      toast.error("Couldn't start a mix for this track");
+      showErrorToast("Couldn't start a mix for this track");
       setState((prev) => ({ ...prev, isLoading: false }));
     }
   }, [play, playArtist]);
@@ -1692,8 +1782,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [loadAndPlay]);
 
   const seek = useCallback((time: number) => {
-    engineRef.current?.seek(time);
-    setState((prev) => ({ ...prev, currentTime: time }));
+    const currentDuration = engineRef.current?.duration
+      || stateRef.current.duration
+      || stateRef.current.currentTrack?.duration
+      || 0;
+    const nextTime = Number.isFinite(time)
+      ? Math.min(Math.max(time, 0), currentDuration > 0 ? currentDuration : time)
+      : 0;
+
+    engineRef.current?.seek(nextTime);
+    setTimeline((prev) => ({
+      currentTime: nextTime,
+      duration: prev.duration,
+    }));
+    setState((prev) => ({ ...prev, currentTime: nextTime }));
   }, []);
 
   const toggleShuffle = useCallback(() => {
@@ -1976,7 +2078,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [next, previous, seek, togglePlay]);
 
   const contextValue = useMemo<PlayerContextType>(() => ({
-    ...state,
+    currentTrack: state.currentTrack,
+    hasPlaybackStarted: state.hasPlaybackStarted,
+    isPlaying: state.isPlaying,
+    queue: state.queue,
+    shuffle: state.shuffle,
+    repeat: state.repeat,
+    volume: state.volume,
+    showRightPanel: state.showRightPanel,
+    rightPanelTab: state.rightPanelTab,
+    isLoading: state.isLoading,
+    autoQualityEnabled: state.autoQualityEnabled,
+    quality: state.quality,
+    normalization: state.normalization,
+    equalizerEnabled: state.equalizerEnabled,
+    eqGains: state.eqGains,
+    eqPreset: state.eqPreset,
+    preampDb: state.preampDb,
+    monoAudioEnabled: state.monoAudioEnabled,
+    crossfadeDuration: state.crossfadeDuration,
+    playbackSpeed: state.playbackSpeed,
+    preservePitch: state.preservePitch,
+    sleepTimerEndsAt: state.sleepTimerEndsAt,
     play,
     playAlbum,
     addToQueue,
@@ -2023,6 +2146,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     resetEqualizer,
     restoreRemoteSession,
     seek,
+    state.autoQualityEnabled,
+    state.crossfadeDuration,
+    state.currentTrack,
+    state.eqGains,
+    state.eqPreset,
+    state.equalizerEnabled,
+    state.hasPlaybackStarted,
+    state.isLoading,
+    state.isPlaying,
+    state.monoAudioEnabled,
+    state.normalization,
+    state.playbackSpeed,
+    state.preampDb,
+    state.preservePitch,
+    state.quality,
+    state.queue,
+    state.repeat,
+    state.rightPanelTab,
+    state.showRightPanel,
+    state.shuffle,
+    state.sleepTimerEndsAt,
+    state.volume,
     setCrossfadeDuration,
     setEqBandGain,
     setMonoAudioEnabled,
@@ -2036,7 +2181,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setSleepTimer,
     setVolume,
     startTrackMix,
-    state,
     toggleEqualizer,
     toggleNormalization,
     togglePlay,
@@ -2046,10 +2190,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   ]);
 
   return (
-    <PlayerContext.Provider
-      value={contextValue}
-    >
-      {children}
+    <PlayerContext.Provider value={contextValue}>
+      <PlayerTimelineContext.Provider value={timeline}>
+        {children}
+      </PlayerTimelineContext.Provider>
     </PlayerContext.Provider>
   );
 }
@@ -2057,5 +2201,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 export function usePlayer() {
   const context = useContext(PlayerContext);
   if (!context) throw new Error("usePlayer must be used inside PlayerProvider");
+  return context;
+}
+
+export function usePlayerTimeline() {
+  const context = useContext(PlayerTimelineContext);
+  if (!context) throw new Error("usePlayerTimeline must be used inside PlayerProvider");
   return context;
 }

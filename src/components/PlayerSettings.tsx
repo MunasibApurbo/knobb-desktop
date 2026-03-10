@@ -119,13 +119,13 @@ export function PlayerSettings() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="player-chrome-utility relative h-9 w-9 bg-white/[0.035] text-white/68 hover:bg-white/[0.085] hover:text-white">
+        <Button variant="ghost" size="icon" className="player-chrome-utility menu-sweep-hover relative h-9 w-9 overflow-hidden rounded-md text-white/68 transition-colors hover:text-white">
           <Settings2 className="h-5 w-5" absoluteStrokeWidth />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-[360px] max-h-[78vh] overflow-y-auto p-0 text-white"
+        className="w-56 max-h-[78vh] overflow-y-auto p-0 text-white"
       >
         <div className={`${topLevelSectionClassName} space-y-4`}>
           <SectionTitle icon={Waves} title="Playback" value={formatPlaybackSpeed(playbackSpeed)} />

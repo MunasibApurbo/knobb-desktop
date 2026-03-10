@@ -2,6 +2,7 @@ import { BarChart3, Clock, Disc3, Music, TrendingUp, User } from "lucide-react";
 import { ArtistLink } from "@/components/ArtistLink";
 import { ArtistContextMenu } from "@/components/ArtistContextMenu";
 import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { UtilityPagePanel } from "@/components/UtilityPageLayout";
 import type { ListeningStats, StatsRange } from "@/lib/listeningIntelligence";
 import type { Track } from "@/types/music";
 
@@ -40,13 +41,13 @@ export function ProfileStatsSection({
   const topTracksQueue = stats.topTracks.map(({ track }) => track);
 
   return (
-    <section className="flex flex-col w-full border-b border-white/10">
-      <div className="px-4 md:px-6 h-14 flex items-center justify-between border-b border-white/10 bg-white/[0.02]">
-        <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+    <UtilityPagePanel className="profile-stats-panel flex w-full flex-col overflow-hidden p-0 !bg-black">
+      <div className="flex flex-col gap-3 border-b border-white/10 bg-black px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-6">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
           <BarChart3 className="w-5 h-5" style={{ color: "hsl(var(--dynamic-accent))" }} />
           Listening Stats
         </h2>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-2">
           {[
             { value: "7d", label: "7D" },
             { value: "30d", label: "30D" },
@@ -58,7 +59,7 @@ export function ProfileStatsSection({
               className={`px-3 py-1 text-xs font-semibold transition-colors ${range === option.value
                 ? "text-foreground bg-white/10"
                 : "text-muted-foreground hover:text-foreground hover:bg-white/10"
-                }`}
+              }`}
             >
               {option.label}
             </button>
@@ -66,7 +67,7 @@ export function ProfileStatsSection({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 divide-x divide-white/10 border-b border-white/10 bg-white/[0.02]">
+      <div className="grid grid-cols-1 divide-y divide-white/10 border-b border-white/10 bg-black sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         {[
           { icon: Music, label: "Counted Plays", value: stats.totalCountedPlays.toString() },
           { icon: Clock, label: "Minutes Listened", value: stats.totalMinutes.toString() },
@@ -91,15 +92,15 @@ export function ProfileStatsSection({
         ))}
       </div>
 
-      <div className="border-b border-white/10 bg-white/[0.02] flex flex-col group">
-        <div className="px-4 md:px-6 h-14 border-b border-white/10 flex items-center">
+      <div className="flex flex-col border-b border-white/10 bg-black group">
+        <div className="flex min-h-14 items-center border-b border-white/10 px-4 py-4 md:px-6">
           <h2 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
             <Clock className="w-4 h-4" style={{ color: "hsl(var(--dynamic-accent))" }} />
             Activity by Hour
           </h2>
         </div>
         <div className="px-4 md:px-6 py-6 pb-4">
-          <div className="flex items-end gap-[2px] h-32 sm:h-40">
+          <div className="flex h-24 items-end gap-[2px] sm:h-40">
             {stats.hourCounts.map((count, index) => (
               <div key={index} className="flex-1 flex flex-col items-center group/bar cursor-default h-full justify-end">
                 <div
@@ -123,9 +124,9 @@ export function ProfileStatsSection({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/10 bg-white/[0.02]">
+      <div className="grid grid-cols-1 divide-y divide-white/10 bg-black md:grid-cols-2 md:divide-x md:divide-y-0">
         <div className="flex flex-col">
-          <div className="px-4 md:px-6 h-14 border-b border-white/10 flex items-center">
+          <div className="flex min-h-14 items-center border-b border-white/10 px-4 py-4 md:px-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
               <Disc3 className="w-4 h-4" style={{ color: "hsl(var(--dynamic-accent))" }} />
               Top Artists
@@ -159,7 +160,7 @@ export function ProfileStatsSection({
                     <div className="relative z-10 min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-[hsl(var(--dynamic-accent-foreground))]">{artist}</p>
                     </div>
-                    <span className="relative z-10 text-xs font-mono text-muted-foreground transition-colors group-hover:text-[hsl(var(--dynamic-accent-foreground))]">{formatListenedMinutes(listenedSeconds)}</span>
+                    <span className="relative z-10 text-[11px] font-mono text-muted-foreground transition-colors group-hover:text-[hsl(var(--dynamic-accent-foreground))] sm:text-xs">{formatListenedMinutes(listenedSeconds)}</span>
                   </button>
                 </ArtistContextMenu>
               ))}
@@ -168,7 +169,7 @@ export function ProfileStatsSection({
         </div>
 
         <div className="flex flex-col">
-          <div className="px-4 md:px-6 h-14 border-b border-white/10 flex items-center">
+          <div className="flex min-h-14 items-center border-b border-white/10 px-4 py-4 md:px-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
               <Music className="w-4 h-4" style={{ color: "hsl(var(--dynamic-accent))" }} />
               Top Tracks
@@ -202,7 +203,7 @@ export function ProfileStatsSection({
                         onClick={(event) => event.stopPropagation()}
                       />
                     </div>
-                    <span className="relative z-10 text-xs font-mono text-muted-foreground transition-colors group-hover:text-[hsl(var(--dynamic-accent-foreground))]">{formatListenedMinutes(listenedSeconds)}</span>
+                    <span className="relative z-10 text-[11px] font-mono text-muted-foreground transition-colors group-hover:text-[hsl(var(--dynamic-accent-foreground))] sm:text-xs">{formatListenedMinutes(listenedSeconds)}</span>
                   </button>
                 </TrackContextMenu>
               ))}
@@ -210,6 +211,6 @@ export function ProfileStatsSection({
           )}
         </div>
       </div>
-    </section>
+    </UtilityPagePanel>
   );
 }

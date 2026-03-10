@@ -103,7 +103,7 @@ export async function fetchPlaylistTrackRows(
 
   if (!result.error || !isMissingPlaylistColumnsError(result.error, ["track_key"])) {
     return {
-      data: (result.data || null) as PlaylistTrackRecord[] | null,
+      data: (result.data || null) as unknown as PlaylistTrackRecord[] | null,
       error: (result.error as Error | null) || null,
     };
   }
@@ -114,7 +114,7 @@ export async function fetchPlaylistTrackRows(
     .eq("playlist_id", playlistId)
     .order("position", { ascending: true });
 
-  const fallbackRows = ((fallback.data || []) as Array<Omit<PlaylistTrackRecord, "track_key">>).map((row) => ({
+  const fallbackRows = ((fallback.data || []) as unknown as Array<Omit<PlaylistTrackRecord, "track_key">>).map((row) => ({
     ...row,
     track_key: getTrackKey(row.track_data),
   }));
@@ -150,7 +150,7 @@ export async function deletePlaylistTrackRecord(playlistId: string, trackKey: st
     return { error: fallback.error };
   }
 
-  const target = (fallback.data as Array<{ id: string; track_data: Track }>).find(
+  const target = (fallback.data as unknown as Array<{ id: string; track_data: Track }>).find(
     (row) => getTrackKey(row.track_data) === trackKey,
   );
 

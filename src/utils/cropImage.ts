@@ -1,3 +1,8 @@
+import {
+    PROFILE_BANNER_EXPORT_HEIGHT,
+    PROFILE_BANNER_EXPORT_WIDTH,
+} from "@/lib/profileBannerUpload";
+
 export const createImage = (url: string): Promise<HTMLImageElement> =>
     new Promise((resolve, reject) => {
         const image = new Image();
@@ -55,9 +60,11 @@ export default async function getCroppedImg(
     }
 
     // Cap exported size so persisted covers stay reasonably small.
-    const maxWidth = 1680;
-    const maxHeight = 720;
-    const scale = Math.min(1, maxWidth / pixelCrop.width, maxHeight / pixelCrop.height);
+    const scale = Math.min(
+        1,
+        PROFILE_BANNER_EXPORT_WIDTH / pixelCrop.width,
+        PROFILE_BANNER_EXPORT_HEIGHT / pixelCrop.height
+    );
     const outputWidth = Math.max(1, Math.round(pixelCrop.width * scale));
     const outputHeight = Math.max(1, Math.round(pixelCrop.height * scale));
 

@@ -820,7 +820,6 @@ function parseLyricsPayload(payload: unknown, instanceUrl: string): LyricsResult
     data?: {
       lyrics?: { subtitles?: unknown; lyrics?: unknown; lyricsProvider?: unknown; isRightToLeft?: unknown };
       subtitles?: unknown;
-      lyrics?: unknown;
     };
     subtitles?: unknown;
   };

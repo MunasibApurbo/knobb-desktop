@@ -1,6 +1,10 @@
 import Cropper, { type Area } from "react-easy-crop";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  PROFILE_BANNER_EXPORT_NOTE,
+  PROFILE_BANNER_UPLOAD_REQUIREMENTS,
+} from "@/lib/profileBannerUpload";
 
 type ProfileCropDialogProps = {
   open: boolean;
@@ -37,7 +41,10 @@ export function ProfileCropDialog({
     >
       <DialogContent className="sm:max-w-[700px] h-[80vh] flex flex-col overflow-hidden bg-black p-0">
         <DialogHeader className="p-6 border-b border-white/10 z-10 bg-background/80 backdrop-blur-md">
-          <DialogTitle>Crop Cover Image</DialogTitle>
+          <DialogTitle>Crop Banner Image</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            {PROFILE_BANNER_UPLOAD_REQUIREMENTS} {PROFILE_BANNER_EXPORT_NOTE}
+          </p>
         </DialogHeader>
         <div className="relative flex-1 bg-black w-full min-h-[300px]">
           {imageSrc && (
@@ -75,7 +82,7 @@ export function ProfileCropDialog({
               Cancel
             </Button>
             <Button onClick={onSave} className="bg-white text-black hover:bg-white/90">
-              Set Cover Image
+              Set Banner Image
             </Button>
           </div>
         </DialogFooter>

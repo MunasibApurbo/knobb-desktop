@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import type { User, Session } from "@supabase/supabase-js";
 import { pushAppDiagnostic } from "@/lib/appDiagnostics";
+import { hasCurrentPasswordRecoveryCallback } from "@/lib/authRecovery";
 import { hasAdminRole } from "@/lib/authRoles";
 import { getSupabaseClient, reportClientErrorLazy } from "@/lib/runtimeModules";
 
@@ -20,12 +21,15 @@ interface AuthContextType {
   signInWithGoogle: (returnTo?: string) => Promise<{ error: string | null }>;
   signInWithDiscord: (returnTo?: string) => Promise<{ error: string | null }>;
   requestPasswordReset: (email: string, captchaToken?: string) => Promise<{ error: string | null }>;
+  completePasswordRecovery: (password: string) => Promise<{ error: string | null }>;
   resendSignUpConfirmation: (email: string, captchaToken?: string, returnTo?: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   signOutOtherSessions: () => Promise<{ error: string | null }>;
+  isPasswordRecovery: boolean;
+  isPasswordRecoveryPending: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+export const AuthContext = createContext<AuthContextType | null>(null);
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim();
 
 function normalizeAuthMessage(message: string) {
@@ -64,6 +68,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [isPasswordRecoveryPending, setIsPasswordRecoveryPending] = useState(
+    hasCurrentPasswordRecoveryCallback(),
+  );
   const isAdmin = hasAdminRole(user?.app_metadata);
 
   const surfaceAuthFailure = useCallback((title: string, error: unknown, eventName: string) => {
@@ -84,15 +92,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let active = true;
     let unsubscribe = () => {};
+    const recoveryCallbackPresent = hasCurrentPasswordRecoveryCallback();
+
+    if (recoveryCallbackPresent) {
+      setIsPasswordRecoveryPending(true);
+      setIsPasswordRecovery(false);
+    }
     
     void (async () => {
       try {
         const supabase = await getSupabaseClient();
         if (!active) return;
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
           setSession(session);
           setUser(session?.user ?? null);
+
+          if (event === "PASSWORD_RECOVERY") {
+            setIsPasswordRecovery(true);
+            setIsPasswordRecoveryPending(false);
+          } else if (event === "USER_UPDATED" || event === "SIGNED_OUT") {
+            setIsPasswordRecovery(false);
+            setIsPasswordRecoveryPending(false);
+          }
+
           setLoading(false);
         });
 
@@ -107,9 +130,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setSession(session);
         setUser(session?.user ?? null);
+        if (!recoveryCallbackPresent || !session) {
+          setIsPasswordRecoveryPending(false);
+        }
       } catch (error) {
         if (!active) return;
         surfaceAuthFailure("Couldn't restore your session", error, "auth_get_session_failed");
+        setIsPasswordRecoveryPending(false);
       } finally {
         if (active) setLoading(false);
       }
@@ -212,6 +239,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [surfaceAuthFailure]);
 
+  const completePasswordRecovery = useCallback(async (password: string) => {
+    try {
+      const supabase = await getSupabaseClient();
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        return {
+          error: surfaceAuthFailure(
+            "Password update failed",
+            error,
+            "auth_password_recovery_complete_failed",
+          ),
+        };
+      }
+
+      setIsPasswordRecovery(false);
+      setIsPasswordRecoveryPending(false);
+      return { error: null };
+    } catch (error) {
+      return {
+        error: surfaceAuthFailure(
+          "Password update failed",
+          error,
+          "auth_password_recovery_complete_failed",
+        ),
+      };
+    }
+  }, [surfaceAuthFailure]);
+
   const resendSignUpConfirmation = useCallback(async (email: string, captchaToken?: string, returnTo?: string) => {
     try {
       const supabase = await getSupabaseClient();
@@ -280,9 +335,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithGoogle,
         signInWithDiscord,
         requestPasswordReset,
+        completePasswordRecovery,
         resendSignUpConfirmation,
         signOut,
         signOutOtherSessions,
+        isPasswordRecovery,
+        isPasswordRecoveryPending,
       }}
     >
       {children}

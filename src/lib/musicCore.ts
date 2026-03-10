@@ -64,6 +64,8 @@ class MusicCoreClient {
   private readonly instanceStore = new InstanceStore();
   private readonly streamCache = new Map<string, string>();
   private readonly latencySamples = new Map<string, number[]>();
+  private readonly jsonResponseCache = new Map<string, { data: unknown; timestamp: number }>();
+  private readonly inFlightJsonRequests = new Map<string, Promise<unknown>>();
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -89,6 +91,8 @@ class MusicCoreClient {
 
   clearCaches() {
     this.streamCache.clear();
+    this.jsonResponseCache.clear();
+    this.inFlightJsonRequests.clear();
     void this.cache.clear();
     void this.instanceStore.clearCache();
   }
@@ -103,8 +107,57 @@ class MusicCoreClient {
   }
 
   async requestJson(relativePath: string, options: FetchWithRetryOptions = {}) {
-    const response = await this.fetchWithRetry(relativePath, options);
-    return response.json();
+    const requestKey = JSON.stringify([
+      options.type || "api",
+      options.minVersion || null,
+      relativePath,
+    ]);
+    const now = Date.now();
+    const freshTtlMs = 1000 * 30;
+    const staleTtlMs = 1000 * 60 * 5;
+    const cached = this.jsonResponseCache.get(requestKey);
+    const clonePayload = <T,>(value: T): T => {
+      if (typeof structuredClone === "function") {
+        return structuredClone(value);
+      }
+      return JSON.parse(JSON.stringify(value)) as T;
+    };
+
+    if (cached && now - cached.timestamp < freshTtlMs) {
+      return clonePayload(cached.data);
+    }
+
+    const performRequest = async () => {
+      try {
+        const response = await this.fetchWithRetry(relativePath, options);
+        const data = await response.json();
+        this.jsonResponseCache.set(requestKey, { data, timestamp: Date.now() });
+        return data;
+      } catch (error) {
+        if (cached && now - cached.timestamp < staleTtlMs) {
+          return cached.data;
+        }
+        throw error;
+      } finally {
+        this.inFlightJsonRequests.delete(requestKey);
+      }
+    };
+
+    if (cached && now - cached.timestamp < staleTtlMs && !this.inFlightJsonRequests.has(requestKey)) {
+      const backgroundRefresh = performRequest().catch(() => undefined);
+      this.inFlightJsonRequests.set(requestKey, backgroundRefresh);
+      return clonePayload(cached.data);
+    }
+
+    const inFlight = this.inFlightJsonRequests.get(requestKey);
+    if (inFlight) {
+      return inFlight.then((value) => clonePayload(value));
+    }
+
+    const requestPromise = performRequest();
+
+    this.inFlightJsonRequests.set(requestKey, requestPromise);
+    return requestPromise.then((value) => clonePayload(value));
   }
 
   async searchTracks(query: string, limit = 25) {
@@ -409,6 +462,15 @@ class MusicCoreClient {
     const overflow = this.streamCache.size - 50;
     const keys = Array.from(this.streamCache.keys()).slice(0, overflow);
     keys.forEach((key) => this.streamCache.delete(key));
+
+    if (this.jsonResponseCache.size > 120) {
+      const oldestKeys = Array.from(this.jsonResponseCache.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp)
+        .slice(0, this.jsonResponseCache.size - 120)
+        .map(([key]) => key);
+
+      oldestKeys.forEach((key) => this.jsonResponseCache.delete(key));
+    }
   }
 
   private recordLatency(relativePath: string, durationMs: number) {

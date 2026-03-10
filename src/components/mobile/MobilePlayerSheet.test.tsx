@@ -11,8 +11,11 @@ const mobilePlayerSheetMocks = vi.hoisted(() => {
     play,
     removeFromQueue,
     setRightPanelTab,
-    player: {
+    timeline: {
       currentTime: 32,
+      duration: 250,
+    },
+    player: {
       currentTrack: {
         id: "track-1",
         title: "Midnight City",
@@ -67,6 +70,7 @@ const mobilePlayerSheetMocks = vi.hoisted(() => {
 
 vi.mock("@/contexts/PlayerContext", () => ({
   usePlayer: () => mobilePlayerSheetMocks.player,
+  usePlayerTimeline: () => mobilePlayerSheetMocks.timeline,
 }));
 
 vi.mock("@/contexts/SettingsContext", () => ({
@@ -82,11 +86,30 @@ vi.mock("@/components/LyricsPanel", () => ({
   LyricsPanel: () => <div>Lyrics panel</div>,
 }));
 
+vi.mock("@/components/visualizers/VisualizerSelector", () => ({
+  VisualizerSelector: ({ className }: { className?: string }) => <div className={className}>Visualizer</div>,
+}));
+
+vi.mock("@/contexts/LikedSongsContext", () => ({
+  useLikedSongs: () => ({
+    isLiked: () => false,
+    toggleLike: vi.fn(),
+  }),
+}));
+
 describe("MobilePlayerSheet", () => {
+  beforeAll(() => {
+    Object.defineProperty(window, "PointerEvent", {
+      configurable: true,
+      value: MouseEvent,
+    });
+  });
+
   beforeEach(() => {
     mobilePlayerSheetMocks.play.mockReset();
     mobilePlayerSheetMocks.removeFromQueue.mockReset();
     mobilePlayerSheetMocks.setRightPanelTab.mockReset();
+    mobilePlayerSheetMocks.player.seek.mockReset();
     mobilePlayerSheetMocks.player.rightPanelTab = "queue";
   });
 
@@ -95,7 +118,7 @@ describe("MobilePlayerSheet", () => {
 
     expect(screen.getByText("Wait")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /lyrics/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^lyrics$/i }));
     expect(mobilePlayerSheetMocks.setRightPanelTab).toHaveBeenCalledWith("lyrics");
 
     mobilePlayerSheetMocks.player.rightPanelTab = "lyrics";
@@ -103,7 +126,7 @@ describe("MobilePlayerSheet", () => {
 
     expect(await screen.findByText("Lyrics panel")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /queue/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^queue$/i }));
     expect(mobilePlayerSheetMocks.setRightPanelTab).toHaveBeenCalledWith("queue");
   });
 
@@ -118,5 +141,56 @@ describe("MobilePlayerSheet", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /remove from queue/i }));
     expect(mobilePlayerSheetMocks.removeFromQueue).toHaveBeenCalledWith(1);
+  });
+
+  it("supports swipe switching between queue and lyrics", () => {
+    render(<MobilePlayerSheet open onOpenChange={vi.fn()} />);
+
+    const pane = screen.getByTestId("mobile-player-pane");
+
+    fireEvent.touchStart(pane, {
+      changedTouches: [{ clientX: 220 }],
+    });
+    fireEvent.touchEnd(pane, {
+      changedTouches: [{ clientX: 290 }],
+    });
+
+    expect(mobilePlayerSheetMocks.setRightPanelTab).toHaveBeenCalledWith("lyrics");
+  });
+
+  it("renders as a full-height bottom sheet", () => {
+    render(<MobilePlayerSheet open onOpenChange={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog).toHaveClass("fixed");
+    expect(dialog).toHaveClass("bottom-0");
+    expect(dialog).toHaveClass("h-[100dvh]");
+  });
+
+  it("drags the seekbar to update playback position", () => {
+    render(<MobilePlayerSheet open onOpenChange={vi.fn()} />);
+
+    const seekbar = screen.getByRole("slider", { name: /seek playback position/i });
+    Object.defineProperty(seekbar, "getBoundingClientRect", {
+      value: () => ({
+        left: 20,
+        top: 0,
+        right: 220,
+        bottom: 20,
+        width: 200,
+        height: 20,
+        x: 20,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
+    fireEvent.pointerDown(seekbar, { button: 0, clientX: 70, pointerId: 4, pointerType: "mouse" });
+    fireEvent.pointerMove(window, { clientX: 170, pointerId: 4 });
+    fireEvent.pointerUp(window, { clientX: 170, pointerId: 4 });
+
+    expect(mobilePlayerSheetMocks.player.seek).toHaveBeenNthCalledWith(1, 62.5);
+    expect(mobilePlayerSheetMocks.player.seek).toHaveBeenLastCalledWith(187.5);
   });
 });

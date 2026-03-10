@@ -18,11 +18,13 @@ const settingsValue: NonNullable<ContextType<typeof SettingsContext>> = {
   setShowLocalFiles: () => {},
   dynamicCardsEnabled: true,
   setDynamicCardsEnabled: () => {},
+  discordPresenceEnabled: false,
+  setDiscordPresenceEnabled: () => {},
   libraryItemStyle: "list",
   setLibraryItemStyle: () => {},
   cardSize: "default",
   setCardSize: () => {},
-  websiteMode: "edgy",
+  websiteMode: "roundish",
   setWebsiteMode: () => {},
   rightPanelStyle: "classic",
   setRightPanelStyle: () => {},
@@ -81,7 +83,7 @@ describe("ScrollArea", () => {
 
     const scrollArea = screen.getByTestId("scroll-area");
 
-    expect(scrollArea).toHaveClass("scroll-area-native", "overflow-auto", "scrollbar-hide");
+    expect(scrollArea).toHaveClass("scroll-area-native", "min-h-0", "min-w-0", "overflow-auto", "scrollbar-hide");
     expect(scrollArea).toHaveAttribute("data-main-scroll-viewport", "true");
   });
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayer, usePlayerTimeline } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { usePlayHistory } from "@/hooks/usePlayHistory";
@@ -16,7 +16,8 @@ const MIN_LISTENED_SECONDS = 1;
  * Must be used inside both AuthProvider and PlayerProvider.
  */
 export function usePlayHistoryRecorder() {
-  const { currentTrack, currentTime } = usePlayer();
+  const { currentTrack } = usePlayer();
+  const { currentTime } = usePlayerTimeline();
   const { user } = useAuth();
   const { scrobblePercent } = useSettings();
   const { recordPlay } = usePlayHistory();

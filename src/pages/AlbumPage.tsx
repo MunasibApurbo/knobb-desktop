@@ -26,6 +26,15 @@ import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { getReleaseYear } from "@/lib/releaseDates";
 import { isSameTrack } from "@/lib/trackIdentity";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  MOBILE_ACTION_BUTTON_CLASS,
+  MOBILE_SECONDARY_BUTTON_CLASS,
+  MobileExperiencePage,
+  MobileHero,
+  MobileMetaChip,
+  MobileSection,
+} from "@/components/mobile/MobileExperienceLayout";
 
 export default function AlbumPage() {
   const { id } = useParams();
@@ -34,6 +43,7 @@ export default function AlbumPage() {
   const { play, currentTrack, isPlaying, togglePlay } = usePlayer();
   const { user } = useAuth();
   const { downloadFormat } = useSettings();
+  const isMobile = useIsMobile();
   const { isSaved, toggleSavedAlbum } = useSavedAlbums();
   const { isLiked, toggleLike } = useLikedSongs();
 
@@ -223,6 +233,132 @@ export default function AlbumPage() {
     toast.error(`Failed to download ${albumInfo.title}`);
   };
 
+  if (isMobile) {
+    return (
+      <PageTransition>
+        <MobileExperiencePage artworkUrl={albumInfo.coverUrl} accentColor={albumInfo.canvasColor}>
+          <MobileHero
+            artworkUrl={albumInfo.coverUrl || "/placeholder.svg"}
+            artworkAlt={albumInfo.title}
+            accentColor={albumInfo.canvasColor}
+            eyebrow="Album"
+            title={albumInfo.title}
+            description={(
+              <ArtistsLink
+                name={albumInfo.artist}
+                artists={[{ id: albumInfo.artistId, name: albumInfo.artist }]}
+                className="text-sm font-semibold text-white/84 hover:text-white hover:underline"
+              />
+            )}
+            meta={(
+              <>
+                <MobileMetaChip label="Tracks" value={tracks.length} />
+                {tracks.length > 0 ? <MobileMetaChip label="Runtime" value={getTotalDuration(tracks)} /> : null}
+                {albumInfo.year ? <MobileMetaChip label="Year" value={albumInfo.year} /> : null}
+              </>
+            )}
+            actions={(
+              <>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_ACTION_BUTTON_CLASS}
+                  onClick={() => {
+                    if (isCurrentAlbum) togglePlay();
+                    else if (tracks.length) play(tracks[0], tracks);
+                  }}
+                >
+                  {isCurrentAlbum && isPlaying ? (
+                    <Pause className="h-4 w-4 fill-current" />
+                  ) : (
+                    <Play className="h-4 w-4 fill-current" />
+                  )}
+                  Play
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => {
+                    if (tracks.length === 0) return;
+                    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+                    play(shuffled[0], shuffled);
+                  }}
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Shuffle
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={() => void handleDownloadAlbum()}
+                  disabled={tracks.length === 0 || isDownloading}
+                >
+                  <Download className="h-4 w-4" />
+                  {isDownloading ? "Downloading..." : "Download"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={MOBILE_SECONDARY_BUTTON_CLASS}
+                  onClick={handleToggleSavedAlbum}
+                >
+                  <Heart className={albumIsSaved ? "h-4 w-4 fill-current text-[hsl(var(--player-waveform))]" : "h-4 w-4"} />
+                  {albumIsSaved ? "Saved" : "Add"}
+                </Button>
+              </>
+            )}
+            footer={(
+              <div className="flex items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-black/18 px-4 py-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">Deep link ready</p>
+                  <p className="mt-1 text-sm text-white/72">Share the album or jump to any track.</p>
+                </div>
+                <Button variant="ghost" className={MOBILE_SECONDARY_BUTTON_CLASS} onClick={handleShareAlbum}>
+                  <Share className="h-4 w-4" />
+                  Share
+                </Button>
+              </div>
+            )}
+          />
+
+          {tracks.length > 0 ? (
+            <MobileSection eyebrow={`${tracks.length} tracks`} title="Tracklist" contentClassName="px-0 pb-0">
+              <div>
+                {tracks.map((track, i) => {
+                  const isCurrent = isSameTrack(currentTrack, track);
+                  const trackShareId = getTrackShareIdentifier(track);
+                  const isSharedTrack = sharedTrackId !== null && sharedTrackId === trackShareId;
+
+                  return (
+                    <TrackContextMenu key={track.id} track={track} tracks={tracks}>
+                      <TrackListRow
+                        id={trackShareId ? `track-${trackShareId}` : undefined}
+                        className={isSharedTrack && !isCurrent ? "bg-[hsl(var(--player-waveform)/0.1)]" : undefined}
+                        dragHandleLabel={`Drag ${track.title} to a playlist`}
+                        index={i}
+                        isCurrent={isCurrent}
+                        isLiked={isLiked(track.id)}
+                        isPlaying={isPlaying}
+                        onDragHandleStart={(event) => {
+                          startPlaylistDrag(event.dataTransfer, {
+                            label: track.title,
+                            source: "track",
+                            tracks: [track],
+                          });
+                        }}
+                        onPlay={() => play(track, tracks)}
+                        onToggleLike={() => toggleLike(track)}
+                        track={track}
+                      />
+                    </TrackContextMenu>
+                  );
+                })}
+              </div>
+            </MobileSection>
+          ) : null}
+        </MobileExperiencePage>
+      </PageTransition>
+    );
+  }
+
   return (
     <PageTransition>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
@@ -316,7 +452,7 @@ export default function AlbumPage() {
         </DetailActionBar>
 
         {tracks.length > 0 && (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className="mobile-page-panel overflow-hidden border border-white/10 bg-white/[0.02]">
             <div>
               {tracks.map((track, i) => {
                 const isCurrent = isSameTrack(currentTrack, track);

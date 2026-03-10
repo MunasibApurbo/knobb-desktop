@@ -7,6 +7,7 @@ import {
   getArtistById,
   getArtistPopularTracks,
   getMixWithTracks,
+  getRecommendations,
   getSimilarArtists,
   searchAlbums,
   getTidalImageUrl,

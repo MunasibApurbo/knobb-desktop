@@ -14,7 +14,13 @@ import {
   type ListeningStats,
   type StatsRange,
 } from "@/lib/listeningIntelligence";
-import { resolveArtistImageUrl, searchArtists } from "@/lib/musicApi";
+import { getTidalImageUrl, resolveArtistImageUrl, searchArtists } from "@/lib/musicApi";
+import {
+  readImageDimensions,
+  validateProfileBannerDimensions,
+  validateProfileBannerFile,
+  validateProfileBannerUploadBlob,
+} from "@/lib/profileBannerUpload";
 import getCroppedImg from "@/utils/cropImage";
 
 type ProfileRecord = Pick<Tables<"profiles">, "display_name" | "avatar_url">;
@@ -95,8 +101,6 @@ type UseProfilePageDataResult = {
   saving: boolean;
   historyCount: number;
   displayName: string;
-  profileCompleteness: number;
-  profileCompletenessLabel: string;
   draftDisplayName: string;
   profileAvatarUrl: string | null;
   heroImage: string | null;
@@ -207,7 +211,11 @@ export function useProfilePageData(): UseProfilePageDataResult {
               return [artist, ""] as const;
             }
 
-            const imageUrl = await resolveArtistImageUrl(topResult.id, topResult.imageUrl, topResult.name);
+            const imageUrl = await resolveArtistImageUrl(
+              topResult.id,
+              topResult.picture ? getTidalImageUrl(topResult.picture, "750x750") : undefined,
+              topResult.name,
+            );
             return [artist, imageUrl] as const;
           } catch (error) {
             console.warn(`Failed to fetch image for artist ${artist}:`, error);
@@ -272,16 +280,37 @@ export function useProfilePageData(): UseProfilePageDataResult {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (loadEvent) => {
-      setImageSrc(loadEvent.target?.result as string);
-      setIsCropDialogOpen(true);
-    };
-    reader.readAsDataURL(file);
-
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+
+    const validationError = validateProfileBannerFile(file);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    void (async () => {
+      const dimensions = await readImageDimensions(file);
+      const dimensionError = validateProfileBannerDimensions(dimensions.width, dimensions.height);
+      if (dimensionError) {
+        toast.error(dimensionError);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onerror = () => {
+        toast.error("Failed to read the selected image.");
+      };
+      reader.onload = (loadEvent) => {
+        setImageSrc(loadEvent.target?.result as string);
+        setIsCropDialogOpen(true);
+      };
+      reader.readAsDataURL(file);
+    })().catch((error) => {
+      console.error("Failed to validate profile banner image", error);
+      toast.error("Failed to process the selected image.");
+    });
   }, []);
 
   const onCropComplete = useCallback((_croppedArea: Area, nextCroppedAreaPixels: Area) => {
@@ -294,6 +323,10 @@ export function useProfilePageData(): UseProfilePageDataResult {
       if (!user) return;
 
       const croppedImageBlob = await getCroppedImg(imageSrc, croppedAreaPixels, 0);
+      const croppedImageError = validateProfileBannerUploadBlob(croppedImageBlob);
+      if (croppedImageError) {
+        throw new Error(croppedImageError);
+      }
       const localPreviewUrl = URL.createObjectURL(croppedImageBlob);
       const previousStoredPath = getStoredProfileCoverPath(profileAvatarUrl);
       const nextFilePath = `${user.id}/cover-${Date.now()}.jpg`;
@@ -343,10 +376,10 @@ export function useProfilePageData(): UseProfilePageDataResult {
       setProfileAvatarUrl(persistedCoverUrl);
       setIsCropDialogOpen(false);
       setImageSrc(null);
-      toast.success("Cover image updated successfully!");
+      toast.success("Banner image updated.");
     } catch (error) {
       console.error(error);
-      toast.error(`Failed to save cover image: ${getErrorMessage(error)}`);
+      toast.error(`Failed to save banner image: ${getErrorMessage(error)}`);
     }
   }, [croppedAreaPixels, imageSrc, profileAvatarUrl, user]);
 
@@ -372,20 +405,6 @@ export function useProfilePageData(): UseProfilePageDataResult {
     saving,
     historyCount,
     displayName,
-    profileCompleteness: (() => {
-      const checks = [
-        Boolean(displayName.trim()),
-        Boolean(profileAvatarUrl || localHeroImage),
-        history.length > 0,
-      ];
-      const completeCount = checks.filter(Boolean).length;
-      return Math.round((completeCount / checks.length) * 100);
-    })(),
-    profileCompletenessLabel: history.length > 0
-      ? "Ready"
-      : (profileAvatarUrl || localHeroImage)
-        ? "Almost there"
-        : "Set up your profile",
     draftDisplayName,
     profileAvatarUrl,
     heroImage:
