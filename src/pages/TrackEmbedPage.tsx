@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ExternalLink, Loader2, MoreHorizontal, Pause, Play, PlusCircle } from "lucide-react";
+import { AlertCircle, ExternalLink, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { buildTrackSourceUrl, getTrackShareIdentifier } from "@/lib/mediaNavigation";
 import { getTrackInfo, tidalTrackToAppTrack } from "@/lib/musicApi";
+import { APP_HOME_PATH } from "@/lib/routes";
 import { formatDuration } from "@/lib/utils";
+import type { TrackEmbedSize } from "@/lib/trackSharing";
 import { inferTidalIdFromTrackId } from "@/lib/trackIdentity";
 import { cn } from "@/lib/utils";
 import type { Track } from "@/types/music";
@@ -39,7 +41,7 @@ export default function TrackEmbedPage() {
   const { trackId } = useParams<{ trackId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentTrack, isPlaying, play, togglePlay } = usePlayer();
+  const { currentTrack, play } = usePlayer();
   const [track, setTrack] = useState<Track | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,17 +61,17 @@ export default function TrackEmbedPage() {
 
     void (async () => {
       try {
-        const tidalTrack = await getTrackInfo(resolvedTrackId);
+        const loadedTrack = await getTrackInfo(resolvedTrackId);
         if (!active) return;
 
-        if (!tidalTrack) {
+        if (!loadedTrack) {
           setTrack(null);
           setError("Track unavailable");
           setLoading(false);
           return;
         }
 
-        setTrack(tidalTrackToAppTrack(tidalTrack));
+        setTrack(tidalTrackToAppTrack(loadedTrack));
         setLoading(false);
       } catch (loadError) {
         console.error("Failed to load track embed", loadError);
@@ -92,7 +94,11 @@ export default function TrackEmbedPage() {
   }, [currentTrack, track]);
   const theme = useMemo<EmbedTheme>(() => {
     const params = new URLSearchParams(location.search);
-    return params.get("theme") === "graphite" ? "graphite" : "ocean";
+    return params.get("theme") === "ocean" ? "ocean" : "graphite";
+  }, [location.search]);
+  const size = useMemo<TrackEmbedSize>(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("size") === "compact" ? "compact" : "normal";
   }, [location.search]);
   const artworkStyles = useMemo(() => {
     const base = track?.canvasColor || "220 70% 55%";
@@ -102,12 +108,12 @@ export default function TrackEmbedPage() {
 
     return {
       shell: {
-        background: `radial-gradient(circle at 14% 24%, hsl(${glow} / 0.34), transparent 32%),
-radial-gradient(circle at 92% 10%, hsl(${edge} / 0.28), transparent 30%),
-linear-gradient(135deg, hsl(${deep}) 0%, rgb(0 0 0) 58%, rgb(0 0 0) 100%)`,
+        background: `radial-gradient(circle at 12% 18%, hsl(${glow} / 0.24), transparent 30%),
+radial-gradient(circle at 88% 14%, hsl(${edge} / 0.18), transparent 28%),
+linear-gradient(145deg, hsl(${deep}) 0%, rgb(5 5 5) 58%, rgb(0 0 0) 100%)`,
       },
       panel: {
-        background: `linear-gradient(90deg, hsl(${glow} / 0.34) 0%, hsl(${edge} / 0.18) 18%, rgba(0,0,0,0.82) 42%, rgba(0,0,0,0.94) 72%, rgba(0,0,0,0.98) 100%)`,
+        background: `linear-gradient(160deg, hsl(${glow} / 0.12) 0%, rgba(0,0,0,0.92) 26%, rgba(0,0,0,0.98) 100%)`,
       },
       pill: {
         borderColor: `hsl(${glow} / 0.38)`,
@@ -125,10 +131,11 @@ linear-gradient(135deg, hsl(${deep}) 0%, rgb(0 0 0) 58%, rgb(0 0 0) 100%)`,
   }, [track?.canvasColor]);
 
   usePageMetadata(track ? {
-    title: `${track.title} - ${track.artist}`,
-    description: `Embedded track player for ${track.title} by ${track.artist}.`,
+    title: `${track.title} | Listen on Knobb`,
+    description: `Listen to ${track.title} by ${track.artist} on Knobb. ${track.album ? `From the album ${track.album}.` : ""} High-quality audio discovery and archives.`,
     image: track.coverUrl || undefined,
     imageAlt: `${track.title} cover art`,
+    twitterCard: "summary",
     robots: "noindex, nofollow",
     type: "music.song",
     structuredData: {
@@ -157,11 +164,6 @@ linear-gradient(135deg, hsl(${deep}) 0%, rgb(0 0 0) 58%, rgb(0 0 0) 100%)`,
 
   const handlePlay = () => {
     if (!track) return;
-    if (isCurrentTrack) {
-      togglePlay();
-      return;
-    }
-
     play(track, [track]);
   };
 
@@ -171,18 +173,10 @@ linear-gradient(135deg, hsl(${deep}) 0%, rgb(0 0 0) 58%, rgb(0 0 0) 100%)`,
       return;
     }
 
-    navigate("/");
+    navigate(APP_HOME_PATH);
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center overflow-hidden bg-[#050505] text-white">
-        <Loader2 className="h-6 w-6 animate-spin text-white/55" />
-      </div>
-    );
-  }
-
-  if (!track) {
+  if (!track && !loading) {
     return (
       <div className="flex h-screen items-center justify-center overflow-hidden bg-[#050505] p-4 text-white">
         <div className="w-full max-w-xl rounded-[var(--surface-radius-lg)] border border-white/10 bg-white/[0.04] p-8 text-center shadow-[0_30px_120px_rgba(0,0,0,0.45)]">
@@ -194,91 +188,115 @@ linear-gradient(135deg, hsl(${deep}) 0%, rgb(0 0 0) 58%, rgb(0 0 0) 100%)`,
     );
   }
 
+  if (!track) {
+    return (
+      <div className="h-screen overflow-hidden bg-[#050505] p-4 text-white">
+        <section className="flex h-full w-full items-center justify-center rounded-[36px] border border-white/10 bg-white/[0.04] p-4">
+          <div className="w-full max-w-[1180px] rounded-[34px] border border-white/10 bg-black/90 p-5">
+            <div className={cn("overflow-hidden rounded-[30px] border border-white/10 bg-black", size === "compact" ? "px-4 py-4" : "px-6 py-6 md:px-8 md:py-8")}>
+              <div className={cn("flex items-center gap-4", size === "compact" ? "" : "md:gap-7")}>
+                <div className={cn("shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-neutral-900", size === "compact" ? "h-24 w-24" : "h-32 w-32 md:h-36 md:w-36")} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/45">Knobb embed</p>
+                  <h1 className={cn("mt-3 truncate font-black tracking-tight text-white", size === "compact" ? "text-[1.65rem]" : "text-[clamp(2rem,3vw,3.25rem)]")}>Track Preview</h1>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn("h-screen overflow-hidden text-white", theme === "graphite" ? "bg-black" : undefined)}
       style={theme === "ocean" ? artworkStyles.shell : undefined}
     >
       <section
-        className={cn("flex h-full w-full items-center", theme === "graphite" ? "bg-black" : undefined)}
+        className={cn("flex h-full w-full items-center justify-center p-4", theme === "graphite" ? "bg-black" : undefined)}
         style={theme === "ocean" ? artworkStyles.panel : undefined}
       >
-        <div className="grid h-full w-full gap-0 md:grid-cols-[260px_minmax(0,1fr)] md:items-center">
-          <div className="flex items-center justify-center px-8 py-6">
-            <div className="h-[180px] w-[180px] overflow-hidden rounded-[var(--surface-radius-lg)] border border-white/10 bg-black shadow-[0_18px_60px_rgba(0,0,0,0.42)] md:h-[220px] md:w-[220px]">
-              <img
-                src={track.coverUrl || "/placeholder.svg"}
-                alt={track.title}
-                className="h-full w-full object-cover"
-              />
-            </div>
-          </div>
+        <div className="w-full max-w-[1180px] rounded-[38px] border border-white/10 bg-black/95 p-5 shadow-[0_36px_120px_rgba(0,0,0,0.5)]">
+          <div className={cn("rounded-[32px] border border-white/10 bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]", size === "compact" ? "px-4 py-4" : "px-6 py-6 md:px-8 md:py-8")}>
+            <div className={cn("flex min-w-0 items-center", size === "compact" ? "gap-4" : "gap-6 md:gap-8")}>
+              <div className={cn("shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-neutral-950 shadow-[0_18px_40px_rgba(0,0,0,0.42)]", size === "compact" ? "h-24 w-24" : "h-32 w-32 md:h-36 md:w-36")}>
+                <img
+                  src={track.coverUrl || "/placeholder.svg"}
+                  alt={track.title}
+                  className="h-full w-full object-cover"
+                />
+              </div>
 
-          <div className="flex min-w-0 flex-col justify-between self-stretch px-6 py-6 md:pl-2 md:pr-8">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h1 className="truncate text-[clamp(2.4rem,4.2vw,4.3rem)] font-black tracking-tight text-white">
-                  {track.title}
-                </h1>
-                <div className="mt-3 flex min-w-0 items-center gap-3 text-[18px] text-white/72">
-                  <span
-                    className={cn(
-                      "rounded-[var(--surface-radius-sm)] px-3 py-1 text-sm font-semibold text-white",
-                      theme === "graphite" ? "border border-white/12 bg-white/[0.08]" : undefined,
-                    )}
-                    style={theme === "ocean" ? artworkStyles.pill : undefined}
-                  >
-                    Preview
-                  </span>
-                  <span className="truncate">{track.artist}</span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/45">Knobb embed</p>
+                  <h1 className={cn("mt-3 truncate font-black tracking-tight text-white", size === "compact" ? "text-[1.65rem]" : "text-[clamp(2rem,3vw,3.25rem)]")}>
+                    {track.title}
+                  </h1>
+                  <div className={cn("mt-3 flex min-w-0 items-center gap-3 text-white/78", size === "compact" ? "text-sm" : "text-[18px]")}>
+                    <span
+                      className={cn(
+                        "rounded-full px-3 py-1 font-semibold text-white",
+                        size === "compact" ? "text-[11px]" : "text-sm",
+                        theme === "graphite" ? "border border-white/12 bg-white/[0.08]" : undefined,
+                      )}
+                      style={theme === "ocean" ? artworkStyles.pill : undefined}
+                    >
+                      Preview
+                    </span>
+                    <span className="truncate">{track.artist}</span>
+                  </div>
+                  {track.album ? (
+                    <p className={cn("mt-2 truncate text-white/62", size === "compact" ? "text-xs" : "text-[16px]")}>
+                      {track.album}
+                    </p>
+                  ) : null}
                 </div>
-                {track.album ? <p className="mt-3 truncate text-[16px] text-white/62">{track.album}</p> : null}
-              </div>
 
-              <img
-                src="/brand/logo-k-black-square-256.png"
-                alt="Knobb"
-                className="h-12 w-12 rounded-[var(--surface-radius-sm)] border border-white/10 bg-black object-cover"
-              />
-            </div>
+                <div className={cn("mt-5 flex min-w-0 items-center justify-between gap-3", size === "compact" ? "flex-wrap" : "pt-1")}>
+                  <div className="flex items-center gap-3 text-white/60">
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/85" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/85" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/85" />
+                    </div>
+                    {track.duration ? (
+                      <span className={cn("uppercase tracking-[0.18em]", size === "compact" ? "text-[10px]" : "text-sm")}>
+                        {formatDuration(track.duration)}
+                      </span>
+                    ) : null}
+                  </div>
 
-            <div className="mt-6 flex items-center gap-4 text-[18px] text-white">
-              <PlusCircle className="h-11 w-11 shrink-0" strokeWidth={1.75} />
-              <span>Save on Knobb</span>
-            </div>
-
-            <div className="mt-auto flex items-end justify-between pt-5">
-              <div className="flex items-center gap-4 text-white/90">
-                <MoreHorizontal className="h-10 w-10" />
-                {track.duration ? <span className="text-sm uppercase tracking-[0.18em] text-white/58">{formatDuration(track.duration)}</span> : null}
-              </div>
-
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "rounded-[var(--surface-radius-lg)] border px-4 text-white",
-                    theme === "graphite" ? "border-white/12 bg-white/[0.06] hover:bg-white/[0.12]" : "hover:bg-white/10",
-                  )}
-                  style={theme === "ocean" ? artworkStyles.action : undefined}
-                  onClick={openSourceTrack}
-                >
-                  Open in Knobb
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-                <button
-                  type="button"
-                  className={cn("flex h-20 w-20 items-center justify-center rounded-[var(--surface-radius-lg)] transition-transform hover:scale-[1.02]", theme === "graphite" ? "bg-white text-black hover:bg-white/90" : "hover:brightness-105")}
-                  style={theme === "ocean" ? artworkStyles.play : undefined}
-                  onClick={handlePlay}
-                  aria-label={isCurrentTrack && isPlaying ? "Pause" : "Play"}
-                >
-                  {isCurrentTrack && isPlaying ? (
-                    <Pause className="h-9 w-9 fill-current" />
-                  ) : (
-                    <Play className="ml-1 h-9 w-9 fill-current" />
-                  )}
-                </button>
+                  <div className={cn("flex items-center", size === "compact" ? "gap-2" : "gap-4")}>
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "rounded-full border text-white",
+                        size === "compact" ? "h-10 px-4 text-xs" : "h-14 px-6 text-base",
+                        theme === "graphite" ? "border-white/12 bg-white/[0.06] hover:bg-white/[0.12]" : "hover:bg-white/10",
+                      )}
+                      style={theme === "ocean" ? artworkStyles.action : undefined}
+                      onClick={openSourceTrack}
+                    >
+                      {size === "compact" ? "Open" : "Open in Knobb"}
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex items-center justify-center rounded-full transition-transform hover:scale-[1.02]",
+                        size === "compact" ? "h-12 w-12" : "h-16 w-16",
+                        theme === "graphite" ? "bg-white text-black hover:bg-white/90" : "hover:brightness-105",
+                      )}
+                      style={theme === "ocean" ? artworkStyles.play : undefined}
+                      onClick={handlePlay}
+                      aria-label={isCurrentTrack ? "Play from start" : "Play"}
+                    >
+                      <Play className={cn("ml-1 fill-current", size === "compact" ? "h-5 w-5" : "h-7 w-7")} />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

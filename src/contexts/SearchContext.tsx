@@ -2,17 +2,33 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { pushAppDiagnostic } from "@/lib/appDiagnostics";
 import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
 import { Track } from "@/types/music";
-import type {
-  TidalReferenceAlbumResult,
-  TidalReferenceArtistResult,
-  TidalReferencePlaylistResult,
-} from "@/lib/tidalReferenceMappers";
+import type { LibrarySource } from "@/lib/librarySources";
 
-export type SearchArtistResult = TidalReferenceArtistResult;
-export type SearchAlbumResult = TidalReferenceAlbumResult;
-export type SearchPlaylistResult = TidalReferencePlaylistResult;
+export type SearchArtistResult = {
+  id: number | string;
+  name: string;
+  imageUrl: string;
+  source?: LibrarySource;
+};
+export type SearchAlbumResult = {
+  id: number | string;
+  title: string;
+  artist: string;
+  coverUrl: string;
+  releaseDate?: string;
+  source?: LibrarySource;
+};
+export type SearchPlaylistResult = {
+  id: number | string;
+  title: string;
+  description: string;
+  trackCount: number;
+  coverUrl: string;
+  source?: LibrarySource;
+};
 type SearchResultBundle = {
   tracks: Track[];
+  videos: Track[];
   artists: SearchArtistResult[];
   albums: SearchAlbumResult[];
   playlists: SearchPlaylistResult[];
@@ -46,6 +62,7 @@ interface SearchContextType {
   query: string;
   setQuery: (q: string) => void;
   tidalTracks: Track[];
+  tidalVideos: Track[];
   tidalArtists: SearchArtistResult[];
   tidalAlbums: SearchAlbumResult[];
   tidalPlaylists: SearchPlaylistResult[];
@@ -71,6 +88,7 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [tidalTracks, setTidalTracks] = useState<Track[]>([]);
+  const [tidalVideos, setTidalVideos] = useState<Track[]>([]);
   const [tidalArtists, setTidalArtists] = useState<SearchArtistResult[]>([]);
   const [tidalAlbums, setTidalAlbums] = useState<SearchAlbumResult[]>([]);
   const [tidalPlaylists, setTidalPlaylists] = useState<SearchPlaylistResult[]>([]);
@@ -96,6 +114,7 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
   const clearResults = useCallback(() => {
     startTransition(() => {
       setTidalTracks([]);
+      setTidalVideos([]);
       setTidalArtists([]);
       setTidalAlbums([]);
       setTidalPlaylists([]);
@@ -105,6 +124,7 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
   const applyResults = useCallback((result: SearchResultBundle) => {
     startTransition(() => {
       setTidalTracks(result.tracks);
+      setTidalVideos(result.videos);
       setTidalArtists(result.artists.slice(0, 12));
       setTidalAlbums(result.albums);
       setTidalPlaylists(result.playlists);
@@ -144,8 +164,7 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
     setIsSearching(true);
     setSearchError(null);
     try {
-      const { searchTidalReference } = await loadTidalReferenceSearch();
-      const result = await searchTidalReference(trimmedQuery);
+      const result = await loadTidalReferenceSearch().then((module) => module.searchTidalReference(trimmedQuery));
       cacheRef.current.set(cacheKey, {
         expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
         result,
@@ -197,7 +216,7 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
     <SearchContext.Provider value={{
       searchOpen, setSearchOpen,
       query, setQuery,
-      tidalTracks, tidalArtists, tidalAlbums,
+      tidalTracks, tidalVideos, tidalArtists, tidalAlbums,
       tidalPlaylists,
       isSearching,
       searchError,

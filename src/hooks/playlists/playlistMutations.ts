@@ -88,6 +88,56 @@ export async function insertPlaylistTrackRecord(
   } as never);
 }
 
+export async function insertPlaylistTrackRecords(
+  playlistId: string,
+  tracks: Track[],
+  startingPosition: number,
+): Promise<{ insertedTrackKeys: string[]; error: Error | null }> {
+  if (tracks.length === 0) {
+    return { insertedTrackKeys: [], error: null };
+  }
+
+  const rows = tracks.map((track, index) => {
+    const persistableTrack = { ...track };
+    delete persistableTrack.addedAt;
+
+    return {
+      playlist_id: playlistId,
+      track_data: persistableTrack as unknown as never,
+      track_key: getTrackKey(track),
+      position: startingPosition + index,
+    };
+  });
+
+  const result = await supabase
+    .from("playlist_tracks")
+    .upsert(rows as never[], { onConflict: "playlist_id,track_key", ignoreDuplicates: true })
+    .select("track_key");
+
+  if (!result.error || !isMissingPlaylistColumnsError(result.error, ["track_key"])) {
+    return {
+      insertedTrackKeys: ((result.data || []) as Array<{ track_key: string | null }>)
+        .map((row) => row.track_key)
+        .filter((trackKey): trackKey is string => typeof trackKey === "string" && trackKey.length > 0),
+      error: (result.error as Error | null) || null,
+    };
+  }
+
+  const fallbackRows = rows.map((row) => {
+    const { track_key, ...fallbackRow } = row;
+    void track_key;
+    return fallbackRow;
+  });
+  const fallback = await supabase
+    .from("playlist_tracks")
+    .insert(fallbackRows as never[]);
+
+  return {
+    insertedTrackKeys: fallback.error ? [] : tracks.map((track) => getTrackKey(track)),
+    error: (fallback.error as Error | null) || null,
+  };
+}
+
 export async function setPlaylistCoverUrl(id: string, coverUrl: string | null) {
   return supabase.from("playlists").update({ cover_url: coverUrl } as never).eq("id", id);
 }
@@ -103,7 +153,7 @@ export async function fetchPlaylistTrackRows(
 
   if (!result.error || !isMissingPlaylistColumnsError(result.error, ["track_key"])) {
     return {
-      data: (result.data || null) as PlaylistTrackRecord[] | null,
+      data: (result.data || null) as unknown as PlaylistTrackRecord[] | null,
       error: (result.error as Error | null) || null,
     };
   }
@@ -114,7 +164,7 @@ export async function fetchPlaylistTrackRows(
     .eq("playlist_id", playlistId)
     .order("position", { ascending: true });
 
-  const fallbackRows = ((fallback.data || []) as Array<Omit<PlaylistTrackRecord, "track_key">>).map((row) => ({
+  const fallbackRows = ((fallback.data || []) as unknown as Array<Omit<PlaylistTrackRecord, "track_key">>).map((row) => ({
     ...row,
     track_key: getTrackKey(row.track_data),
   }));
@@ -150,7 +200,7 @@ export async function deletePlaylistTrackRecord(playlistId: string, trackKey: st
     return { error: fallback.error };
   }
 
-  const target = (fallback.data as Array<{ id: string; track_data: Track }>).find(
+  const target = (fallback.data as unknown as Array<{ id: string; track_data: Track }>).find(
     (row) => getTrackKey(row.track_data) === trackKey,
   );
 

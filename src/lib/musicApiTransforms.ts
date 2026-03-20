@@ -14,6 +14,7 @@ import { getReleaseYear } from "@/lib/releaseDates";
 import type { Track } from "@/types/music";
 
 const TIDAL_IMAGE_BASE = "https://resources.tidal.com/images";
+const DEFAULT_TRACK_CANVAS_COLOR = "220 70% 55%";
 
 function isLikelyVideoTrack(track: { type?: string } | null | undefined) {
   const rawType = String(track?.type || "").toLowerCase();
@@ -31,6 +32,7 @@ function normalizeTrackAudioQuality(quality: string): Track["audioQuality"] {
 
 function normalizeQuality(quality: string) {
   const token = String(quality || "HIGH").trim().toUpperCase();
+  if (token === "AUTO") return "HI_RES_LOSSLESS";
   if (token === "MEDIUM") return "HIGH";
   if (token === "MAX") return "HI_RES_LOSSLESS";
   return token;
@@ -140,6 +142,7 @@ export function mapTrack(value: SourceTrack | null | undefined): TidalTrack | nu
     peak: value.peak || 1,
     imageId: value.imageId || null,
     type: value.type,
+    isVideo: isLikelyVideoTrack(value),
     isUnavailable: value.isUnavailable,
   };
 }
@@ -167,11 +170,15 @@ export function dedupeAlbums(albums: TidalAlbum[]) {
 
 export function qualityAttempts(requested: string) {
   const normalized = normalizeQuality(requested);
-  if (normalized === "LOW") return ["LOW", "HIGH"];
-  if (normalized === "HIGH") return ["HIGH", "LOW"];
-  if (normalized === "LOSSLESS") return ["LOSSLESS", "HIGH", "LOW"];
-  if (normalized === "HI_RES_LOSSLESS") return ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"];
-  return [normalized, "HIGH", "LOW"];
+  if (String(requested || "").trim().toUpperCase() === "AUTO") {
+    if (normalized === "HI_RES_LOSSLESS") return ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"];
+    if (normalized === "LOSSLESS") return ["LOSSLESS", "HIGH", "LOW"];
+    if (normalized === "HIGH") return ["HIGH", "LOW"];
+    if (normalized === "LOW") return ["LOW"];
+    return [normalized, "HIGH", "LOW"];
+  }
+
+  return [normalized];
 }
 
 export function parsePlaylistTracks(tracks: SourceTrack[]): TidalTrack[] {
@@ -186,9 +193,19 @@ export function getTidalImageUrl(coverId: string, size = "750x750"): string {
   return `${TIDAL_IMAGE_BASE}/${coverId.replace(/-/g, "/")}/${size}.jpg`;
 }
 
+export function getTidalVideoImageUrl(imageId: string, size = "1280x720"): string {
+  if (!imageId) return "/placeholder.svg";
+  if (/^https?:\/\//i.test(imageId)) return imageId;
+  return `${TIDAL_IMAGE_BASE}/${imageId.replace(/-/g, "/")}/${size}.jpg`;
+}
+
 export function tidalTrackToAppTrack(track: TidalTrack): Track {
   const releaseDate = track.album?.releaseDate;
   const releaseYear = getReleaseYear(releaseDate);
+  const isVideo = isLikelyVideoTrack(track);
+  const coverId = isVideo
+    ? track.imageId || track.album?.cover || ""
+    : track.album?.cover || "";
 
   return {
     id: `tidal-${track.id}`,
@@ -203,13 +220,17 @@ export function tidalTrackToAppTrack(track: TidalTrack): Track {
     duration: track.duration,
     year: releaseYear,
     releaseDate,
-    coverUrl: getTidalImageUrl(track.album?.cover || "", "750x750"),
-    canvasColor: hexToHsl(track.album?.vibrantColor || "#6366f1"),
+    coverUrl: isVideo
+      ? getTidalVideoImageUrl(coverId, "1280x720")
+      : getTidalImageUrl(coverId, "750x750"),
+    canvasColor: track.album?.vibrantColor
+      ? hexToHsl(track.album.vibrantColor)
+      : DEFAULT_TRACK_CANVAS_COLOR,
     replayGain: track.replayGain,
     peak: track.peak,
     audioQuality: normalizeTrackAudioQuality(track.audioQuality),
     explicit: track.explicit,
-    isVideo: isLikelyVideoTrack(track),
+    isVideo,
     isUnavailable: Boolean(track.isUnavailable),
   };
 }

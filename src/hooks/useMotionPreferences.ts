@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 
 import { useSettings } from "@/contexts/SettingsContext";
-import { useIsMobile } from "@/hooks/use-mobile";
 import {
+  useHoverCapablePointer,
   useLowEndDevice,
   usePrefersReducedMotion,
   useStrongDesktopEffects,
@@ -10,20 +10,54 @@ import {
 
 export function useMotionPreferences() {
   const { animationsEnabled, blurEffects, websiteMode, animationMode } = useSettings();
-  const isMobile = useIsMobile();
   const prefersReducedMotion = usePrefersReducedMotion();
   const lowEndDevice = useLowEndDevice();
+  const hasHoverCapablePointer = useHoverCapablePointer();
   const strongDesktopEffects = useStrongDesktopEffects();
 
   return useMemo(() => {
-    const effectiveWebsiteMode = isMobile ? "roundish" : websiteMode;
     const baseMotionEnabled = animationsEnabled && animationMode !== "off" && !prefersReducedMotion;
-    const motionEnabled = baseMotionEnabled && !lowEndDevice;
-    const allowDepthMotion = motionEnabled && animationMode === "full";
-    const allowAmbientMotion = allowDepthMotion && blurEffects;
-    const allowShellDepthMotion = baseMotionEnabled && animationMode === "full" && (isMobile ? !lowEndDevice : strongDesktopEffects);
-    const allowShellAmbientMotion = allowShellDepthMotion && blurEffects;
-    const isRoundish = effectiveWebsiteMode === "roundish";
+    const reducedAnimationMode = animationMode === "reduced";
+    const motionEnabled = baseMotionEnabled;
+    const preferLightweightMotion = reducedAnimationMode || lowEndDevice || !strongDesktopEffects;
+    const canUsePremiumDesktopEffects =
+      blurEffects &&
+      animationMode === "full" &&
+      strongDesktopEffects &&
+      hasHoverCapablePointer &&
+      !lowEndDevice;
+    const allowDepthMotion =
+      baseMotionEnabled &&
+      animationMode === "full" &&
+      strongDesktopEffects &&
+      hasHoverCapablePointer &&
+      !lowEndDevice;
+    const allowAmbientMotion = false;
+    const allowShellDepthMotion =
+      baseMotionEnabled &&
+      animationMode === "full" &&
+      strongDesktopEffects &&
+      hasHoverCapablePointer &&
+      !lowEndDevice;
+    const allowShellAmbientMotion = false;
+    const allowHeavyBlur = canUsePremiumDesktopEffects;
+    const allowRealtimeEffects =
+      motionEnabled &&
+      animationMode === "full" &&
+      strongDesktopEffects &&
+      hasHoverCapablePointer &&
+      !lowEndDevice;
+    const isRoundish = websiteMode === "roundish";
+    const cardHoverProfile =
+      !motionEnabled
+        ? "static"
+        : !hasHoverCapablePointer
+          ? "static"
+          : lowEndDevice
+            ? "lite"
+            : strongDesktopEffects && animationMode === "full"
+              ? "premium"
+              : "balanced";
 
     return {
       motionEnabled,
@@ -31,11 +65,17 @@ export function useMotionPreferences() {
       allowAmbientMotion,
       allowShellDepthMotion,
       allowShellAmbientMotion,
-      websiteMode: effectiveWebsiteMode,
+      allowHeavyBlur,
+      allowRealtimeEffects,
+      websiteMode,
       isRoundish,
       prefersReducedMotion,
       lowEndDevice,
+      hasHoverCapablePointer,
       strongDesktopEffects,
+      preferLightweightMotion,
+      reducedAnimationMode,
+      cardHoverProfile,
     };
-  }, [animationsEnabled, animationMode, blurEffects, isMobile, lowEndDevice, prefersReducedMotion, strongDesktopEffects, websiteMode]);
+  }, [animationsEnabled, animationMode, blurEffects, hasHoverCapablePointer, lowEndDevice, prefersReducedMotion, strongDesktopEffects, websiteMode]);
 }

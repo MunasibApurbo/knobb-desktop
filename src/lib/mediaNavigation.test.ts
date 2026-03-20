@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTrackSharePath,
+  buildTrackAlbumPath,
   buildTrackShareUrl,
   buildTrackSourceUrl,
   buildTrackUri,
@@ -23,6 +24,11 @@ const makeTrack = (overrides: Partial<Track> = {}): Track => ({
 });
 
 describe("mediaNavigation track sharing", () => {
+  it("builds album routes for track-driven navigation", () => {
+    expect(buildTrackAlbumPath(makeTrack())).toBe("/album/tidal-456?title=Album&artist=Artist");
+    expect(buildTrackAlbumPath(makeTrack({ albumId: undefined }))).toBeNull();
+  });
+
   it("builds dedicated track share paths with a stable track id and redirect target", () => {
     expect(buildTrackSharePath(makeTrack())).toBe(
       "/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg&redirect=%2Falbum%2Ftidal-456%3Ftitle%3DAlbum%26artist%3DArtist%26trackId%3Dtidal-123",
@@ -47,7 +53,7 @@ describe("mediaNavigation track sharing", () => {
 
   it("uses a crawler-friendly share route that redirects to the embed player", () => {
     expect(buildTrackShareUrl(makeTrack())).toBe(
-      "https://knobb.netlify.app/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg&redirect=%2Fembed%2Ftrack%2Ftidal-123",
+      "https://knobb.netlify.app/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg&redirect=%2Fembed%2Ftrack%2Ftidal-123%3Ftitle%3DTrack%26artist%3DArtist%26album%3DAlbum%26cover%3D%252Fcover.jpg",
     );
   });
 

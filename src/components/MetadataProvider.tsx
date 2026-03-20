@@ -24,7 +24,7 @@ function getNowPlayingDocumentTitle(
 
 export function MetadataProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const { currentTrack, hasPlaybackStarted, isPlaying } = usePlayer();
+  const { currentTrack, isPlaying } = usePlayer();
   const [pageMetadata, setPageMetadata] = useState<PageMetadata | null>(null);
 
   const routeMetadata = useMemo(
@@ -53,19 +53,12 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     };
   }, [pageMetadata, routeMetadata]);
 
-  const nowPlayingTitle = useMemo(() => {
-    if (!currentTrack || (!hasPlaybackStarted && !isPlaying)) return null;
-    return getNowPlayingDocumentTitle(currentTrack);
-  }, [currentTrack, hasPlaybackStarted, isPlaying]);
-
   useEffect(() => {
     applyMetadata(mergedMetadata);
-  }, [mergedMetadata]);
+    if (!isPlaying || !currentTrack || typeof document === "undefined") return;
 
-  useEffect(() => {
-    if (!nowPlayingTitle || typeof document === "undefined") return;
-    document.title = normalizeTitle(nowPlayingTitle);
-  }, [nowPlayingTitle]);
+    document.title = normalizeTitle(getNowPlayingDocumentTitle(currentTrack));
+  }, [currentTrack, isPlaying, mergedMetadata]);
 
   const value = useMemo<MetadataContextValue>(() => ({
     setPageMetadata,

@@ -1,4 +1,5 @@
 import { DetailHero } from "@/components/detail/DetailHero";
+import { PlaylistContextMenu } from "@/components/PlaylistContextMenu";
 import { getTotalDuration } from "@/lib/utils";
 import { UserPlaylist } from "@/hooks/usePlaylists";
 import { formatRoleLabel } from "@/components/user-playlist/userPlaylistUtils";
@@ -9,18 +10,29 @@ interface UserPlaylistHeroProps {
   cornerAction?: ReactNode;
   playlist: UserPlaylist;
   coverUrl: string;
-  scrollY: number;
 }
 
 export function UserPlaylistHero({
   cornerAction,
   playlist,
   coverUrl,
-  scrollY,
 }: UserPlaylistHeroProps) {
   return (
     <DetailHero
       artworkUrl={coverUrl}
+      artworkWrapper={(artwork) => (
+        <PlaylistContextMenu
+          title={playlist.name}
+          playlistId={playlist.id}
+          shareToken={playlist.share_token}
+          coverUrl={coverUrl}
+          kind="user"
+          visibility={playlist.visibility}
+          tracks={playlist.tracks}
+        >
+          {artwork}
+        </PlaylistContextMenu>
+      )}
       cornerAction={cornerAction}
       dragPayload={playlist.tracks.length > 0 ? {
         label: playlist.name,
@@ -29,7 +41,6 @@ export function UserPlaylistHero({
         tracks: playlist.tracks,
       } : undefined}
       label="Playlist"
-      scrollY={scrollY}
       title={<PlaylistLink title={playlist.name} playlistId={playlist.id} kind="user" className="text-inherit" />}
       body={
         playlist.description ? (

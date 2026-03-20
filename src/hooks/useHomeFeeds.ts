@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FavoriteArtist } from "@/contexts/FavoriteArtistsContext";
 import { PlayHistoryEntry } from "@/hooks/usePlayHistory";
+import { fetchEditorsPicks, getSeedEditorsPicks } from "@/lib/editorsPicks";
 import { createNewReleaseNotification } from "@/lib/notifications";
-import { scheduleBackgroundTask } from "@/lib/performanceProfile";
+import { fetchTidalHotNewSections, type TidalBrowseSection } from "@/lib/tidalBrowseApi";
 import {
   getArtistAlbums,
   getArtistPopularTracks,
@@ -17,36 +18,46 @@ import {
 } from "@/lib/musicApi";
 import { filterPlayableTracks } from "@/lib/trackPlayback";
 import { Track } from "@/types/music";
+import { buildTrackKey } from "@/lib/librarySources";
+import { sanitizeTrackRecords } from "@/lib/trackNormalization";
 
 export type HomeArtist = {
-  id: number;
+  id: number | string;
   name: string;
   imageUrl: string;
+  source?: "tidal" | "youtube-music";
 };
 
 export type HomeAlbum = {
-  id: number;
+  id: number | string;
   title: string;
   artist: string;
-  artistId?: number;
+  artistId?: number | string;
   coverUrl: string;
   releaseDate?: string;
+  source?: "tidal" | "youtube-music";
 };
 
 type SecondaryHomeRecommendations = {
   recommendedAlbums: HomeAlbum[];
   recommendedArtists: HomeArtist[];
+  recommendedAlbumsPersonalized: boolean;
+  recommendedArtistsPersonalized: boolean;
 };
 
 type UseHomeFeedsOptions = {
+  authLoading?: boolean;
   favoriteArtists: FavoriteArtist[];
+  favoriteArtistsLoading?: boolean;
   getHistory: (limit?: number) => Promise<PlayHistoryEntry[]>;
   userId?: string;
 };
 
 type HomeFeedSnapshot = {
   recommendedArtists: HomeArtist[];
+  recommendedArtistsPersonalized: boolean;
   recommendedAlbums: HomeAlbum[];
+  recommendedAlbumsPersonalized: boolean;
   recommendedTracks: Track[];
   newReleases: HomeAlbum[];
   recentTracks: Track[];
@@ -56,20 +67,18 @@ type HomeFeedSnapshot = {
 
 const sanitizeHomeFeedSnapshot = (snapshot: HomeFeedSnapshot): HomeFeedSnapshot => ({
   ...snapshot,
-  recommendedTracks: filterPlayableTracks(snapshot.recommendedTracks),
+  recommendedTracks: filterPlayableTracks(sanitizeTrackRecords(snapshot.recommendedTracks)),
+  recentTracks: sanitizeTrackRecords(snapshot.recentTracks),
 });
 
-const HOME_FEEDS_CACHE_VERSION = 1;
+const HOME_FEEDS_CACHE_VERSION = 3;
 const HOME_FEEDS_CACHE_TTL_MS = 1000 * 60 * 30;
 const HOME_FEEDS_STORAGE_PREFIX = "knobb-home-feeds";
 const homeFeedSnapshotMemory = new Map<string, HomeFeedSnapshot>();
+const preloadedHomeFeedArtwork = new Set<string>();
 
 const getTrackHistoryKey = (track: Track) => {
-  if (typeof track.tidalId === "number" && Number.isFinite(track.tidalId)) {
-    return `tidal:${track.tidalId}`;
-  }
-  if (track.id) return `id:${track.id}`;
-  return `fallback:${track.title.trim().toLowerCase()}::${track.artist.trim().toLowerCase()}`;
+  return buildTrackKey(track);
 };
 
 const dedupeLatestHistoryTracks = (tracks: Track[]) => {
@@ -135,10 +144,35 @@ const getAlbumCoverUrl = (album: TidalAlbum): string =>
 const EMPTY_SECONDARY_RECOMMENDATIONS: SecondaryHomeRecommendations = {
   recommendedAlbums: [],
   recommendedArtists: [],
+  recommendedAlbumsPersonalized: false,
+  recommendedArtistsPersonalized: false,
 };
+const FALLBACK_HOME_SEED_ALBUMS = getSeedEditorsPicks();
 
 const getHomeFeedStorageKey = (userId?: string) =>
   `${HOME_FEEDS_STORAGE_PREFIX}:${userId || "guest"}`;
+
+function preloadImageUrl(url?: string | null) {
+  if (typeof window === "undefined" || !url || url === "/placeholder.svg" || preloadedHomeFeedArtwork.has(url)) {
+    return;
+  }
+
+  preloadedHomeFeedArtwork.add(url);
+  const image = new Image();
+  image.decoding = "async";
+  image.src = url;
+}
+
+function preloadHomeFeedArtwork(snapshot: Pick<
+  HomeFeedSnapshot,
+  "recommendedArtists" | "recommendedAlbums" | "recommendedTracks" | "newReleases" | "recentTracks"
+>) {
+  snapshot.recommendedTracks.slice(0, 8).forEach((track) => preloadImageUrl(track.coverUrl));
+  snapshot.recentTracks.slice(0, 8).forEach((track) => preloadImageUrl(track.coverUrl));
+  snapshot.recommendedAlbums.slice(0, 8).forEach((album) => preloadImageUrl(album.coverUrl));
+  snapshot.newReleases.slice(0, 8).forEach((album) => preloadImageUrl(album.coverUrl));
+  snapshot.recommendedArtists.slice(0, 8).forEach((artist) => preloadImageUrl(artist.imageUrl));
+}
 
 const isUsableHomeFeedSnapshot = (value: unknown): value is HomeFeedSnapshot => {
   if (!value || typeof value !== "object") return false;
@@ -148,7 +182,9 @@ const isUsableHomeFeedSnapshot = (value: unknown): value is HomeFeedSnapshot => 
     snapshot.version === HOME_FEEDS_CACHE_VERSION &&
     typeof snapshot.timestamp === "number" &&
     Array.isArray(snapshot.recommendedArtists) &&
+    typeof snapshot.recommendedArtistsPersonalized === "boolean" &&
     Array.isArray(snapshot.recommendedAlbums) &&
+    typeof snapshot.recommendedAlbumsPersonalized === "boolean" &&
     Array.isArray(snapshot.recommendedTracks) &&
     Array.isArray(snapshot.newReleases) &&
     Array.isArray(snapshot.recentTracks)
@@ -158,10 +194,125 @@ const isUsableHomeFeedSnapshot = (value: unknown): value is HomeFeedSnapshot => 
 const isFreshHomeFeedSnapshot = (snapshot: HomeFeedSnapshot) =>
   Date.now() - snapshot.timestamp < HOME_FEEDS_CACHE_TTL_MS;
 
-const readHomeFeedSnapshot = (userId?: string): HomeFeedSnapshot | null => {
+const buildFallbackArtistsFromAlbums = (albums: HomeAlbum[]): HomeArtist[] => {
+  const seen = new Set<string>();
+  const artists: HomeArtist[] = [];
+
+  for (const album of albums) {
+    const artistName = album.artist?.trim();
+    if (!artistName) continue;
+
+    const artistId = album.artistId ?? artistName.toLowerCase();
+    const key = String(artistId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    artists.push({
+      id: artistId,
+      name: artistName,
+      imageUrl: album.coverUrl || "/placeholder.svg",
+      source: album.source,
+    });
+  }
+
+  return artists;
+};
+
+function buildLiveFallbackContentFromBrowseSections(sections: TidalBrowseSection[]) {
+  const albumSections = sections.filter(
+    (section): section is Extract<TidalBrowseSection, { type: "albums" }> =>
+      section.type === "albums" && Array.isArray(section.items) && section.items.length > 0,
+  );
+  const artistSections = sections.filter(
+    (section): section is Extract<TidalBrowseSection, { type: "artists" }> =>
+      section.type === "artists" && Array.isArray(section.items) && section.items.length > 0,
+  );
+  const trackSections = sections
+    .filter(
+      (section): section is Extract<TidalBrowseSection, { type: "tracks" }> =>
+        section.type === "tracks" && Array.isArray(section.items) && section.items.length > 0,
+    )
+    .map((section) => ({
+      ...section,
+      items: filterPlayableTracks(section.items.filter((track) => track.isVideo !== true)),
+    }))
+    .filter((section) => section.items.length > 0);
+
+  const releaseSection = albumSections.find((section) => /new|arrival|release/i.test(section.title)) || albumSections[0] || null;
+  const recommendedAlbumSection = albumSections.find((section) => section.id !== releaseSection?.id) || albumSections[1] || releaseSection;
+  const recommendedArtistSection = artistSections[0] || null;
+  const recommendedTrackSection =
+    trackSections.find((section) => /new tracks|hits|trending|popular/i.test(section.title.toLowerCase())) || trackSections[0] || null;
+
+  const newReleases = dedupeById(
+    (releaseSection?.items || []).map((album) => ({
+      ...album,
+      source: "tidal" as const,
+    })),
+  ).slice(0, 20);
+  const recommendedAlbums = dedupeById(
+    (recommendedAlbumSection?.items || []).map((album) => ({
+      ...album,
+      source: "tidal" as const,
+    })),
+  ).slice(0, 20);
+  const recommendedArtists = dedupeById(
+    (recommendedArtistSection?.items || []).map((artist) => ({
+      ...artist,
+      source: "tidal" as const,
+    })),
+  ).slice(0, 20);
+  const recommendedTracks = dedupeById(recommendedTrackSection?.items || []).slice(0, 20);
+
+  if (
+    newReleases.length === 0 &&
+    recommendedAlbums.length === 0 &&
+    recommendedArtists.length === 0 &&
+    recommendedTracks.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    newReleases,
+    recommendedAlbums: recommendedAlbums.length > 0 ? recommendedAlbums : newReleases,
+    recommendedAlbumsPersonalized: false,
+    recommendedArtists: recommendedArtists.length > 0
+      ? recommendedArtists
+      : buildFallbackArtistsFromAlbums(recommendedAlbums.length > 0 ? recommendedAlbums : newReleases).slice(0, 20),
+    recommendedArtistsPersonalized: false,
+    recommendedTracks,
+  };
+}
+
+const buildSeedHomeFeedSnapshot = (): Pick<
+  HomeFeedSnapshot,
+  "recommendedArtists" | "recommendedAlbums" | "recommendedTracks" | "newReleases" | "recentTracks"
+> => {
+  const fallbackAlbums = FALLBACK_HOME_SEED_ALBUMS.slice(0, 20);
+
+  return {
+    recommendedArtists: buildFallbackArtistsFromAlbums(fallbackAlbums).slice(0, 20),
+    recommendedArtistsPersonalized: false,
+    recommendedAlbums: fallbackAlbums,
+    recommendedAlbumsPersonalized: false,
+    recommendedTracks: [],
+    newReleases: [...fallbackAlbums]
+      .sort((a, b) => new Date(b.releaseDate || 0).getTime() - new Date(a.releaseDate || 0).getTime())
+      .slice(0, 20),
+    recentTracks: [],
+  };
+};
+
+const FALLBACK_HOME_FEED_SNAPSHOT = buildSeedHomeFeedSnapshot();
+
+const readHomeFeedSnapshot = (
+  userId?: string,
+  options: { allowStale?: boolean } = {},
+): HomeFeedSnapshot | null => {
+  const allowStale = options.allowStale === true;
   const storageKey = getHomeFeedStorageKey(userId);
   const memorySnapshot = homeFeedSnapshotMemory.get(storageKey);
-  if (memorySnapshot && isFreshHomeFeedSnapshot(memorySnapshot)) {
+  if (memorySnapshot && (allowStale || isFreshHomeFeedSnapshot(memorySnapshot))) {
     return sanitizeHomeFeedSnapshot(memorySnapshot);
   }
 
@@ -172,8 +323,12 @@ const readHomeFeedSnapshot = (userId?: string): HomeFeedSnapshot | null => {
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as unknown;
-    if (!isUsableHomeFeedSnapshot(parsed) || !isFreshHomeFeedSnapshot(parsed)) {
+    if (!isUsableHomeFeedSnapshot(parsed)) {
       window.localStorage.removeItem(storageKey);
+      return null;
+    }
+
+    if (!allowStale && !isFreshHomeFeedSnapshot(parsed)) {
       return null;
     }
 
@@ -223,22 +378,43 @@ const interleaveTrackGroups = (groups: TidalTrack[][]): Track[] => {
   return filterPlayableTracks(interleaved);
 };
 
-export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFeedsOptions) {
-  const initialSnapshotRef = useRef<HomeFeedSnapshot | null>(readHomeFeedSnapshot(userId));
+export function useHomeFeeds({
+  authLoading = false,
+  favoriteArtists,
+  favoriteArtistsLoading = false,
+  getHistory,
+  userId,
+}: UseHomeFeedsOptions) {
+  const initialSnapshotRef = useRef<HomeFeedSnapshot | null>(readHomeFeedSnapshot(userId, { allowStale: true }));
+  const initialVisualSnapshotRef = useRef(
+    initialSnapshotRef.current
+      ? sanitizeHomeFeedSnapshot(initialSnapshotRef.current)
+      : sanitizeHomeFeedSnapshot({
+        ...FALLBACK_HOME_FEED_SNAPSHOT,
+        timestamp: 0,
+        version: HOME_FEEDS_CACHE_VERSION,
+      }),
+  );
   const [recommendedArtists, setRecommendedArtists] = useState<HomeArtist[]>(
-    () => initialSnapshotRef.current?.recommendedArtists ?? [],
+    () => initialVisualSnapshotRef.current.recommendedArtists,
+  );
+  const [recommendedArtistsPersonalized, setRecommendedArtistsPersonalized] = useState<boolean>(
+    () => initialVisualSnapshotRef.current.recommendedArtistsPersonalized,
   );
   const [recommendedAlbums, setRecommendedAlbums] = useState<HomeAlbum[]>(
-    () => initialSnapshotRef.current?.recommendedAlbums ?? [],
+    () => initialVisualSnapshotRef.current.recommendedAlbums,
+  );
+  const [recommendedAlbumsPersonalized, setRecommendedAlbumsPersonalized] = useState<boolean>(
+    () => initialVisualSnapshotRef.current.recommendedAlbumsPersonalized,
   );
   const [recommendedTracks, setRecommendedTracks] = useState<Track[]>(
-    () => initialSnapshotRef.current?.recommendedTracks ?? [],
+    () => initialVisualSnapshotRef.current.recommendedTracks,
   );
   const [newReleases, setNewReleases] = useState<HomeAlbum[]>(
-    () => initialSnapshotRef.current?.newReleases ?? [],
+    () => initialVisualSnapshotRef.current.newReleases,
   );
   const [recentTracks, setRecentTracks] = useState<Track[]>(
-    () => initialSnapshotRef.current?.recentTracks ?? [],
+    () => initialVisualSnapshotRef.current.recentTracks,
   );
   const [loaded, setLoaded] = useState(() => Boolean(initialSnapshotRef.current));
   const [error, setError] = useState(false);
@@ -248,16 +424,81 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
   const loadSequenceRef = useRef(0);
   const lastAutoLoadKeyRef = useRef<string | null>(null);
   const activeUserCacheKeyRef = useRef(getHomeFeedStorageKey(userId));
+  const hasVisibleFeedContent =
+    recommendedArtists.length > 0 ||
+    recommendedAlbums.length > 0 ||
+    recommendedTracks.length > 0 ||
+    newReleases.length > 0 ||
+    recentTracks.length > 0;
 
   const applySnapshot = useCallback((snapshot: HomeFeedSnapshot) => {
     setRecommendedArtists(snapshot.recommendedArtists);
+    setRecommendedArtistsPersonalized(snapshot.recommendedArtistsPersonalized);
     setRecommendedAlbums(snapshot.recommendedAlbums);
+    setRecommendedAlbumsPersonalized(snapshot.recommendedAlbumsPersonalized);
     setRecommendedTracks(snapshot.recommendedTracks);
     setNewReleases(snapshot.newReleases);
     setRecentTracks(snapshot.recentTracks);
     setError(false);
     setLoaded(true);
     initialLoadCompletedRef.current = true;
+    preloadHomeFeedArtwork(snapshot);
+  }, []);
+
+  const loadFallbackHomeContent = useCallback(async (refreshSection?: string) => {
+    try {
+      const liveSections = await fetchTidalHotNewSections();
+      const liveFallback = buildLiveFallbackContentFromBrowseSections(liveSections);
+      if (liveFallback) {
+        return {
+          recommendedAlbums: rotateForRefresh(liveFallback.recommendedAlbums, refreshSection === "recalbums"),
+          recommendedArtists: rotateForRefresh(liveFallback.recommendedArtists, refreshSection === "recartists"),
+          recommendedAlbumsPersonalized: false,
+          recommendedArtistsPersonalized: false,
+          recommendedTracks: rotateForRefresh(liveFallback.recommendedTracks, refreshSection === "recommended"),
+          newReleases: rotateForRefresh(liveFallback.newReleases, refreshSection === "newreleases"),
+        };
+      }
+    } catch {
+      // Fall through to seeded picks when live discovery is unavailable.
+    }
+
+    const editorPicks = await fetchEditorsPicks();
+    const fallbackAlbums = (editorPicks.length > 0 ? editorPicks : FALLBACK_HOME_SEED_ALBUMS).slice(0, 20);
+    const recommendedArtists = rotateForRefresh(
+      buildFallbackArtistsFromAlbums(fallbackAlbums).slice(0, 20),
+      refreshSection === "recartists",
+    );
+
+    const fallbackArtistIds = recommendedArtists
+      .map((artist) => artist.id)
+      .filter((artistId): artistId is number => typeof artistId === "number")
+      .slice(0, 4);
+    const fallbackTrackGroups = await Promise.all(
+      fallbackArtistIds.map((artistId) =>
+        getArtistPopularTracks(artistId, 6).catch(() => [] as TidalTrack[]),
+      ),
+    );
+    const recommendedTracks = rotateForRefresh(
+      dedupeById(interleaveTrackGroups(fallbackTrackGroups)).slice(0, 20),
+      refreshSection === "recommended",
+    );
+
+    const newReleaseCandidates = rotateForRefresh(
+      [...fallbackAlbums]
+        .sort((a, b) => new Date(b.releaseDate || 0).getTime() - new Date(a.releaseDate || 0).getTime())
+        .slice(0, 20),
+      refreshSection === "newreleases",
+    );
+
+    return {
+      recommendedAlbums: rotateForRefresh(fallbackAlbums, refreshSection === "recalbums"),
+      recommendedArtists,
+      recommendedAlbumsPersonalized: false,
+      recommendedArtistsPersonalized: false,
+      recommendedTracks,
+      newReleases: newReleaseCandidates,
+    };
   }, []);
 
   const loadHomeFeeds = useCallback(async (refreshSection?: string) => {
@@ -333,18 +574,18 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
 
     const loadSecondaryRecommendations = async (
       history: PlayHistoryEntry[],
-      topArtists: { id: number; name: string; score: number }[],
-      topAlbums: { id: number; title: string; artist: string; score: number }[],
+      topArtists: { id: number | string; name: string; score: number }[],
+      topAlbums: { id: number | string; title: string; artist: string; score: number }[],
     ): Promise<SecondaryHomeRecommendations> => {
       try {
         const [artistSimilarGroups, artistAlbumGroups, albumSimilarGroups] = await Promise.all([
-          Promise.all(topArtists.map((artist) => getSimilarArtists(artist.id).catch(() => []))),
-          Promise.all(topArtists.map((artist) => getArtistAlbums(artist.id).catch(() => []))),
-          Promise.all(topAlbums.map((album) => getSimilarAlbums(album.id).catch(() => []))),
+          Promise.all(topArtists.map((artist) => typeof artist.id === "number" ? getSimilarArtists(artist.id).catch(() => []) : Promise.resolve([]))),
+          Promise.all(topArtists.map((artist) => typeof artist.id === "number" ? getArtistAlbums(artist.id).catch(() => []) : Promise.resolve([]))),
+          Promise.all(topAlbums.map((album) => typeof album.id === "number" ? getSimilarAlbums(album.id).catch(() => []) : Promise.resolve([]))),
         ]);
         if (!isCurrentRequest()) return EMPTY_SECONDARY_RECOMMENDATIONS;
 
-        const listenedAlbumIds = new Set<number>(history.map((entry) => entry.albumId).filter(Boolean) as number[]);
+        const listenedAlbumIds = new Set<string | number>(history.map((entry) => entry.albumId).filter(Boolean) as (string | number)[]);
         const albumCandidates = dedupeById(
           [...albumSimilarGroups.flat(), ...artistAlbumGroups.flat()]
             .filter((album): album is TidalAlbum => Boolean(album?.id && album?.title))
@@ -358,7 +599,7 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
             })),
         );
 
-        const listenedArtistIds = new Set<number>(topArtists.map((artist) => artist.id));
+        const listenedArtistIds = new Set<string | number>(topArtists.map((artist) => artist.id));
         const similarArtists = dedupeById(
           artistSimilarGroups
             .flat()
@@ -374,6 +615,8 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
         return {
           recommendedAlbums: rotateForRefresh(albumCandidates.slice(0, 20), refreshSection === "recalbums"),
           recommendedArtists: rotateForRefresh(similarArtists.slice(0, 20), refreshSection === "recartists"),
+          recommendedAlbumsPersonalized: albumCandidates.length > 0,
+          recommendedArtistsPersonalized: similarArtists.length > 0,
         };
       } catch (e) {
         console.error("Failed to load secondary home recommendations:", e);
@@ -396,22 +639,27 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
       }
 
       if (history.length === 0) {
-        const nextNewReleases = await newReleasesTask;
-        if (!isCurrentRequest()) return;
-
         commit(() => {
           setRecentTracks(nextRecentTracks);
-          setNewReleases(nextNewReleases);
-          setRecommendedTracks([]);
-          setRecommendedAlbums([]);
-          setRecommendedArtists([]);
         });
         markInitialLoaded();
+
+        void Promise.all([newReleasesTask, loadFallbackHomeContent(refreshSection)]).then(([nextNewReleases, fallbackContent]) => {
+          if (!isCurrentRequest()) return;
+          commit(() => {
+            setNewReleases(nextNewReleases.length > 0 ? nextNewReleases : fallbackContent.newReleases);
+            setRecommendedTracks(fallbackContent.recommendedTracks);
+            setRecommendedAlbums(fallbackContent.recommendedAlbums);
+            setRecommendedArtists(fallbackContent.recommendedArtists);
+            setRecommendedAlbumsPersonalized(fallbackContent.recommendedAlbumsPersonalized);
+            setRecommendedArtistsPersonalized(fallbackContent.recommendedArtistsPersonalized);
+          });
+        });
         return;
       }
 
-      const artistScores = new Map<number, { id: number; name: string; score: number }>();
-      const albumScores = new Map<number, { id: number; title: string; artist: string; score: number }>();
+      const artistScores = new Map<number | string, { id: number | string; name: string; score: number }>();
+      const albumScores = new Map<number | string, { id: number | string; title: string; artist: string; score: number }>();
 
       for (const entry of history) {
         const weight = getHistorySignalWeight(entry);
@@ -447,7 +695,7 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
         .slice(0, isInitialPass ? 2 : 3);
 
       const artistTopTrackGroups = await Promise.all(
-        topArtists.map((artist) => getArtistPopularTracks(artist.id, isInitialPass ? 8 : 10).catch(() => [])),
+        topArtists.map((artist) => typeof artist.id === "number" ? getArtistPopularTracks(artist.id, isInitialPass ? 8 : 10).catch(() => []) : Promise.resolve([])),
       );
       if (!isCurrentRequest()) return;
 
@@ -473,25 +721,28 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
       const nextRecommendedTracks = rotateForRefresh(filteredTracks.slice(0, 20), refreshSection === "recommended");
 
       if (isInitialPass) {
-        const nextNewReleases = await newReleasesTask;
-        if (!isCurrentRequest()) return;
-
         commit(() => {
           setRecentTracks(nextRecentTracks);
           setRecommendedTracks(nextRecommendedTracks);
-          setNewReleases(nextNewReleases);
         });
         markInitialLoaded();
 
-        scheduleBackgroundTask(() => {
-          void loadSecondaryRecommendations(history, topArtists, topAlbums).then((secondaryRecommendations) => {
-            if (!isCurrentRequest()) return;
-            commit(() => {
-              setRecommendedAlbums(secondaryRecommendations.recommendedAlbums);
-              setRecommendedArtists(secondaryRecommendations.recommendedArtists);
-            });
+        void newReleasesTask.then((nextNewReleases) => {
+          if (!isCurrentRequest()) return;
+          commit(() => {
+            setNewReleases(nextNewReleases);
           });
-        }, 1200);
+        });
+
+        void loadSecondaryRecommendations(history, topArtists, topAlbums).then((secondaryRecommendations) => {
+          if (!isCurrentRequest()) return;
+          commit(() => {
+            setRecommendedAlbums(secondaryRecommendations.recommendedAlbums);
+            setRecommendedArtists(secondaryRecommendations.recommendedArtists);
+            setRecommendedAlbumsPersonalized(secondaryRecommendations.recommendedAlbumsPersonalized);
+            setRecommendedArtistsPersonalized(secondaryRecommendations.recommendedArtistsPersonalized);
+          });
+        });
 
         return;
       }
@@ -510,6 +761,8 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
         setNewReleases(nextNewReleases);
         setRecommendedAlbums(secondaryRecommendations.recommendedAlbums);
         setRecommendedArtists(secondaryRecommendations.recommendedArtists);
+        setRecommendedAlbumsPersonalized(secondaryRecommendations.recommendedAlbumsPersonalized);
+        setRecommendedArtistsPersonalized(secondaryRecommendations.recommendedArtistsPersonalized);
       });
     } catch (e) {
       console.error("Failed to load Tidal home feeds:", e);
@@ -518,7 +771,7 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
         markInitialLoaded();
       }
     }
-  }, [favoriteArtists, getHistory, userId]);
+  }, [favoriteArtists, getHistory, loadFallbackHomeContent, userId]);
 
   const reloadSection = useCallback(async (section: string) => {
     switch (section) {
@@ -552,16 +805,22 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
   const retryInitialLoad = useCallback(async () => {
     loadSequenceRef.current += 1;
     initialLoadCompletedRef.current = false;
-    setLoaded(false);
+    if (!hasVisibleFeedContent) {
+      setLoaded(false);
+    }
 
     try {
       await loadHomeFeeds();
     } finally {
       setLoaded(true);
     }
-  }, [loadHomeFeeds]);
+  }, [hasVisibleFeedContent, loadHomeFeeds]);
 
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
     const nextUserCacheKey = getHomeFeedStorageKey(userId);
     const userChanged = activeUserCacheKeyRef.current !== nextUserCacheKey;
 
@@ -570,21 +829,27 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
       lastAutoLoadKeyRef.current = null;
       loadSequenceRef.current += 1;
 
-      const nextSnapshot = readHomeFeedSnapshot(userId);
+      const nextSnapshot = readHomeFeedSnapshot(userId, { allowStale: true });
       if (nextSnapshot) {
         applySnapshot(nextSnapshot);
-      } else {
+      } else if (!hasVisibleFeedContent) {
         initialLoadCompletedRef.current = false;
         setLoaded(false);
         setError(false);
-        setRecommendedArtists([]);
-        setRecommendedAlbums([]);
-        setRecommendedTracks([]);
-        setNewReleases([]);
-        setRecentTracks([]);
+        setRecommendedArtists(FALLBACK_HOME_FEED_SNAPSHOT.recommendedArtists);
+        setRecommendedArtistsPersonalized(FALLBACK_HOME_FEED_SNAPSHOT.recommendedArtistsPersonalized);
+        setRecommendedAlbums(FALLBACK_HOME_FEED_SNAPSHOT.recommendedAlbums);
+        setRecommendedAlbumsPersonalized(FALLBACK_HOME_FEED_SNAPSHOT.recommendedAlbumsPersonalized);
+        setRecommendedTracks(FALLBACK_HOME_FEED_SNAPSHOT.recommendedTracks);
+        setNewReleases(FALLBACK_HOME_FEED_SNAPSHOT.newReleases);
+        setRecentTracks(FALLBACK_HOME_FEED_SNAPSHOT.recentTracks);
+      } else {
+        initialLoadCompletedRef.current = false;
+        setError(false);
+        setLoaded(true);
       }
     } else if (!loaded) {
-      const cachedSnapshot = readHomeFeedSnapshot(userId);
+      const cachedSnapshot = readHomeFeedSnapshot(userId, { allowStale: true });
       if (cachedSnapshot) {
         applySnapshot(cachedSnapshot);
       }
@@ -600,14 +865,24 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
       lastAutoLoadKeyRef.current = autoLoadKey;
       void loadHomeFeeds();
     }
-  }, [applySnapshot, favoriteArtists, loadHomeFeeds, loaded, userId]);
+  }, [applySnapshot, authLoading, favoriteArtists, favoriteArtistsLoading, hasVisibleFeedContent, loadHomeFeeds, loaded, userId]);
 
   useEffect(() => {
     if (!loaded) return;
 
-    writeHomeFeedSnapshot(userId, {
+    preloadHomeFeedArtwork({
       recommendedArtists,
       recommendedAlbums,
+      recommendedTracks,
+      newReleases,
+      recentTracks,
+    });
+
+    writeHomeFeedSnapshot(userId, {
+      recommendedArtists,
+      recommendedArtistsPersonalized,
+      recommendedAlbums,
+      recommendedAlbumsPersonalized,
       recommendedTracks,
       newReleases,
       recentTracks,
@@ -617,7 +892,9 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
     newReleases,
     recentTracks,
     recommendedAlbums,
+    recommendedAlbumsPersonalized,
     recommendedArtists,
+    recommendedArtistsPersonalized,
     recommendedTracks,
     userId,
   ]);
@@ -627,7 +904,9 @@ export function useHomeFeeds({ favoriteArtists, getHistory, userId }: UseHomeFee
     loaded,
     newReleases,
     recommendedAlbums,
+    recommendedAlbumsPersonalized,
     recommendedArtists,
+    recommendedArtistsPersonalized,
     recommendedTracks,
     recentTracks,
     reloadingSection,

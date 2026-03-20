@@ -265,7 +265,7 @@ export function SettingsEqualizer({
 
             <button
               type="button"
-              className="settings-eq-button website-form-control menu-sweep-hover"
+              className="settings-eq-button website-form-control"
               onClick={() => {
                 onReset();
                 toast.success(t("settings.equalizerReset"));

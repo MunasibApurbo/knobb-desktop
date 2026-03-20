@@ -2,37 +2,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { searchTidalReference } from "@/lib/tidalReferenceSearch";
 
-const mockSearchTracks = vi.fn();
-const mockSearchArtists = vi.fn();
-const mockSearchAlbums = vi.fn();
-const mockSearchPlaylists = vi.fn();
-const mockFilterAudioTracks = vi.fn((tracks) => tracks);
-const mockGetTidalImageUrl = vi.fn((value: string, size: string) => `image:${value}:${size}`);
-const mockTidalTrackToAppTrack = vi.fn((track) => track);
+const tidalReferenceMocks = vi.hoisted(() => ({
+  searchTracks: vi.fn(),
+  searchArtists: vi.fn(),
+  searchAlbums: vi.fn(),
+  searchPlaylists: vi.fn(),
+  searchVideos: vi.fn(),
+  filterAudioTracks: vi.fn((tracks) => tracks),
+  getTidalImageUrl: vi.fn((value: string, size: string) => `image:${value}:${size}`),
+  tidalTrackToAppTrack: vi.fn((track) => track),
+}));
 
 vi.mock("@/lib/musicApi", () => ({
-  filterAudioTracks: (...args: unknown[]) => mockFilterAudioTracks(...args),
-  getTidalImageUrl: (...args: unknown[]) => mockGetTidalImageUrl(...args),
-  searchAlbums: (...args: unknown[]) => mockSearchAlbums(...args),
-  searchArtists: (...args: unknown[]) => mockSearchArtists(...args),
-  searchPlaylists: (...args: unknown[]) => mockSearchPlaylists(...args),
-  searchTracks: (...args: unknown[]) => mockSearchTracks(...args),
-  tidalTrackToAppTrack: (...args: unknown[]) => mockTidalTrackToAppTrack(...args),
+  filterAudioTracks: tidalReferenceMocks.filterAudioTracks,
+  getTidalImageUrl: tidalReferenceMocks.getTidalImageUrl,
+  searchAlbums: tidalReferenceMocks.searchAlbums,
+  searchArtists: tidalReferenceMocks.searchArtists,
+  searchPlaylists: tidalReferenceMocks.searchPlaylists,
+  searchTracks: tidalReferenceMocks.searchTracks,
+  searchVideos: tidalReferenceMocks.searchVideos,
+  tidalTrackToAppTrack: tidalReferenceMocks.tidalTrackToAppTrack,
 }));
 
 describe("searchTidalReference", () => {
   beforeEach(() => {
-    mockSearchTracks.mockResolvedValue([]);
-    mockSearchAlbums.mockResolvedValue([]);
-    mockSearchPlaylists.mockResolvedValue([]);
-    mockSearchArtists.mockResolvedValue([]);
-    mockFilterAudioTracks.mockImplementation((tracks) => tracks);
-    mockGetTidalImageUrl.mockImplementation((value: string, size: string) => `image:${value}:${size}`);
-    mockTidalTrackToAppTrack.mockImplementation((track) => track);
+    tidalReferenceMocks.searchTracks.mockResolvedValue([]);
+    tidalReferenceMocks.searchAlbums.mockResolvedValue([]);
+    tidalReferenceMocks.searchPlaylists.mockResolvedValue([]);
+    tidalReferenceMocks.searchArtists.mockResolvedValue([]);
+    tidalReferenceMocks.searchVideos.mockResolvedValue([]);
+    tidalReferenceMocks.filterAudioTracks.mockImplementation((tracks) => tracks);
+    tidalReferenceMocks.getTidalImageUrl.mockImplementation((value: string, size: string) => `image:${value}:${size}`);
+    tidalReferenceMocks.tidalTrackToAppTrack.mockImplementation((track) => track);
   });
 
   it("removes collaboration and derivative artist pseudo-profiles from profile results", async () => {
-    mockSearchArtists.mockResolvedValue([
+    tidalReferenceMocks.searchArtists.mockResolvedValue([
       { id: 1, name: "Ava Max", picture: "ava-max", popularity: 100, url: "/artist/1" },
       {
         id: 2,

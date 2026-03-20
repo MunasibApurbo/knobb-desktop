@@ -30,3 +30,19 @@ _changes.patch
 *.njsproj
 *.sln
 *.sw?
+
+# Local Netlify folder
+.netlify
+netlify/cookies/
+recovery/
+test-output*.txt
+lint-results.json
+out.txt
+vite.log
+debug-yt.mjs
+test-dash.js
+test-dash.mjs
+test-yt.js
+test-yt2.js
+test-yt3.js
+test.mjs

@@ -22,9 +22,15 @@ const playlistMutationMocks = vi.hoisted(() => ({
   fetchPlaylistTrackIds: vi.fn(),
   fetchPlaylistTrackRows: vi.fn(),
   insertPlaylistTrackRecord: vi.fn(),
+  insertPlaylistTrackRecords: vi.fn(),
   setPlaylistCoverUrl: vi.fn(),
   updatePlaylistRecord: vi.fn(),
   updatePlaylistTrackPosition: vi.fn(),
+}));
+
+const storageMocks = vi.hoisted(() => ({
+  getItem: vi.fn(() => null),
+  setItem: vi.fn(),
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -34,14 +40,11 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/hooks/playlists/playlistQueries", () => ({
-  fetchUserPlaylists: (...args: unknown[]) => playlistQueryMocks.fetchUserPlaylists(...args),
-  invalidateUserPlaylistsCache: (...args: unknown[]) =>
-    playlistQueryMocks.invalidateUserPlaylistsCache(...args),
-  subscribeToPlaylistChanges: (...args: unknown[]) =>
-    playlistQueryMocks.subscribeToPlaylistChanges(...args),
-  removePlaylistSubscription: (...args: unknown[]) =>
-    playlistQueryMocks.removePlaylistSubscription(...args),
-  fetchPlaylistTracks: (...args: unknown[]) => playlistQueryMocks.fetchPlaylistTracks(...args),
+  fetchUserPlaylists: playlistQueryMocks.fetchUserPlaylists,
+  invalidateUserPlaylistsCache: playlistQueryMocks.invalidateUserPlaylistsCache,
+  subscribeToPlaylistChanges: playlistQueryMocks.subscribeToPlaylistChanges,
+  removePlaylistSubscription: playlistQueryMocks.removePlaylistSubscription,
+  fetchPlaylistTracks: playlistQueryMocks.fetchPlaylistTracks,
 }));
 
 vi.mock("@/hooks/playlists/playlistCollaborators", () => ({
@@ -52,15 +55,16 @@ vi.mock("@/hooks/playlists/playlistCollaborators", () => ({
 }));
 
 vi.mock("@/hooks/playlists/playlistMutations", () => ({
-  createPlaylistRecord: (...args: unknown[]) => playlistMutationMocks.createPlaylistRecord(...args),
-  deletePlaylistRecord: (...args: unknown[]) => playlistMutationMocks.deletePlaylistRecord(...args),
-  deletePlaylistTrackRecord: (...args: unknown[]) => playlistMutationMocks.deletePlaylistTrackRecord(...args),
-  fetchPlaylistTrackIds: (...args: unknown[]) => playlistMutationMocks.fetchPlaylistTrackIds(...args),
-  fetchPlaylistTrackRows: (...args: unknown[]) => playlistMutationMocks.fetchPlaylistTrackRows(...args),
-  insertPlaylistTrackRecord: (...args: unknown[]) => playlistMutationMocks.insertPlaylistTrackRecord(...args),
-  setPlaylistCoverUrl: (...args: unknown[]) => playlistMutationMocks.setPlaylistCoverUrl(...args),
-  updatePlaylistRecord: (...args: unknown[]) => playlistMutationMocks.updatePlaylistRecord(...args),
-  updatePlaylistTrackPosition: (...args: unknown[]) => playlistMutationMocks.updatePlaylistTrackPosition(...args),
+  createPlaylistRecord: playlistMutationMocks.createPlaylistRecord,
+  deletePlaylistRecord: playlistMutationMocks.deletePlaylistRecord,
+  deletePlaylistTrackRecord: playlistMutationMocks.deletePlaylistTrackRecord,
+  fetchPlaylistTrackIds: playlistMutationMocks.fetchPlaylistTrackIds,
+  fetchPlaylistTrackRows: playlistMutationMocks.fetchPlaylistTrackRows,
+  insertPlaylistTrackRecord: playlistMutationMocks.insertPlaylistTrackRecord,
+  insertPlaylistTrackRecords: playlistMutationMocks.insertPlaylistTrackRecords,
+  setPlaylistCoverUrl: playlistMutationMocks.setPlaylistCoverUrl,
+  updatePlaylistRecord: playlistMutationMocks.updatePlaylistRecord,
+  updatePlaylistTrackPosition: playlistMutationMocks.updatePlaylistTrackPosition,
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -77,6 +81,11 @@ vi.mock("@/lib/appDiagnostics", () => ({
 
 vi.mock("@/lib/observability", () => ({
   reportClientError: vi.fn(async () => {}),
+}));
+
+vi.mock("@/lib/safeStorage", () => ({
+  safeStorageGetItem: (...args: unknown[]) => storageMocks.getItem(...args),
+  safeStorageSetItem: (...args: unknown[]) => storageMocks.setItem(...args),
 }));
 
 function deferred<T>() {
@@ -98,6 +107,8 @@ function wrapper({ children }: { children: ReactNode }) {
 describe("usePlaylists", () => {
   beforeEach(() => {
     authMocks.user = { id: "user-1" };
+    storageMocks.getItem.mockReset();
+    storageMocks.setItem.mockReset();
     playlistQueryMocks.fetchUserPlaylists.mockReset();
     playlistQueryMocks.invalidateUserPlaylistsCache.mockReset();
     playlistQueryMocks.subscribeToPlaylistChanges.mockClear();
@@ -109,9 +120,58 @@ describe("usePlaylists", () => {
     playlistMutationMocks.fetchPlaylistTrackIds.mockReset();
     playlistMutationMocks.fetchPlaylistTrackRows.mockReset();
     playlistMutationMocks.insertPlaylistTrackRecord.mockReset();
+    playlistMutationMocks.insertPlaylistTrackRecords.mockReset();
     playlistMutationMocks.setPlaylistCoverUrl.mockReset();
     playlistMutationMocks.updatePlaylistRecord.mockReset();
     playlistMutationMocks.updatePlaylistTrackPosition.mockReset();
+  });
+
+  it("hydrates cached playlist summaries immediately while remote sync starts", async () => {
+    storageMocks.getItem.mockReturnValue(JSON.stringify([
+      {
+        id: "playlist-cached",
+        name: "Cached Playlist",
+        description: "",
+        cover_url: "/cached.jpg",
+        created_at: "2026-03-08T00:00:00.000Z",
+        owner_user_id: "user-1",
+        access_role: "owner",
+        visibility: "private",
+        share_token: "share-cached",
+        track_count: 12,
+        tracks_loaded: false,
+        tracks: [],
+      },
+    ]));
+    const request = deferred<
+      Array<{
+        id: string;
+        name: string;
+        description: string;
+        cover_url: string | null;
+        created_at: string;
+        user_id: string;
+        visibility: string;
+        share_token: string;
+        access_role: string;
+        track_count: number;
+      }>
+    >();
+    playlistQueryMocks.fetchUserPlaylists.mockReturnValueOnce(request.promise);
+
+    const { result } = renderHook(() => usePlaylists(), { wrapper });
+
+    expect(result.current.playlists).toHaveLength(1);
+    expect(result.current.playlists[0]?.name).toBe("Cached Playlist");
+
+    await waitFor(() => {
+      expect(playlistQueryMocks.fetchUserPlaylists).toHaveBeenCalledWith("user-1");
+    });
+
+    request.resolve([]);
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
   });
 
   it("keeps playlist detail routes in a resolving state until the first fetch completes", async () => {
@@ -265,6 +325,10 @@ describe("usePlaylists", () => {
       error: null,
     });
     playlistMutationMocks.insertPlaylistTrackRecord.mockResolvedValue({
+      error: null,
+    });
+    playlistMutationMocks.insertPlaylistTrackRecords.mockResolvedValue({
+      insertedTrackKeys: ["tidal-999"],
       error: null,
     });
     playlistMutationMocks.setPlaylistCoverUrl.mockResolvedValue({

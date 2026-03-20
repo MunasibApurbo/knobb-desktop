@@ -1,8 +1,8 @@
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayerCommands } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { Track } from "@/types/music";
-import { Disc3, Download, Heart, ListMusic, Play, Radio, Share2, UserRound } from "lucide-react";
+import { Disc3, Download, Heart, ListMusic, Play, Radio, Share, Trash2, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/context-menu";
 import { downloadTrack } from "@/lib/downloadHelpers";
 import { useSettings } from "@/contexts/SettingsContext";
+import { cn } from "@/lib/utils";
 import {
   buildArtistPath,
   buildTrackMixPath,
@@ -31,10 +32,22 @@ interface TrackContextMenuProps {
   track: Track;
   tracks?: Track[];
   children: React.ReactNode;
+  contentClassName?: string;
+  itemClassName?: string;
+  separatorClassName?: string;
+  onRemoveFromPlaylist?: () => void;
 }
 
-export function TrackContextMenu({ track, tracks, children }: TrackContextMenuProps) {
-  const { play, addToQueue, startTrackMix } = usePlayer();
+export function TrackContextMenu({
+  track,
+  tracks,
+  children,
+  contentClassName,
+  itemClassName,
+  separatorClassName,
+  onRemoveFromPlaylist,
+}: TrackContextMenuProps) {
+  const { play, addToQueue, startTrackMix } = usePlayerCommands();
   const { user } = useAuth();
   const { isLiked, toggleLike } = useLikedSongs();
   const navigate = useNavigate();
@@ -43,12 +56,17 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
   const trackMixPath = buildTrackMixPath(track);
   const trackShareUrl = buildTrackShareUrl(track);
   const hasTrackMixPage = Boolean(getTrackMixId(track) && trackMixPath);
+  const mixActionLabel = track.isVideo
+    ? "Open Mix Options"
+    : hasTrackMixPage
+      ? "Open Mix"
+      : "Start Mix";
   const playable = isTrackPlayable(track);
   const [isCreditsOpen, setIsCreditsOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
 
-  const handleCopyTrackLink = async () => {
+  const handleShareTrackLink = async () => {
     if (!trackShareUrl) return;
     await copyPlainTextToClipboard(trackShareUrl);
     toast.success("Song link copied");
@@ -74,16 +92,16 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
+        <ContextMenuContent className={cn("w-56", contentClassName)}>
           <ContextMenuItem
-            className="gap-2"
+            className={cn("gap-2", itemClassName)}
             onClick={() => play(track, tracks || [track])}
             disabled={!playable}
           >
             <Play className="w-4 h-4" /> Play
           </ContextMenuItem>
           <ContextMenuItem
-            className="gap-2"
+            className={cn("gap-2", itemClassName)}
             onClick={() => {
               if (trackMixPath) {
                 navigate(trackMixPath);
@@ -94,10 +112,10 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
             }}
             disabled={!playable}
           >
-            <Radio className="w-4 h-4" /> {hasTrackMixPage ? "Open Mix" : "Start Mix"}
+            <Radio className="w-4 h-4" /> {mixActionLabel}
           </ContextMenuItem>
           <ContextMenuItem
-            className="gap-2"
+            className={cn("gap-2", itemClassName)}
             onClick={() => {
               addToQueue(track);
               toast.success(`Queued ${track.title}`);
@@ -107,7 +125,7 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
             <ListMusic className="w-4 h-4" /> Add to Queue
           </ContextMenuItem>
           <ContextMenuItem
-            className="gap-2"
+            className={cn("gap-2", itemClassName)}
             onClick={() => {
               toggleLike(track);
               toast.success(liked ? "Removed from Liked Songs" : "Added to Liked Songs");
@@ -118,40 +136,45 @@ export function TrackContextMenu({ track, tracks, children }: TrackContextMenuPr
           </ContextMenuItem>
 
           {user && (
-            <ContextMenuItem className="gap-2" onClick={() => setShowPlaylistDialog(true)}>
+            <ContextMenuItem className={cn("gap-2", itemClassName)} onClick={() => setShowPlaylistDialog(true)}>
               <ListMusic className="w-4 h-4" /> Add to playlist
             </ContextMenuItem>
           )}
+          {onRemoveFromPlaylist ? (
+            <ContextMenuItem className={cn("gap-2", itemClassName)} onClick={onRemoveFromPlaylist}>
+              <Trash2 className="w-4 h-4" /> Remove from playlist
+            </ContextMenuItem>
+          ) : null}
 
           {(track.album || track.artistId) && (
             <>
-              <ContextMenuSeparator />
+              <ContextMenuSeparator className={separatorClassName} />
               {track.artistId ? (
                 <ContextMenuItem
-                  className="gap-2"
+                  className={cn("gap-2", itemClassName)}
                   onClick={() => navigate(buildArtistPath(track.artistId, track.artist))}
                 >
-                  <UserRound className="w-4 h-4" /> Go to Artist
+                  <User className="w-4 h-4" /> Go to Artist
                 </ContextMenuItem>
               ) : null}
               {track.album ? (
-                <ContextMenuItem className="gap-2" onClick={() => void handleGoToAlbum()}>
+                <ContextMenuItem className={cn("gap-2", itemClassName)} onClick={() => void handleGoToAlbum()}>
                   <Disc3 className="w-4 h-4" /> Go to Album
                 </ContextMenuItem>
               ) : null}
             </>
           )}
-          <ContextMenuSeparator />
+          <ContextMenuSeparator className={separatorClassName} />
           <ContextMenuItem
-            className="gap-2"
+            className={cn("gap-2", itemClassName)}
             onClick={() => setIsCreditsOpen(true)}
           >
-            <UserRound className="w-4 h-4" /> View credits
+            <User className="w-4 h-4" /> View credits
           </ContextMenuItem>
-          <ContextMenuItem className="gap-2" onClick={() => void handleCopyTrackLink()} disabled={!trackShareUrl}>
-            <Share2 className="w-4 h-4" /> Share
+          <ContextMenuItem className={cn("gap-2", itemClassName)} onClick={() => void handleShareTrackLink()} disabled={!trackShareUrl}>
+            <Share className="w-4 h-4" /> Share song link
           </ContextMenuItem>
-          <ContextMenuItem className="gap-2" onClick={handleDownload} disabled={isDownloading || !playable}>
+          <ContextMenuItem className={cn("gap-2", itemClassName)} onClick={handleDownload} disabled={isDownloading || !playable}>
             <Download className="w-4 h-4" /> {isDownloading ? "Downloading..." : "Download"}
           </ContextMenuItem>
         </ContextMenuContent>

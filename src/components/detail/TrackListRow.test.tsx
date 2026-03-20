@@ -2,6 +2,19 @@ import { createRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+const playerContextMocks = vi.hoisted(() => ({
+  warmTrackPlayback: vi.fn(),
+}));
+
+vi.mock("@/contexts/PlayerContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/contexts/PlayerContext")>();
+
+  return {
+    ...actual,
+    useOptionalPlayerWarmTrackPlayback: () => playerContextMocks.warmTrackPlayback,
+  };
+});
+
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import type { Track } from "@/types/music";
 
@@ -19,6 +32,7 @@ const track: Track = {
 describe("TrackListRow", () => {
   it("forwards refs and DOM event props to the root row", () => {
     const onContextMenu = vi.fn();
+    const onPointerDown = vi.fn();
     const ref = createRef<HTMLDivElement>();
 
     render(
@@ -30,6 +44,7 @@ describe("TrackListRow", () => {
         isPlaying={false}
         middleContent={null}
         onContextMenu={onContextMenu}
+        onPointerDown={onPointerDown}
         onPlay={vi.fn()}
         subtitle="ROSALIA"
         track={track}
@@ -38,8 +53,11 @@ describe("TrackListRow", () => {
 
     const row = screen.getByTestId("track-row");
     fireEvent.contextMenu(row);
+    fireEvent.pointerDown(row);
 
     expect(onContextMenu).toHaveBeenCalledTimes(1);
+    expect(onPointerDown).toHaveBeenCalledTimes(1);
+    expect(playerContextMocks.warmTrackPlayback).toHaveBeenCalledWith(track);
     expect(ref.current).toBe(row);
     expect(row).toHaveAttribute("data-allow-global-shortcuts", "true");
   });
@@ -79,12 +97,36 @@ describe("TrackListRow", () => {
       </MemoryRouter>,
     );
 
-    const row = screen.getByRole("button");
+    const row = screen.getByRole("button", { name: /La Perla/i });
     fireEvent.click(row);
 
     expect(row).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
     expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it("allocates enough action width for double-slot controls", () => {
+    render(
+      <MemoryRouter>
+        <TrackListRow
+          index={0}
+          isCurrent={false}
+          isPlaying={false}
+          actionSlotLayout="double"
+          actionSlot={(
+            <>
+              <button type="button" aria-label="Queue track">+</button>
+              <button type="button" aria-label="Open source">↗</button>
+            </>
+          )}
+          onPlay={vi.fn()}
+          track={track}
+        />
+      </MemoryRouter>,
+    );
+
+    const queueButton = screen.getByRole("button", { name: "Queue track" });
+    expect(queueButton.parentElement).toHaveClass("min-w-[5.25rem]");
   });
 
   it("makes the row draggable when drag callbacks are provided", () => {

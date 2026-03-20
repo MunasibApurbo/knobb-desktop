@@ -5,18 +5,18 @@ import {
   type MediaCardSize,
 } from "@/lib/mediaCardSizing";
 
-const MOBILE_BREAKPOINT = 640;
-const MOBILE_COLUMNS = 2;
+const COMPACT_WINDOW_COLUMNS = 2;
+const COMPACT_WINDOW_BREAKPOINT = 960;
 
-function getColumnsForWidth(width: number, cardSize: MediaCardSize) {
-  return getMediaCardColumnsForWidth(width, cardSize, MOBILE_BREAKPOINT, MOBILE_COLUMNS);
+export function getResponsiveMediaCardColumnsForWidth(width: number, cardSize: MediaCardSize) {
+  return getMediaCardColumnsForWidth(width, cardSize, COMPACT_WINDOW_BREAKPOINT, COMPACT_WINDOW_COLUMNS);
 }
 
 export function useResponsiveMediaCardCount(cardSize: MediaCardSize) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [collapsedCount, setCollapsedCount] = useState(() => {
     const initialWidth = typeof window === "undefined" ? 0 : window.innerWidth;
-    return getColumnsForWidth(initialWidth, cardSize);
+    return getResponsiveMediaCardColumnsForWidth(initialWidth, cardSize);
   });
 
   useEffect(() => {
@@ -24,12 +24,12 @@ export function useResponsiveMediaCardCount(cardSize: MediaCardSize) {
     let detach: (() => void) | undefined;
     const resizeObserver = typeof ResizeObserver !== "undefined"
       ? new ResizeObserver((entries) => {
-        const entry = entries[0];
-        const nextWidth = entry?.contentRect.width ?? containerRef.current?.clientWidth ?? 0;
-        setCollapsedCount((previous) => {
-          const next = getColumnsForWidth(nextWidth, cardSize);
-          return previous === next ? previous : next;
-        });
+          const entry = entries[0];
+          const nextWidth = entry?.contentRect.width ?? containerRef.current?.clientWidth ?? 0;
+          setCollapsedCount((previous) => {
+            const next = getResponsiveMediaCardColumnsForWidth(nextWidth, cardSize);
+            return previous === next ? previous : next;
+          });
       })
       : null;
 
@@ -43,17 +43,22 @@ export function useResponsiveMediaCardCount(cardSize: MediaCardSize) {
       const recompute = () => {
         const nextWidth = container.clientWidth;
         setCollapsedCount((previous) => {
-          const next = getColumnsForWidth(nextWidth, cardSize);
+          const next = getResponsiveMediaCardColumnsForWidth(nextWidth, cardSize);
           return previous === next ? previous : next;
         });
       };
 
       recompute();
-      resizeObserver?.observe(container);
-      window.addEventListener("resize", recompute);
+      if (resizeObserver) {
+        resizeObserver.observe(container);
+      } else {
+        window.addEventListener("resize", recompute);
+      }
       detach = () => {
         resizeObserver?.disconnect();
-        window.removeEventListener("resize", recompute);
+        if (!resizeObserver) {
+          window.removeEventListener("resize", recompute);
+        }
       };
     };
 

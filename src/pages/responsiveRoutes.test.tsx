@@ -40,6 +40,20 @@ const responsiveMocks = vi.hoisted(() => {
     picture: `/artist-${index + 1}.jpg`,
   }));
 
+  const artistGridArtists = Array.from({ length: 5 }, (_value, index) => ({
+    name: `ArtistGrid ${index + 1}`,
+    cleanName: `ArtistGrid ${index + 1}`,
+    url: `https://docs.google.com/spreadsheets/d/${String(index + 1).padStart(44, "1")}/edit`,
+    credit: "Community tracker",
+    imageFilename: `artistgrid-${index + 1}.webp`,
+    imageUrl: `/artistgrid-${index + 1}.jpg`,
+    isAlt: index === 4,
+    isLinkWorking: index !== 3,
+    isUpdated: index < 4,
+    isStarred: index < 2,
+    sheetId: `${String(index + 1).padStart(44, "1")}`,
+  }));
+
   const playlists = [
     {
       uuid: "playlist-1",
@@ -54,7 +68,6 @@ const responsiveMocks = vi.hoisted(() => {
   ];
 
   return {
-    viewport: { isMobile: true },
     play: vi.fn(),
     playArtist: vi.fn(),
     togglePlay: vi.fn(),
@@ -65,6 +78,7 @@ const responsiveMocks = vi.hoisted(() => {
     toggleLike: vi.fn(async () => true),
     searchTidalReference: vi.fn(async () => ({
       tracks,
+      videos: [],
       artists,
       albums: albums.map((album) => ({
         id: album.id,
@@ -82,13 +96,10 @@ const responsiveMocks = vi.hoisted(() => {
     tracks,
     albums,
     artists,
+    artistGridArtists,
     playlists,
   };
 });
-
-vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => responsiveMocks.viewport.isMobile,
-}));
 
 vi.mock("@/contexts/PlayerContext", () => ({
   usePlayer: () => ({
@@ -98,6 +109,7 @@ vi.mock("@/contexts/PlayerContext", () => ({
     currentTrack: responsiveMocks.currentTrack,
     isPlaying: responsiveMocks.isPlaying,
   }),
+  useOptionalPlayerWarmTrackPlayback: () => undefined,
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -169,6 +181,17 @@ vi.mock("@/hooks/useBrowseHotNew", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useArtistGridDirectory", () => ({
+  useArtistGridDirectory: () => ({
+    artists: responsiveMocks.artistGridArtists,
+    error: null,
+    loaded: true,
+    sortedArtists: responsiveMocks.artistGridArtists,
+    testedTrackers: responsiveMocks.artistGridArtists.slice(0, 2).map((artist) => artist.sheetId),
+  }),
+}));
+
+
 vi.mock("@/hooks/useSavedAlbums", () => ({
   useSavedAlbums: () => ({
     isSaved: () => false,
@@ -180,13 +203,16 @@ vi.mock("@/contexts/SettingsContext", () => ({
   useSettings: () => ({
     cardSize: "default",
     blurEffects: false,
+    showSidebar: true,
+    libraryOpenState: "expanded" as const,
+    animationMode: "full" as const,
   }),
 }));
 
 vi.mock("@/hooks/useResponsiveMediaCardCount", () => ({
   useResponsiveMediaCardCount: () => ({
     containerRef: { current: null },
-    collapsedCount: responsiveMocks.viewport.isMobile ? 2 : 3,
+    collapsedCount: 3,
   }),
 }));
 
@@ -239,6 +265,7 @@ vi.mock("@/hooks/useArtistPageData", () => ({
       releaseDate: album.releaseDate,
     })),
     topTracks: responsiveMocks.tracks,
+    artistVideos: [],
     tracksLoading: false,
   }),
 }));
@@ -248,7 +275,19 @@ vi.mock("@/hooks/useResolvedArtistImage", () => ({
 }));
 
 vi.mock("@/lib/tidalReferenceSearch", () => ({
-  searchTidalReference: (...args: unknown[]) => responsiveMocks.searchTidalReference(...args),
+  searchTidalReference: responsiveMocks.searchTidalReference,
+}));
+
+vi.mock("@/lib/youtubeMusicApi", () => ({
+  searchYoutubeMusicReference: vi.fn(async () => ({
+    topResult: null,
+    rankedResults: [],
+    tracks: [],
+    videos: [],
+    artists: [],
+    albums: [],
+    playlists: [],
+  })),
 }));
 
 vi.mock("@/lib/musicApi", async (importOriginal) => {
@@ -293,6 +332,7 @@ vi.mock("@/components/VirtualizedTrackList", () => ({
 
 vi.mock("@/components/home/HomeMediaCards", () => ({
   HomeAlbumCard: ({ album }: { album: { title: string } }) => <div>{album.title}</div>,
+  PlaylistCard: ({ title }: { title: string }) => <div>{title}</div>,
   TrackCard: ({ track }: { track: { title: string } }) => <div>{track.title}</div>,
   ArtistCardWrapper: ({ artist }: { artist: { name: string } }) => <div>{artist.name}</div>,
 }));
@@ -328,7 +368,6 @@ function renderWithRouter(node: ReactNode, initialEntries: string[] = ["/"]) {
 
 describe("responsive routes", () => {
   beforeEach(() => {
-    responsiveMocks.viewport.isMobile = true;
     responsiveMocks.play.mockReset();
     responsiveMocks.playArtist.mockReset();
     responsiveMocks.togglePlay.mockReset();
@@ -340,38 +379,7 @@ describe("responsive routes", () => {
     responsiveMocks.searchTidalReference.mockClear();
   });
 
-  it("renders the home page as horizontal mobile shelves", () => {
-    const { container } = renderWithRouter(<Index />);
-
-    expect(container.querySelector(".home-section-inline-row")).not.toBeNull();
-    expect(screen.queryAllByLabelText(/Next /i)).toHaveLength(0);
-  });
-
-  it("renders browse collections as horizontal mobile shelves", () => {
-    const { container } = renderWithRouter(<BrowsePage />);
-
-    expect(screen.getByText("Hot Albums")).toBeInTheDocument();
-    expect(container.querySelector(".home-section-inline-row")).not.toBeNull();
-  });
-
-  it("renders the search page with the mobile top-result treatment", async () => {
-    renderWithRouter(
-      <Routes>
-        <Route path="/search" element={<SearchPage />} />
-      </Routes>,
-      ["/search?q=artist"],
-    );
-
-    await waitFor(() => {
-      expect(responsiveMocks.searchTidalReference).toHaveBeenCalled();
-    });
-
-    expect(await screen.findByText("Top result")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Top Results" })).toHaveClass("menu-sweep-hover");
-  });
-
   it("renders top-result search tracks through the shared track row and keeps the current track highlighted while playing", async () => {
-    responsiveMocks.viewport.isMobile = false;
     responsiveMocks.currentTrack = responsiveMocks.tracks[0];
     responsiveMocks.isPlaying = true;
 
@@ -394,7 +402,6 @@ describe("responsive routes", () => {
   });
 
   it("renders tracks-tab search tracks through the shared track row and keeps the current track highlighted while paused", async () => {
-    responsiveMocks.viewport.isMobile = false;
     responsiveMocks.currentTrack = responsiveMocks.tracks[1];
     responsiveMocks.isPlaying = false;
 
@@ -409,7 +416,7 @@ describe("responsive routes", () => {
       expect(responsiveMocks.searchTidalReference).toHaveBeenCalled();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Tracks" }));
+    fireEvent.click(screen.getByRole("button", { name: "Songs" }));
 
     const currentRow = await screen.findByLabelText("Drag Track 2 to a playlist");
 
@@ -417,18 +424,33 @@ describe("responsive routes", () => {
     expect(currentRow).toHaveClass("detail-track-row", "is-current");
   });
 
-  it("renders artist detail sections as mobile shelves with the shared action rail", () => {
+  it("renders browse collections with desktop carousels", () => {
     const { container } = renderWithRouter(
       <Routes>
-        <Route path="/artist/:id" element={<ArtistPage />} />
+        <Route path="/browse" element={<BrowsePage />} />
       </Routes>,
-      ["/artist/7?name=Artist%201"],
+      ["/browse"],
     );
 
-    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Shuffle" })).toBeInTheDocument();
-    expect(container.querySelector(".home-section-inline-row")).not.toBeNull();
-    expect(screen.queryByLabelText(/Next Albums/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Hot Albums")).toBeInTheDocument();
+    expect(container.querySelector(".home-section-inline-row")).toBeNull();
+    expect(container.querySelector(".home-section-carousel-track")).not.toBeNull();
+  });
+
+  it("renders the full ArtistGrid directory inside the browse tab", async () => {
+    renderWithRouter(
+      <Routes>
+        <Route path="/browse" element={<BrowsePage />} />
+      </Routes>,
+      ["/browse"],
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /ArtistGrid Archives/i }));
+
+    expect(await screen.findByPlaceholderText("Search ArtistGrid archives...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Working" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide Alts" })).toBeInTheDocument();
+    expect(screen.getByText("ArtistGrid 1")).toBeInTheDocument();
   });
 
   it("renders artist popular tracks through the shared draggable track row", () => {
@@ -449,19 +471,15 @@ describe("responsive routes", () => {
     expect(container.querySelector(".detail-track-row.is-current")).toBe(currentRow);
   });
 
-  it("keeps the desktop home carousel and pager controls", () => {
-    responsiveMocks.viewport.isMobile = false;
+  it("renders the home page content on desktop", () => {
+    renderWithRouter(<Index />);
 
-    const { container } = renderWithRouter(<Index />);
-
-    expect(container.querySelector(".home-section-inline-row")).toBeNull();
-    expect(container.querySelector(".home-section-carousel-track")).not.toBeNull();
-    expect(screen.getAllByLabelText(/Next /i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("For You").length).toBeGreaterThan(0);
+    expect(screen.getByText("Fresh picks, recent plays, and artists worth revisiting.")).toBeInTheDocument();
+    expect(screen.getByText("Recommended Songs")).toBeInTheDocument();
   });
 
   it("keeps desktop artist carousels and pager controls", () => {
-    responsiveMocks.viewport.isMobile = false;
-
     const { container } = renderWithRouter(
       <Routes>
         <Route path="/artist/:id" element={<ArtistPage />} />

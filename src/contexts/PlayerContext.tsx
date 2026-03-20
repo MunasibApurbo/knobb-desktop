@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlbumPlaybackTarget,
   AudioQuality,
+  PlaybackMode,
   PlayerState,
   RightPanelTab,
 } from "@/contexts/player/playerTypes";
@@ -32,6 +33,7 @@ import {
 import { useOptionalAuth } from "@/contexts/AuthContext";
 import type { AudioEngine } from "@/lib/audioEngine";
 import { EQ_PRESETS } from "@/lib/audioEngineShared";
+import type { PlaybackSource as AudioPlaybackSource } from "@/lib/audioEngineShared";
 import {
   getPlaybackDeviceId,
   getPlaybackDeviceName,
@@ -39,22 +41,119 @@ import {
   type PlaybackSessionSnapshot,
   upsertPlaybackSession,
 } from "@/lib/playbackSessions";
-import { getSupabaseClient, loadAudioEngineModule, loadMusicApiModule, reportClientErrorLazy } from "@/lib/runtimeModules";
+import {
+  getSupabaseClient,
+  loadAudioEngineModule,
+  loadMusicApiModule,
+  loadYoutubeMusicApiModule,
+  reportClientErrorLazy,
+  reportClientEventLazy,
+} from "@/lib/runtimeModules";
 import { loadProfilePreferences, persistProfilePreferences } from "@/lib/profilePreferences";
-import { getRecoveryQualityOrder, isAudioQuality } from "@/lib/audioQuality";
+import {
+  getEffectivePlaybackQuality,
+  getAudioQualityTierFromResolvedLabel,
+  getHighestResolvedAudioQuality,
+  getPlayableAudioQualityForTrack,
+  getRecoveryQualityOrderForSource,
+  isAudioQuality,
+} from "@/lib/audioQuality";
 import { getResolvableTidalId } from "@/lib/trackIdentity";
 import { filterPlayableTracks, isTrackPlayable } from "@/lib/trackPlayback";
 import { Track } from "@/types/music";
-import { toast } from "sonner";
 import { pushAppDiagnostic } from "@/lib/appDiagnostics";
-import { syncDiscordPresence } from "@/lib/discordPresence";
+import { subscribeToDiscordPresenceBridge, syncDiscordPresence } from "@/lib/discordPresence";
+import { subscribeToDiscordWebhookSettings, syncDiscordWebhookPresence } from "@/lib/discordWebhookPresence";
 import { useSettings } from "@/contexts/SettingsContext";
+import { showErrorToast, showInfoToast } from "@/lib/toast";
+import { buildTrackKey, getTrackSource, getTrackSourceId } from "@/lib/librarySources";
+import { primeMediaPlayback } from "@/lib/mediaPlaybackPrimer";
+import { warmPlaybackOrigin } from "@/lib/playbackWarmup";
+import { readStartupPerformanceBudget } from "@/lib/performanceProfile";
+import { getMediaSessionTrackArtworkUrl, getTrackArtworkUrl } from "@/lib/trackArtwork";
+import {
+  formatResolvedVideoQuality,
+  getVideoQualityPreference,
+  type VideoQualityPreference,
+} from "@/lib/videoPlaybackPreferences";
+import { getYoutubeEmbedManager } from "@/lib/youtubeEmbedManager";
+import { isPublishedRuntimeHost } from "@/lib/playbackEnvironment";
 
 const MEDIA_SESSION_SKIP_SECONDS = 10;
 const MEDIA_SESSION_ARTWORK_SIZES = ["96x96", "128x128", "192x192", "256x256", "384x384", "512x512"] as const;
+const MEDIA_SESSION_FALLBACK_ARTWORK_URL = "/brand/logo-k-black-square-512.png";
 const AUDIO_ERROR_CODE_REGEX = /\(code\s+(\d+)\)/i;
+// Keep playback UI responsive without pushing React updates on every engine tick.
 const PLAYER_PROGRESS_RENDER_STEP_SECONDS = 0.25;
 const PLAYER_DURATION_RENDER_EPSILON_SECONDS = 0.5;
+const PLAYER_BACKWARD_PROGRESS_TOLERANCE_SECONDS = 0.35;
+const PENDING_SEEK_TIMEOUT_MS = 4000;
+const PENDING_SEEK_TOLERANCE_SECONDS = 1.5;
+const PLAYBACK_INTERRUPTION_RECOVERY_DELAY_MS = 2500;
+const PLAYBACK_INTERRUPTION_HEALTH_WINDOW_MS = 15_000;
+const PLAYBACK_INTERRUPTION_HEALTH_THRESHOLD = 3;
+const PLAYBACK_INTERRUPTION_HEALTH_REPORT_COOLDOWN_MS = 30_000;
+const UNEXPECTED_PAUSE_RECOVERY_DELAY_MS = 120;
+const EXPECTED_PAUSE_GRACE_WINDOW_MS = 1500;
+const AUTO_SKIP_ON_PLAYBACK_FAILURE = false;
+const TIDAL_STREAMING_OUTAGE_TTL_MS = 3 * 60_000;
+const TIDAL_STREAMING_OUTAGE_STORAGE_KEY = "knobb-tidal-streaming-outage";
+const TIDAL_VIDEO_PLAYBACK_PREFERENCE: VideoQualityPreference = "1080p";
+const TIDAL_PRIMARY_RESOLUTION_HEAD_START_MS = 350;
+const PLAYBACK_SOURCE_RESOLUTION_CACHE_TTL_MS = 20_000;
+let mediaSessionArtworkRequestId = 0;
+type PendingSeekState = {
+  expiresAt: number;
+  time: number;
+  trackId: string | null;
+};
+
+type PlayerTimelineState = Pick<PlayerState, "currentTime" | "duration"> & {
+  pendingSeekTime: number | null;
+};
+type PlayerContextState = Omit<PlayerState, "currentTime" | "duration">;
+type PlaybackTargetResolution = {
+  resolvedAvailableAudioQualityLabels: string[];
+  resolvedAudioQualityLabel: string | null;
+  resolvedVideoQuality: string | null;
+  source: AudioPlaybackSource | null;
+  resolvedAudioQuality: AudioQuality | null;
+  capability: Track["audioQuality"] | null;
+};
+
+type PlaybackSourceResolutionCacheEntry = {
+  expiresAt: number;
+  resolution: PlaybackTargetResolution;
+};
+
+type PlaybackInterruptionHealthState = {
+  trackId: string | null;
+  timestamps: number[];
+  lastReportedAt: number;
+};
+
+type PlaybackStartupState = {
+  attempt: number;
+  trackId: string | null;
+};
+
+type TidalStreamingOutageState = {
+  activeUntil: number;
+  reason: string | null;
+};
+
+type WindowWithIdleCallback = Window & typeof globalThis & {
+  cancelIdleCallback?: (handle: number) => void;
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+};
+
+type TidalPlaybackResolution =
+  | {
+      quality: AudioQuality | null;
+      capability: AudioQuality | null;
+      source: AudioPlaybackSource;
+    }
+  | AudioPlaybackSource;
 
 function getAudioErrorCode(error: string) {
   const match = error.match(AUDIO_ERROR_CODE_REGEX);
@@ -64,8 +163,148 @@ function getAudioErrorCode(error: string) {
   return Number.isFinite(code) ? code : null;
 }
 
-function isAutoQualityEnabled(state: Pick<PlayerState, "autoQualityEnabled">) {
-  return state.autoQualityEnabled;
+function getPlaybackFailureReason(
+  error: unknown,
+  track: Pick<Track, "source" | "isVideo"> | null | undefined,
+) {
+  const message = typeof error === "string"
+    ? error
+    : error instanceof Error
+      ? error.message
+      : "";
+
+  const normalized = message
+    .replace(/^audio error:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const lower = normalized.toLowerCase();
+
+  if (track?.source === "tidal") {
+    if (
+      lower.includes("no tidal credentials available") ||
+      lower.includes("authentication failed") ||
+      (lower.includes("oauth2/token") && lower.includes("403 forbidden")) ||
+      lower.includes("token refresh failed")
+    ) {
+      return "TIDAL streaming authentication is currently unavailable";
+    }
+
+    if (lower.includes("all instances failed for /track/") || lower.includes("all instances failed for /video/")) {
+      return "All available TIDAL streaming instances failed";
+    }
+
+    if (lower.includes("malformed track response") || lower.includes("could not resolve stream url")) {
+      return "TIDAL returned an invalid playback source";
+    }
+  }
+
+  if (track?.source === "youtube-music" && track.isVideo === true) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function formatPlaybackFailureToast(message: string) {
+  return /[.!?]$/.test(message) ? message : `${message}.`;
+}
+
+function readPersistedTidalStreamingOutage(): TidalStreamingOutageState {
+  if (typeof window === "undefined") {
+    return { activeUntil: 0, reason: null };
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(TIDAL_STREAMING_OUTAGE_STORAGE_KEY);
+    if (!raw) {
+      return { activeUntil: 0, reason: null };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<TidalStreamingOutageState>;
+    const activeUntil = Number(parsed.activeUntil) || 0;
+    const reason = typeof parsed.reason === "string" ? parsed.reason : null;
+
+    return activeUntil > Date.now()
+      ? { activeUntil, reason }
+      : { activeUntil: 0, reason: null };
+  } catch {
+    return { activeUntil: 0, reason: null };
+  }
+}
+
+function persistTidalStreamingOutage(state: TidalStreamingOutageState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (state.activeUntil > Date.now()) {
+      window.sessionStorage.setItem(TIDAL_STREAMING_OUTAGE_STORAGE_KEY, JSON.stringify(state));
+    } else {
+      window.sessionStorage.removeItem(TIDAL_STREAMING_OUTAGE_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures for outage hints.
+  }
+}
+
+function isTidalStreamingOutageError(error: unknown) {
+  const message = typeof error === "string"
+    ? error
+    : error instanceof Error
+      ? error.message
+      : "";
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes("no tidal credentials available") ||
+    normalized.includes("authentication failed") ||
+    normalized.includes("token refresh failed") ||
+    (normalized.includes("oauth2/token") && normalized.includes("403 forbidden")) ||
+    normalized.includes("all instances failed for /track/") ||
+    normalized.includes("all instances failed for /video/")
+  );
+}
+
+function shouldAttemptAudioRecovery(error: string, track: Pick<Track, "source" | "isVideo"> | null | undefined) {
+  const code = getAudioErrorCode(error);
+  if (code === 2 || code === 3 || code === 4) {
+    return true;
+  }
+
+  const normalized = error.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized.includes("playback did not start")) {
+    return true;
+  }
+
+  if (normalized.includes("playback stalled")) {
+    return true;
+  }
+
+  if (normalized.includes("playback timeout") || normalized.includes("did not become ready")) {
+    return true;
+  }
+
+  if (track?.source === "youtube-music" && track.isVideo !== true) {
+    return (
+      normalized.includes("network") ||
+      normalized.includes("stalled") ||
+      normalized.includes("decipher") ||
+      normalized.includes("expired") ||
+      normalized.includes("media aborted")
+    );
+  }
+
+  return false;
 }
 
 function getEqPresetFromGains(gains: number[]) {
@@ -78,14 +317,133 @@ function getEqPresetFromGains(gains: number[]) {
   return "custom";
 }
 
-function getTrackMixQueueKey(track: Pick<Track, "id" | "tidalId">) {
-  return track.tidalId ? `tidal:${track.tidalId}` : `app:${track.id}`;
+function getTrackMixQueueKey(track: Pick<Track, "id" | "isLocal" | "source" | "sourceId" | "tidalId" | "title" | "artist" | "album" | "duration">) {
+  return buildTrackKey(track);
 }
 
 function getTrackMixId(track: Pick<Track, "mixes">) {
   const mixId = track.mixes?.TRACK_MIX;
   if (mixId === null || mixId === undefined || mixId === "") return null;
   return String(mixId);
+}
+
+function getPlaybackSourceRequestCacheKey(
+  track: Pick<Track, "id" | "isLocal" | "isVideo" | "source" | "sourceId" | "tidalId" | "title" | "artist" | "album" | "duration" | "streamUrl" | "streamUrls">,
+  quality: AudioQuality,
+  requestedAudioQuality: AudioQuality,
+  forceRefresh: boolean,
+) {
+  const playbackVariant = getTrackVideoQualityPreference(track) ?? quality;
+  const directUrlHint = track.isVideo === true
+    ? ""
+    : track.streamUrls?.[requestedAudioQuality] || (!track.tidalId ? track.streamUrl : "") || "";
+
+  return `${track.isVideo === true ? "video" : "audio"}:${buildTrackKey(track)}:${playbackVariant}:${forceRefresh ? "refresh" : "cached"}:${directUrlHint}`;
+}
+
+function getPlaybackSourceResolutionCacheKey(
+  track: Pick<Track, "id" | "isLocal" | "isVideo" | "source" | "sourceId" | "tidalId" | "title" | "artist" | "album" | "duration">,
+  requestedAudioQuality: AudioQuality,
+) {
+  const playbackVariant = getTrackVideoQualityPreference(track) ?? requestedAudioQuality;
+  return `${track.isVideo === true ? "video" : "audio"}:${buildTrackKey(track)}:${playbackVariant}`;
+}
+
+function getAnyCachedStreamUrl(streamUrls: Track["streamUrls"]) {
+  for (const value of Object.values(streamUrls || {})) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+let customDirectPlaybackNonce = 0;
+
+function shouldBustCustomDirectTrackUrl(
+  track: Pick<Track, "id" | "isLocal" | "isVideo" | "source" | "tidalId">,
+  type: AudioPlaybackSource["type"],
+  url: string,
+) {
+  if (!url || type !== "direct" || track.isLocal || track.isVideo === true) {
+    return false;
+  }
+
+  const source = getTrackSource(track);
+  if (source === "youtube-music" || source === "local") {
+    return false;
+  }
+
+  return !getResolvableTidalId(track);
+}
+
+function appendPlaybackCacheBust(url: string) {
+  const nextNonce = `${Date.now().toString(36)}-${(++customDirectPlaybackNonce).toString(36)}`;
+
+  try {
+    const parsedUrl = new URL(url, typeof window !== "undefined" ? window.location.href : "http://localhost");
+    if (!/^https?:$/i.test(parsedUrl.protocol)) {
+      return url;
+    }
+
+    parsedUrl.searchParams.set("knobbPlayback", nextNonce);
+    return parsedUrl.toString();
+  } catch {
+    return url;
+  }
+}
+
+function getCompatiblePlaybackFallbackSource(source: AudioPlaybackSource | null) {
+  if (!source?.fallbackUrl) {
+    return null;
+  }
+
+  return {
+    ...(typeof source.fallbackVideoHeight === "number" ? { videoHeight: source.fallbackVideoHeight } : {}),
+    ...(source.videoQualityPreference ? { videoQualityPreference: source.videoQualityPreference } : {}),
+    url: source.fallbackUrl,
+    type: "direct" as const,
+  };
+}
+
+function getResolvedVideoQualityFromSource(source: AudioPlaybackSource | null | undefined) {
+  return formatResolvedVideoQuality(source?.videoHeight);
+}
+
+function getTrackVideoQualityPreference(
+  track: Pick<Track, "isVideo" | "source"> | null | undefined,
+): VideoQualityPreference | null {
+  if (track?.isVideo !== true) {
+    return null;
+  }
+
+  if (track.source === "tidal") {
+    return TIDAL_VIDEO_PLAYBACK_PREFERENCE;
+  }
+
+  return getVideoQualityPreference();
+}
+
+function getYoutubeEmbedSourceId(track: Pick<Track, "source" | "sourceId"> | null | undefined) {
+  if (track?.source !== "youtube-music" || typeof track.sourceId !== "string") {
+    return null;
+  }
+
+  const normalizedSourceId = track.sourceId.trim();
+  return normalizedSourceId.length > 0 ? normalizedSourceId : null;
+}
+
+function shouldUseYoutubeEmbedPlayback(track: Pick<Track, "isVideo" | "source" | "sourceId"> | null | undefined) {
+  if (!getYoutubeEmbedSourceId(track)) {
+    return false;
+  }
+
+  return isPublishedRuntimeHost();
+}
+
+function isYoutubeEmbedEligibleTrack(track: Pick<Track, "isVideo" | "source" | "sourceId"> | null | undefined) {
+  return track?.isVideo === true && Boolean(getYoutubeEmbedSourceId(track));
 }
 
 function getPrimaryArtistName(track: Pick<Track, "artist" | "artists">) {
@@ -95,6 +453,90 @@ function getPrimaryArtistName(track: Pick<Track, "artist" | "artists">) {
   return track.artist
     .split(",")[0]
     ?.trim() || "";
+}
+
+function normalizeFallbackSearchText(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\((feat|ft|featuring)[^)]+\)/gi, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getFallbackTokenScore(target: string, candidate: string) {
+  const targetTokens = target.split(" ").filter(Boolean);
+  const candidateTokens = new Set(candidate.split(" ").filter(Boolean));
+
+  return targetTokens.reduce((score, token) => (
+    candidateTokens.has(token) ? score + 10 : score
+  ), 0);
+}
+
+function scoreYoutubeMusicFallbackCandidate(
+  target: Pick<Track, "title" | "artist" | "duration">,
+  candidate: Pick<Track, "title" | "artist" | "duration">,
+) {
+  const targetTitle = normalizeFallbackSearchText(target.title);
+  const candidateTitle = normalizeFallbackSearchText(candidate.title);
+  const targetArtist = normalizeFallbackSearchText(target.artist);
+  const candidateArtist = normalizeFallbackSearchText(candidate.artist);
+
+  let score = 0;
+
+  if (candidateTitle === targetTitle) {
+    score += 140;
+  } else if (candidateTitle.startsWith(targetTitle) || targetTitle.startsWith(candidateTitle)) {
+    score += 110;
+  } else if (candidateTitle.includes(targetTitle) || targetTitle.includes(candidateTitle)) {
+    score += 80;
+  } else {
+    score += getFallbackTokenScore(targetTitle, candidateTitle);
+  }
+
+  if (candidateArtist === targetArtist) {
+    score += 90;
+  } else if (candidateArtist.includes(targetArtist) || targetArtist.includes(candidateArtist)) {
+    score += 55;
+  } else {
+    score += getFallbackTokenScore(targetArtist, candidateArtist);
+  }
+
+  const durationDelta = Math.abs((target.duration || 0) - (candidate.duration || 0));
+  if (durationDelta <= 2) {
+    score += 40;
+  } else if (durationDelta <= 5) {
+    score += 25;
+  } else if (durationDelta <= 10) {
+    score += 12;
+  } else {
+    score -= Math.min(durationDelta, 45);
+  }
+
+  return score;
+}
+
+function buildYoutubeMusicFallbackQuery(track: Pick<Track, "title" | "artist" | "artists">) {
+  const primaryArtist = getPrimaryArtistName(track);
+  return [primaryArtist, track.title].filter(Boolean).join(" ").trim();
+}
+
+function pickYoutubeMusicFallbackTrack(
+  track: Pick<Track, "artist" | "duration" | "isVideo" | "title">,
+  candidates: Track[],
+) {
+  let bestMatch: Track | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    if (!candidate.sourceId) continue;
+    const score = scoreYoutubeMusicFallbackCandidate(track, candidate);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = candidate;
+    }
+  }
+
+  return bestScore >= 120 ? bestMatch : null;
 }
 
 function buildTrackMixQueue(seedTrack: Track, candidateTracks: Track[]) {
@@ -111,8 +553,43 @@ function buildTrackMixQueue(seedTrack: Track, candidateTracks: Track[]) {
   return queue;
 }
 
-interface PlayerContextType extends PlayerState {
+function toTrackAudioQuality(quality: AudioQuality | null): Track["audioQuality"] | undefined {
+  if (!quality || quality === "AUTO") return undefined;
+  return quality;
+}
+
+function getRequestedAudioQualityForTrack(track: Track, quality: AudioQuality) {
+  if (track.isVideo === true || quality === "AUTO") {
+    return quality;
+  }
+
+  const capability = toTrackAudioQuality(track.audioQuality) || null;
+  if (!capability) {
+    return quality;
+  }
+
+  return getPlayableAudioQualityForTrack(
+    quality,
+    getTrackSource(track),
+    capability,
+    false,
+  );
+}
+
+function applyTrackAudioCapability(track: Track, capability: Track["audioQuality"] | null): Track {
+  if (!capability) return track;
+  return track.audioQuality === capability
+    ? track
+    : {
+        ...track,
+        audioQuality: capability,
+      };
+}
+
+interface PlayerContextType extends PlayerContextState {
   play: (track: Track, queue?: Track[]) => void;
+  playbackMode: PlaybackMode;
+  warmTrackPlayback: (track: Track) => void;
   playAlbum: (album: AlbumPlaybackTarget) => Promise<void>;
   addToQueue: (track: Track) => void;
   togglePlay: () => void;
@@ -128,6 +605,7 @@ interface PlayerContextType extends PlayerState {
   setRightPanelTab: (tab: RightPanelTab) => void;
   setAutoQualityEnabled: (enabled: boolean) => void;
   setQuality: (quality: AudioQuality) => void;
+  refreshVideoPlaybackPreference: () => Promise<void>;
   toggleNormalization: () => void;
   toggleEqualizer: () => void;
   setEqBandGain: (bandIndex: number, gainDb: number) => void;
@@ -141,12 +619,58 @@ interface PlayerContextType extends PlayerState {
   setSleepTimer: (minutes: number) => void;
   reorderQueue: (from: number, to: number) => void;
   removeFromQueue: (index: number) => void;
-  playArtist: (artistId: number, artistName?: string) => Promise<void>;
+  playArtist: (artistId: number | string, artistName?: string, source?: "tidal" | "youtube-music") => Promise<void>;
   startTrackMix: (track: Track) => Promise<void>;
   restoreRemoteSession: (snapshot: PlaybackSessionSnapshot) => Promise<void>;
+  isFullScreen: boolean;
+  toggleFullScreen: () => void;
+  setFullScreen: (open: boolean) => void;
 }
 
+type PlayerCommandContextType = Pick<
+  PlayerContextType,
+  | "play"
+  | "warmTrackPlayback"
+  | "playAlbum"
+  | "addToQueue"
+  | "togglePlay"
+  | "next"
+  | "previous"
+  | "seek"
+  | "toggleShuffle"
+  | "toggleRepeat"
+  | "setVolume"
+  | "toggleRightPanel"
+  | "openRightPanel"
+  | "setRightPanelOpen"
+  | "setRightPanelTab"
+  | "setAutoQualityEnabled"
+  | "setQuality"
+  | "refreshVideoPlaybackPreference"
+  | "toggleNormalization"
+  | "toggleEqualizer"
+  | "setEqBandGain"
+  | "applyEqPreset"
+  | "resetEqualizer"
+  | "setPreampDb"
+  | "setMonoAudioEnabled"
+  | "setCrossfadeDuration"
+  | "setPlaybackSpeed"
+  | "setPreservePitch"
+  | "setSleepTimer"
+  | "reorderQueue"
+  | "removeFromQueue"
+  | "playArtist"
+  | "startTrackMix"
+  | "restoreRemoteSession"
+  | "toggleFullScreen"
+  | "setFullScreen"
+>;
+
 const PlayerContext = createContext<PlayerContextType | null>(null);
+const PlayerCommandContext = createContext<PlayerCommandContextType | null>(null);
+const PlayerCurrentTrackContext = createContext<Track | null | undefined>(undefined);
+const PlayerTimelineContext = createContext<PlayerTimelineState | null>(null);
 
 type SyncedPlayerPreferences = Pick<
   PlayerState,
@@ -173,12 +697,14 @@ function parseSyncedPlayerPreferences(value: unknown): Partial<SyncedPlayerPrefe
   const eqGains = Array.isArray(value.eqGains) && value.eqGains.every((gain) => typeof gain === "number" && Number.isFinite(gain))
     ? value.eqGains
     : undefined;
+  const quality = isAudioQuality(value.quality)
+    ? value.quality
+    : value.autoQualityEnabled === true
+      ? "AUTO"
+      : undefined;
 
   return {
-    ...(typeof value.autoQualityEnabled === "boolean" ? { autoQualityEnabled: value.autoQualityEnabled } : {}),
-    ...(isAudioQuality(value.quality)
-      ? { quality: value.quality }
-      : {}),
+    ...(quality ? { quality, autoQualityEnabled: quality === "AUTO" } : {}),
     ...(typeof value.normalization === "boolean" ? { normalization: value.normalization } : {}),
     ...(typeof value.equalizerEnabled === "boolean" ? { equalizerEnabled: value.equalizerEnabled } : {}),
     ...(eqGains ? { eqGains } : {}),
@@ -234,7 +760,8 @@ function toAbsoluteUrl(url: string) {
 
 function inferMediaArtworkType(url: string) {
   try {
-    const pathname = new URL(url).pathname.toLowerCase();
+    const parsedUrl = new URL(url);
+    const pathname = parsedUrl.pathname.toLowerCase();
     if (pathname.endsWith(".png")) return "image/png";
     if (pathname.endsWith(".webp")) return "image/webp";
     if (pathname.endsWith(".avif")) return "image/avif";
@@ -242,6 +769,7 @@ function inferMediaArtworkType(url: string) {
     if (pathname.endsWith(".svg")) return "image/svg+xml";
     if (pathname.endsWith(".ico")) return "image/x-icon";
     if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "image/jpeg";
+    if (/(?:googleusercontent\.com|ggpht\.com)$/i.test(parsedUrl.hostname)) return "image/jpeg";
   } catch {
     return undefined;
   }
@@ -278,20 +806,26 @@ export function buildMediaSessionArtwork(url: string | null | undefined): MediaI
 function updateMediaSessionMetadata(track: Track | null) {
   const mediaSession = getMediaSession();
   if (!mediaSession) return;
+  mediaSessionArtworkRequestId += 1;
 
   if (!track || typeof MediaMetadata === "undefined") {
     mediaSession.metadata = null;
     return;
   }
 
-  const artwork = buildMediaSessionArtwork(track.coverUrl);
+  const title = getTrackDisplayTitle(track);
+  const artist = getTrackDisplayArtist(track);
+  const album = track.album?.trim() || "Unknown Album";
+  const artworkUrl = getMediaSessionTrackArtworkUrl(track) || MEDIA_SESSION_FALLBACK_ARTWORK_URL;
+  const artwork = buildMediaSessionArtwork(artworkUrl);
+  const metadataInit = {
+    title,
+    artist,
+    album,
+    artwork: buildMediaSessionArtwork(artworkUrl),
+  };
 
-  mediaSession.metadata = new MediaMetadata({
-    title: getTrackDisplayTitle(track),
-    artist: getTrackDisplayArtist(track),
-    album: track.album?.trim() || "Unknown Album",
-    artwork,
-  });
+  mediaSession.metadata = new MediaMetadata(metadataInit);
 }
 
 function updateMediaSessionPlaybackState(isPlaying: boolean, hasCurrentTrack: boolean) {
@@ -303,6 +837,38 @@ function updateMediaSessionPlaybackState(isPlaying: boolean, hasCurrentTrack: bo
     : "none";
 }
 
+type MediaSessionPositionStateInput = {
+  duration: number;
+  playbackRate: number;
+  position: number;
+};
+
+export function buildMediaSessionPositionState(
+  position: number,
+  duration: number,
+  playbackRate: number,
+): MediaSessionPositionStateInput | null {
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+
+  return {
+    duration,
+    playbackRate: Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1,
+    position: Math.min(Math.max(position, 0), duration),
+  };
+}
+
+function clearMediaSessionPositionState() {
+  const mediaSession = getMediaSession();
+  const setPositionState = mediaSession?.setPositionState as ((state?: MediaSessionPositionStateInput) => void) | undefined;
+  if (!setPositionState) return;
+
+  try {
+    setPositionState();
+  } catch {
+    // Ignore platform-specific Media Session failures.
+  }
+}
+
 function updateMediaSessionPositionState(
   position: number,
   duration: number,
@@ -310,14 +876,15 @@ function updateMediaSessionPositionState(
 ) {
   const mediaSession = getMediaSession();
   if (!mediaSession || typeof mediaSession.setPositionState !== "function") return;
-  if (!Number.isFinite(duration) || duration <= 0) return;
+
+  const nextPositionState = buildMediaSessionPositionState(position, duration, playbackRate);
+  if (!nextPositionState) {
+    clearMediaSessionPositionState();
+    return;
+  }
 
   try {
-    mediaSession.setPositionState({
-      duration,
-      playbackRate: Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1,
-      position: Math.min(Math.max(position, 0), duration),
-    });
+    mediaSession.setPositionState(nextPositionState);
   } catch {
     // Ignore platform-specific Media Session failures.
   }
@@ -334,6 +901,98 @@ function shouldCommitPlayerProgressUpdate(
   if (next.currentTime <= PLAYER_PROGRESS_RENDER_STEP_SECONDS) return true;
   if (next.duration > 0 && next.duration - next.currentTime <= PLAYER_PROGRESS_RENDER_STEP_SECONDS) return true;
   return false;
+}
+
+function getPlaybackSyncNow() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+
+  return Date.now();
+}
+
+export function shouldIgnoreProgressWhileSeekSettles(
+  pendingSeek: PendingSeekState | null,
+  next: { currentTime: number; trackId: string | null },
+  now = getPlaybackSyncNow(),
+  toleranceSeconds = PENDING_SEEK_TOLERANCE_SECONDS,
+) {
+  if (!pendingSeek) return false;
+  if (pendingSeek.trackId !== next.trackId) return false;
+  if (now >= pendingSeek.expiresAt) return false;
+  if (!Number.isFinite(next.currentTime)) return false;
+
+  return Math.abs(next.currentTime - pendingSeek.time) > toleranceSeconds;
+}
+
+export function stabilizePlaybackProgressTime(
+  previousTime: number,
+  nextTime: number,
+  options: {
+    duration: number;
+    isPlaying: boolean;
+    pendingSeek: PendingSeekState | null;
+  },
+  backwardToleranceSeconds = PLAYER_BACKWARD_PROGRESS_TOLERANCE_SECONDS,
+) {
+  if (!Number.isFinite(nextTime)) return previousTime;
+  if (!Number.isFinite(previousTime) || previousTime < 0) return nextTime;
+  if (!options.isPlaying || options.pendingSeek) return nextTime;
+  if (nextTime >= previousTime) return nextTime;
+
+  const isNearTrackBoundary =
+    nextTime <= PLAYER_PROGRESS_RENDER_STEP_SECONDS ||
+    (options.duration > 0 && options.duration - nextTime <= PLAYER_PROGRESS_RENDER_STEP_SECONDS);
+
+  if (isNearTrackBoundary) {
+    return nextTime;
+  }
+
+  return previousTime - nextTime <= backwardToleranceSeconds
+    ? previousTime
+    : nextTime;
+}
+
+export function updatePlaybackInterruptionHealth(
+  state: PlaybackInterruptionHealthState,
+  event: {
+    occurredAt: number;
+    trackId: string | null;
+  },
+  windowMs = PLAYBACK_INTERRUPTION_HEALTH_WINDOW_MS,
+  threshold = PLAYBACK_INTERRUPTION_HEALTH_THRESHOLD,
+  cooldownMs = PLAYBACK_INTERRUPTION_HEALTH_REPORT_COOLDOWN_MS,
+) {
+  if (!event.trackId) {
+    return {
+      nextState: {
+        trackId: null,
+        timestamps: [],
+        lastReportedAt: 0,
+      } satisfies PlaybackInterruptionHealthState,
+      shouldWarn: false,
+      interruptionCount: 0,
+    };
+  }
+
+  const timestamps = state.trackId === event.trackId ? state.timestamps : [];
+  const nextTimestamps = timestamps
+    .filter((timestamp) => event.occurredAt - timestamp <= windowMs)
+    .concat(event.occurredAt);
+  const previousReportedAt = state.trackId === event.trackId ? state.lastReportedAt : 0;
+  const shouldWarn =
+    nextTimestamps.length >= threshold &&
+    (previousReportedAt <= 0 || event.occurredAt - previousReportedAt >= cooldownMs);
+
+  return {
+    nextState: {
+      trackId: event.trackId,
+      timestamps: nextTimestamps,
+      lastReportedAt: shouldWarn ? event.occurredAt : previousReportedAt,
+    } satisfies PlaybackInterruptionHealthState,
+    shouldWarn,
+    interruptionCount: nextTimestamps.length,
+  };
 }
 
 function setMediaSessionActionHandler(
@@ -365,16 +1024,52 @@ function withRightPanelVisibility<State extends Pick<PlayerState, "currentTrack"
   };
 }
 
+function shouldKeepRightPanelVisibleForEmbedVideo(
+  state: Pick<PlayerState, "currentTrack" | "playbackMode">,
+) {
+  return state.playbackMode === "youtube-embed" && state.currentTrack?.isVideo === true;
+}
+
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth();
   const user = auth?.user ?? null;
-  const { discordPresenceEnabled, rightPanelAutoOpen, rightPanelDefaultTab } = useSettings();
-  const [state, setState] = useState<PlayerState>(() => createInitialPlayerState());
+  const { discordPresenceEnabled, librarySource, rightPanelAutoOpen, rightPanelDefaultTab } = useSettings();
+  const initialPlayerStateRef = useRef<PlayerState | null>(null);
+  if (!initialPlayerStateRef.current) {
+    initialPlayerStateRef.current = createInitialPlayerState();
+  }
+
+  const [state, setState] = useState<PlayerState>(initialPlayerStateRef.current);
+  const [timeline, setTimeline] = useState<PlayerTimelineState>(() => ({
+    currentTime: initialPlayerStateRef.current?.currentTime ?? 0,
+    duration: initialPlayerStateRef.current?.duration ?? 0,
+    pendingSeekTime: null,
+  }));
+  const [discordPresenceBridgeVersion, setDiscordPresenceBridgeVersion] = useState(0);
+  const [discordWebhookSettingsVersion, setDiscordWebhookSettingsVersion] = useState(0);
   const [engineReadyVersion, setEngineReadyVersion] = useState(0);
+  const mediaSessionTrackSignature = useMemo(() => {
+    const track = state.currentTrack;
+    if (!track) return "";
+
+    const artistNames = track.artists?.map((artist) => artist.name || "").join("|") || "";
+    return [
+      track.id,
+      track.title,
+      track.artist,
+      artistNames,
+      track.album,
+      track.coverUrl,
+      track.source,
+      track.sourceId,
+      track.isVideo ? "video" : "audio",
+    ].join("::");
+  }, [state.currentTrack]);
 
   const engineRef = useRef<AudioEngine | null>(null);
   const enginePromiseRef = useRef<Promise<AudioEngine> | null>(null);
   const stateRef = useRef(state);
+  const transitionInProgressRef = useRef(false);
   const accountSyncReadyRef = useRef(false);
   const lastSyncedPlayerPreferencesRef = useRef<string | null>(null);
   const pendingPlayerSyncTimeoutRef = useRef<number | null>(null);
@@ -383,8 +1078,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playbackDeviceNameRef = useRef(getPlaybackDeviceName());
   const syncedPlaybackUserIdRef = useRef<string | null>(null);
   const lastProgressRenderRef = useRef({
-    currentTime: state.currentTime,
-    duration: state.duration,
+    currentTime: timeline.currentTime,
+    duration: timeline.duration,
     isPlaying: state.isPlaying,
     trackId: state.currentTrack?.id ?? null,
   });
@@ -398,9 +1093,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     attemptedQualities: [],
     active: false,
   });
-  stateRef.current = state;
+  const playbackSourceRequestCacheRef = useRef(new Map<string, Promise<PlaybackTargetResolution>>());
+  const playbackSourceResolutionCacheRef = useRef(new Map<string, PlaybackSourceResolutionCacheEntry>());
+  const playbackSourceWarmCacheRef = useRef(new Map<string, Promise<void>>());
+  const playbackStackWarmRef = useRef(false);
+  const tidalStreamingOutageRef = useRef<TidalStreamingOutageState>(readPersistedTidalStreamingOutage());
+  const dashModuleWarmupPromiseRef = useRef<Promise<void> | null>(null);
+  const hlsModuleWarmupPromiseRef = useRef<Promise<void> | null>(null);
+  const crossfadeAttemptRef = useRef(0);
+  const playbackInterruptionHealthRef = useRef<PlaybackInterruptionHealthState>({
+    trackId: null,
+    timestamps: [],
+    lastReportedAt: 0,
+  });
+  const playbackStartupRef = useRef<PlaybackStartupState | null>(null);
+  const playbackAttemptRef = useRef(0);
+  const playbackEngineTransitionRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSeekRef = useRef<PendingSeekState | null>(null);
+  const pendingSeekTimeoutRef = useRef<number | null>(null);
+  const playbackInterruptionTimeoutRef = useRef<number | null>(null);
+  const expectedPauseUntilRef = useRef(0);
+  const unexpectedPauseRecoveryTimeoutRef = useRef<number | null>(null);
+  stateRef.current = {
+    ...state,
+    currentTime: timeline.currentTime,
+    duration: timeline.duration,
+  };
   const syncedPlayerPreferences = useMemo<SyncedPlayerPreferences>(() => ({
-    autoQualityEnabled: state.autoQualityEnabled,
+    autoQualityEnabled: state.quality === "AUTO",
     quality: state.quality,
     normalization: state.normalization,
     equalizerEnabled: state.equalizerEnabled,
@@ -412,7 +1132,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     playbackSpeed: state.playbackSpeed,
     preservePitch: state.preservePitch,
   }), [
-    state.autoQualityEnabled,
     state.crossfadeDuration,
     state.eqGains,
     state.eqPreset,
@@ -428,13 +1147,188 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   syncedPlayerPreferencesRef.current = syncedPlayerPreferences;
 
   useEffect(() => {
+    playbackSourceRequestCacheRef.current.clear();
+    void loadYoutubeMusicApiModule()
+      .then((module) => module.clearYoutubeMusicCache())
+      .catch(() => undefined);
+  }, [librarySource]);
+
+  useEffect(() => {
     lastProgressRenderRef.current = {
-      currentTime: state.currentTime,
-      duration: state.duration,
+      currentTime: timeline.currentTime,
+      duration: timeline.duration,
       isPlaying: state.isPlaying,
       trackId: state.currentTrack?.id ?? null,
     };
-  }, [state.currentTime, state.currentTrack?.id, state.duration, state.isPlaying]);
+  }, [timeline.currentTime, timeline.duration, state.currentTrack?.id, state.isPlaying]);
+
+  const clearPendingSeek = useCallback((trackId?: string | null) => {
+    const activePendingSeek = pendingSeekRef.current;
+    if (!activePendingSeek) return;
+    if (trackId !== undefined && activePendingSeek.trackId !== trackId) return;
+
+    pendingSeekRef.current = null;
+    if (pendingSeekTimeoutRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(pendingSeekTimeoutRef.current);
+      pendingSeekTimeoutRef.current = null;
+    }
+
+    setTimeline((prev) => (
+      prev.pendingSeekTime === null
+        ? prev
+        : {
+          ...prev,
+          pendingSeekTime: null,
+        }
+    ));
+  }, []);
+
+  const clearPlaybackInterruptionRecovery = useCallback(() => {
+    if (playbackInterruptionTimeoutRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(playbackInterruptionTimeoutRef.current);
+      playbackInterruptionTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearUnexpectedPauseRecovery = useCallback(() => {
+    if (unexpectedPauseRecoveryTimeoutRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(unexpectedPauseRecoveryTimeoutRef.current);
+      unexpectedPauseRecoveryTimeoutRef.current = null;
+    }
+  }, []);
+
+  const markExpectedPause = useCallback((windowMs = EXPECTED_PAUSE_GRACE_WINDOW_MS) => {
+    expectedPauseUntilRef.current = Math.max(expectedPauseUntilRef.current, Date.now() + windowMs);
+    clearUnexpectedPauseRecovery();
+  }, [clearUnexpectedPauseRecovery]);
+
+  const beginPlaybackAttempt = useCallback(() => {
+    const nextAttempt = playbackAttemptRef.current + 1;
+    playbackAttemptRef.current = nextAttempt;
+    return nextAttempt;
+  }, []);
+
+  const isPlaybackAttemptCurrent = useCallback((attempt: number) => (
+    playbackAttemptRef.current === attempt
+  ), []);
+
+  const beginPlaybackStartup = useCallback((attempt: number, trackId: string | null) => {
+    playbackStartupRef.current = {
+      attempt,
+      trackId,
+    };
+  }, []);
+
+  const clearPlaybackStartup = useCallback((attempt?: number, trackId?: string | null) => {
+    const activeStartup = playbackStartupRef.current;
+    if (!activeStartup) return;
+    if (attempt !== undefined && activeStartup.attempt !== attempt) return;
+    if (trackId !== undefined && activeStartup.trackId !== trackId) return;
+    playbackStartupRef.current = null;
+  }, []);
+
+  const isPlaybackStartupActiveForTrack = useCallback((trackId: string | null | undefined) => {
+    const activeStartup = playbackStartupRef.current;
+    if (!activeStartup) return false;
+    if (trackId === undefined) return true;
+    return activeStartup.trackId === trackId;
+  }, []);
+
+  const shouldUseYoutubeEmbedForTrack = useCallback((
+    track: Pick<Track, "isVideo" | "source" | "sourceId"> | null | undefined,
+  ) => {
+    return shouldUseYoutubeEmbedPlayback(track);
+  }, []);
+
+  const withPlaybackEngineTransitionLock = useCallback(async <T,>(task: () => Promise<T>) => {
+    const previousTransition = playbackEngineTransitionRef.current.catch(() => undefined);
+    let releaseTransition!: () => void;
+
+    playbackEngineTransitionRef.current = new Promise<void>((resolve) => {
+      releaseTransition = resolve;
+    });
+
+    await previousTransition;
+
+    try {
+      return await task();
+    } finally {
+      releaseTransition();
+    }
+  }, []);
+
+  const resetPlaybackInterruptionHealth = useCallback((trackId?: string | null) => {
+    const activeHealth = playbackInterruptionHealthRef.current;
+    if (trackId !== undefined && activeHealth.trackId !== trackId) {
+      return;
+    }
+
+    playbackInterruptionHealthRef.current = {
+      trackId: trackId ?? null,
+      timestamps: [],
+      lastReportedAt: 0,
+    };
+  }, []);
+
+  const invalidatePendingCrossfadeHandoff = useCallback(() => {
+    crossfadeAttemptRef.current += 1;
+    transitionInProgressRef.current = false;
+    engineRef.current?.cancelPendingCrossfade();
+  }, []);
+
+  const armPendingSeek = useCallback((time: number) => {
+    const trackId = stateRef.current.currentTrack?.id ?? null;
+    const expiresAt = getPlaybackSyncNow() + PENDING_SEEK_TIMEOUT_MS;
+
+    if (pendingSeekTimeoutRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(pendingSeekTimeoutRef.current);
+      pendingSeekTimeoutRef.current = null;
+    }
+
+    pendingSeekRef.current = {
+      expiresAt,
+      time,
+      trackId,
+    };
+
+    if (typeof window !== "undefined") {
+      pendingSeekTimeoutRef.current = window.setTimeout(() => {
+        const activePendingSeek = pendingSeekRef.current;
+        if (!activePendingSeek) return;
+        if (activePendingSeek.trackId !== trackId) return;
+        if (Math.abs(activePendingSeek.time - time) > Number.EPSILON) return;
+
+        pendingSeekRef.current = null;
+        pendingSeekTimeoutRef.current = null;
+        setTimeline((prev) => (
+          prev.pendingSeekTime === null
+            ? prev
+            : {
+              ...prev,
+              pendingSeekTime: null,
+            }
+        ));
+      }, PENDING_SEEK_TIMEOUT_MS);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (pendingSeekTimeoutRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(pendingSeekTimeoutRef.current);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    clearPlaybackInterruptionRecovery();
+  }, [clearPlaybackInterruptionRecovery]);
+
+  useEffect(() => {
+    clearPendingSeek();
+  }, [clearPendingSeek, state.currentTrack?.id]);
+
+  useEffect(() => {
+    resetPlaybackInterruptionHealth(state.currentTrack?.id ?? null);
+  }, [resetPlaybackInterruptionHealth, state.currentTrack?.id]);
 
   useEffect(() => {
     if (!user) {
@@ -469,10 +1363,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setState((prev) => ({
             ...prev,
             ...remotePreferences,
+            autoQualityEnabled: remotePreferences.quality
+              ? remotePreferences.quality === "AUTO"
+              : prev.autoQualityEnabled,
             eqGains: remotePreferences.eqGains ?? prev.eqGains,
           }));
-          if (remotePreferences.autoQualityEnabled !== undefined) {
-            persistAutoQualityEnabled(remotePreferences.autoQualityEnabled);
+          if (remotePreferences.quality !== undefined) {
+            persistAutoQualityEnabled(remotePreferences.quality === "AUTO");
           }
           if (remotePreferences.quality !== undefined) persistAudioQuality(remotePreferences.quality);
           if (remotePreferences.normalization !== undefined) persistNormalization(remotePreferences.normalization);
@@ -535,11 +1432,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       : { ...next, rightPanelTab: rightPanelDefaultTab };
   }, [rightPanelAutoOpen, rightPanelDefaultTab]);
 
+  const applyPlaybackSurfacePreference = useCallback((
+    prev: PlayerState,
+    track: Pick<Track, "isVideo" | "source" | "sourceId"> | null | undefined,
+  ) => {
+    if (track?.isVideo === true && shouldUseYoutubeEmbedForTrack(track)) {
+      return withRightPanelVisibility(prev, true);
+    }
+
+    return applyAutoRightPanelPreference(prev);
+  }, [applyAutoRightPanelPreference, shouldUseYoutubeEmbedForTrack]);
+
   useEffect(() => {
     if (rightPanelAutoOpen !== "while-playing") return;
 
     setState((prev) => {
-      if (prev.isPlaying || !prev.showRightPanel) return prev;
+      if (prev.isPlaying || !prev.showRightPanel || shouldKeepRightPanelVisibleForEmbedVideo(prev)) return prev;
       return withRightPanelVisibility(prev, false);
     });
   }, [rightPanelAutoOpen, state.isPlaying]);
@@ -583,6 +1491,97 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return enginePromiseRef.current;
   }, [applyStateToEngine]);
 
+  const warmPlaybackStack = useCallback((options: { includeDash?: boolean } = {}) => {
+    const tasks: Promise<unknown>[] = [];
+
+    if (!playbackStackWarmRef.current) {
+      playbackStackWarmRef.current = true;
+      void primeMediaPlayback();
+      tasks.push(loadMusicApiModule());
+      if (engineRef.current) {
+        engineRef.current.preparePlayback();
+      } else {
+        tasks.push(
+          ensureEngine().then((engine) => {
+            engine.preparePlayback();
+          }),
+        );
+      }
+    }
+
+    if (options.includeDash && !dashModuleWarmupPromiseRef.current) {
+      dashModuleWarmupPromiseRef.current = ensureEngine()
+        .then((engine) => engine.preloadSourceType("dash"))
+        .catch(() => { })
+        .then(() => undefined);
+    }
+
+    if (options.includeDash && !hlsModuleWarmupPromiseRef.current) {
+      hlsModuleWarmupPromiseRef.current = ensureEngine()
+        .then((engine) => engine.preloadSourceType("hls"))
+        .catch(() => { })
+        .then(() => undefined);
+    }
+
+    if (dashModuleWarmupPromiseRef.current) {
+      tasks.push(dashModuleWarmupPromiseRef.current);
+    }
+
+    if (hlsModuleWarmupPromiseRef.current) {
+      tasks.push(hlsModuleWarmupPromiseRef.current);
+    }
+
+    if (isPublishedRuntimeHost()) {
+      tasks.push(
+        getYoutubeEmbedManager()
+          .warmup()
+          .catch(() => undefined),
+      );
+    }
+
+    return Promise.allSettled(tasks).then(() => undefined);
+  }, [ensureEngine]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const budget = readStartupPerformanceBudget();
+    let idleHandle: number | null = null;
+
+    const warmOnInteraction = () => {
+      void warmPlaybackStack();
+    };
+
+    window.addEventListener("pointerdown", warmOnInteraction, { capture: true, once: true, passive: true });
+    window.addEventListener("keydown", warmOnInteraction, { capture: true, once: true });
+
+    if (budget.canWarmPlaybackStackEagerly) {
+      const idleWarm = () => {
+        void warmPlaybackStack();
+      };
+
+      const win = window as WindowWithIdleCallback;
+      if ("requestIdleCallback" in win) {
+        idleHandle = win.requestIdleCallback(idleWarm, { timeout: 2500 });
+      } else {
+        idleHandle = win.setTimeout(idleWarm, 1400);
+      }
+    }
+
+    return () => {
+      window.removeEventListener("pointerdown", warmOnInteraction, true);
+      window.removeEventListener("keydown", warmOnInteraction, true);
+      const win = window as WindowWithIdleCallback;
+      if (idleHandle !== null) {
+        if ("cancelIdleCallback" in win) {
+          win.cancelIdleCallback(idleHandle);
+        } else {
+          win.clearTimeout(idleHandle);
+        }
+      }
+    };
+  }, [warmPlaybackStack]);
+
   const resetAudioRecovery = useCallback((trackId: string | null = null) => {
     audioRecoveryRef.current = {
       trackId,
@@ -590,6 +1589,168 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       active: false,
     };
   }, []);
+
+  const warmPlaybackSourceUrl = useCallback((url: string) => {
+    if (typeof window === "undefined") {
+      return Promise.resolve();
+    }
+
+    let resolvedUrl: URL;
+    try {
+      resolvedUrl = new URL(url, window.location.href);
+    } catch {
+      return Promise.resolve();
+    }
+
+    if (resolvedUrl.origin !== window.location.origin || resolvedUrl.pathname !== "/api/youtube-music") {
+      return Promise.resolve();
+    }
+
+    const cacheKey = resolvedUrl.toString();
+    const cachedWarmup = playbackSourceWarmCacheRef.current.get(cacheKey);
+    if (cachedWarmup) {
+      return cachedWarmup;
+    }
+
+    const warmup = (async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 4500);
+
+      try {
+        await fetch(cacheKey, {
+          method: "HEAD",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+      } catch {
+        // Keep playback-source warmup best-effort so discovery never surfaces errors.
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    playbackSourceWarmCacheRef.current.set(cacheKey, warmup);
+    return warmup;
+  }, []);
+
+  const warmResolvedPlaybackSource = useCallback((source: AudioPlaybackSource) => {
+    if (source.type !== "direct") {
+      return Promise.resolve();
+    }
+
+    const urls = [
+      source.url,
+      source.audioUrl,
+    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+    if (urls.length === 0) {
+      return Promise.resolve();
+    }
+
+    return Promise.allSettled(urls.map((url) => warmPlaybackSourceUrl(url))).then(() => undefined);
+  }, [warmPlaybackSourceUrl]);
+
+  const deactivateYoutubeEmbedPlayback = useCallback(() => {
+    const embedManager = getYoutubeEmbedManager();
+    if (stateRef.current.playbackMode === "youtube-embed") {
+      markExpectedPause();
+    }
+    embedManager.reset();
+    embedManager.returnToGlobalHost();
+  }, [markExpectedPause]);
+
+  const clearCurrentStatus = useCallback((userId: string | null | undefined = user?.id) => {
+    if (!userId) return;
+
+    void getSupabaseClient()
+      .then((supabase) =>
+        supabase
+          .from("current_status")
+          .delete()
+          .eq("user_id", userId),
+      )
+      .then(({ error }) => {
+        if (!error) return;
+
+        console.error("Failed to clear current status", error);
+        void reportClientErrorLazy(error, "player_status_clear_failed");
+      })
+      .catch((error) => {
+        console.error("Failed to clear current status", error);
+        void reportClientErrorLazy(error, "player_status_clear_failed");
+      });
+  }, [user?.id]);
+
+  const recoverFromUnexpectedPause = useCallback((mode: PlaybackMode) => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const currentTrack = stateRef.current.currentTrack;
+    if (!currentTrack || !stateRef.current.isPlaying || stateRef.current.isLoading) {
+      return false;
+    }
+
+    if (Date.now() <= expectedPauseUntilRef.current) {
+      return false;
+    }
+
+    if (transitionInProgressRef.current || isPlaybackStartupActiveForTrack(currentTrack.id)) {
+      return false;
+    }
+
+    clearUnexpectedPauseRecovery();
+    unexpectedPauseRecoveryTimeoutRef.current = window.setTimeout(() => {
+      unexpectedPauseRecoveryTimeoutRef.current = null;
+
+      const activeTrack = stateRef.current.currentTrack;
+      if (
+        !activeTrack
+        || activeTrack.id !== currentTrack.id
+        || !stateRef.current.isPlaying
+        || stateRef.current.isLoading
+        || Date.now() <= expectedPauseUntilRef.current
+      ) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          if (mode === "youtube-embed") {
+            const embedManager = getYoutubeEmbedManager();
+            if (!embedManager.isPaused()) {
+              return;
+            }
+
+            await embedManager.play();
+            return;
+          }
+
+          void primeMediaPlayback();
+          const engine = engineRef.current ?? await ensureEngine();
+          engine.preparePlayback();
+
+          if (!engine.paused) {
+            return;
+          }
+
+          if (engine.duration <= 0) {
+            await loadAndPlayRef.current(activeTrack, { allowQueueFallback: false });
+            return;
+          }
+
+          await engine.play().catch(async () => {
+            await loadAndPlayRef.current(activeTrack, { allowQueueFallback: false });
+          });
+        } catch {
+          clearCurrentStatus();
+          setState((prev) => ({ ...prev, isPlaying: false, isLoading: false }));
+        }
+      })();
+    }, UNEXPECTED_PAUSE_RECOVERY_DELAY_MS);
+
+    return true;
+  }, [clearCurrentStatus, clearUnexpectedPauseRecovery, ensureEngine, isPlaybackStartupActiveForTrack]);
 
   const syncCurrentStatus = useCallback((track: Track) => {
     if (!user) return;
@@ -637,68 +1798,485 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       });
   }, [user]);
 
-  const clearCurrentStatus = useCallback((userId: string | null | undefined = user?.id) => {
-    if (!userId) return;
+  const isTidalStreamingOutageActive = useCallback(() => {
+    return tidalStreamingOutageRef.current.activeUntil > Date.now();
+  }, []);
 
-    void getSupabaseClient()
-      .then((supabase) =>
-        supabase
-          .from("current_status")
-          .delete()
-          .eq("user_id", userId),
-      )
-      .then(({ error }) => {
-        if (!error) return;
+  const noteTidalStreamingOutage = useCallback((error: unknown) => {
+    if (!isTidalStreamingOutageError(error)) {
+      return;
+    }
 
-        console.error("Failed to clear current status", error);
-        void reportClientErrorLazy(error, "player_status_clear_failed");
-      })
-      .catch((error) => {
-        console.error("Failed to clear current status", error);
-        void reportClientErrorLazy(error, "player_status_clear_failed");
-      });
-  }, [user?.id]);
+    const nextState = {
+      activeUntil: Date.now() + TIDAL_STREAMING_OUTAGE_TTL_MS,
+      reason: error instanceof Error ? error.message : typeof error === "string" ? error : null,
+    };
+    tidalStreamingOutageRef.current = nextState;
+    persistTidalStreamingOutage(nextState);
+  }, []);
+
+  const clearTidalStreamingOutage = useCallback(() => {
+    const nextState = {
+      activeUntil: 0,
+      reason: null,
+    };
+    tidalStreamingOutageRef.current = nextState;
+    persistTidalStreamingOutage(nextState);
+  }, []);
 
   const resolvePlaybackSource = useCallback(async (
     track: Track,
     quality: AudioQuality,
     forceRefresh = false,
   ) => {
-    let url = forceRefresh
-      ? null
-      : track.streamUrls?.[quality] || (!track.tidalId ? track.streamUrl : null);
-    let type: "direct" | "dash" = forceRefresh ? "direct" : track.streamTypes?.[quality] || "direct";
-    const tidalId = getResolvableTidalId(track);
+    const requestedAudioQuality = getRequestedAudioQualityForTrack(track, quality);
+    const resolutionCacheKey = getPlaybackSourceResolutionCacheKey(track, requestedAudioQuality);
+    if (forceRefresh) {
+      playbackSourceResolutionCacheRef.current.delete(resolutionCacheKey);
+    } else {
+      const cachedResolution = playbackSourceResolutionCacheRef.current.get(resolutionCacheKey);
+      if (cachedResolution) {
+        if (cachedResolution.expiresAt > Date.now()) {
+          return cachedResolution.resolution;
+        }
 
-    if (tidalId && (!url || forceRefresh)) {
-      const musicApi = await loadMusicApiModule();
-      if (forceRefresh) {
-        musicApi.invalidateTrackStreamCache(tidalId);
-      }
-      const source = await musicApi.getPlaybackSource(tidalId, quality);
-      if (source) {
-        url = source.url;
-        type = source.type;
-        track.streamUrl = source.url;
-        track.streamUrls = {
-          ...(track.streamUrls || {}),
-          [quality]: source.url,
-        };
-        track.streamTypes = {
-          ...(track.streamTypes || {}),
-          [quality]: source.type,
-        };
-        track.tidalId = tidalId;
+        playbackSourceResolutionCacheRef.current.delete(resolutionCacheKey);
       }
     }
 
-    if (!url) return null;
+    const requestCacheKey = getPlaybackSourceRequestCacheKey(track, quality, requestedAudioQuality, forceRefresh);
+    const cachedRequest = playbackSourceRequestCacheRef.current.get(requestCacheKey);
+    if (cachedRequest) {
+      return cachedRequest;
+    }
 
+    const request = (async (): Promise<PlaybackTargetResolution> => {
+      let youtubeMusicApiModulePromise: ReturnType<typeof loadYoutubeMusicApiModule> | null = null;
+      const getYoutubeMusicApi = () => {
+        youtubeMusicApiModulePromise ||= loadYoutubeMusicApiModule();
+        return youtubeMusicApiModulePromise;
+      };
+      const shouldReuseCachedTrackSource = !track.isVideo && track.source !== "youtube-music" && !forceRefresh;
+      let url = shouldReuseCachedTrackSource
+        ? track.streamUrls?.[requestedAudioQuality] || (!track.tidalId ? track.streamUrl || getAnyCachedStreamUrl(track.streamUrls) : null)
+        : null;
+      let audioUrl: string | undefined;
+      let fallbackUrl: string | undefined;
+      let fallbackVideoHeight: number | undefined;
+      let videoHeight: number | undefined;
+      let type: AudioPlaybackSource["type"] = shouldReuseCachedTrackSource
+        ? track.streamTypes?.[requestedAudioQuality] || "direct"
+        : "direct";
+      let resolvedAudioQuality: AudioQuality | null = null;
+      let resolvedAvailableAudioQualityLabels: string[] = [];
+      let resolvedAudioQualityLabel: string | null = null;
+      let resolvedVideoQuality: string | null = null;
+      let capability: AudioQuality | null = null;
+      const source = getTrackSource(track);
+      const sourceId = getTrackSourceId(track);
+      const tidalId = getResolvableTidalId(track);
+      const videoQualityPreference = getTrackVideoQualityPreference(track);
+
+      const resolveYoutubeMusicFallback = async () => {
+        const fallbackQuery = buildYoutubeMusicFallbackQuery(track);
+        if (!fallbackQuery) {
+          return null;
+        }
+
+        const youtubeMusicApi = await getYoutubeMusicApi();
+        const fallbackSearch = await youtubeMusicApi.searchYoutubeMusicReference(fallbackQuery);
+        const matchedTrack = pickYoutubeMusicFallbackTrack(
+          track,
+          track.isVideo === true ? fallbackSearch.videos : fallbackSearch.tracks,
+        );
+        if (!matchedTrack?.sourceId) {
+          return null;
+        }
+
+        const fallbackSource = track.isVideo === true
+          ? await youtubeMusicApi.getYoutubeMusicVideoPlaybackSource(matchedTrack.sourceId, videoQualityPreference || undefined)
+          : await youtubeMusicApi.getYoutubeMusicPlaybackSource(matchedTrack.sourceId, requestedAudioQuality);
+        if (!fallbackSource) {
+          return null;
+        }
+
+        const availableAudioQualityLabels = Array.isArray(fallbackSource.availableAudioQualityLabels)
+          ? fallbackSource.availableAudioQualityLabels.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          : [];
+        const audioQualityLabel = typeof fallbackSource.audioQualityLabel === "string"
+          ? fallbackSource.audioQualityLabel
+          : null;
+        let fallbackResolvedAudioQuality = getEffectivePlaybackQuality(requestedAudioQuality, "youtube-music", track.isVideo === true);
+        if (track.isVideo === true) {
+          fallbackResolvedAudioQuality = getAudioQualityTierFromResolvedLabel(
+            audioQualityLabel,
+            "youtube-music",
+          ) || getHighestResolvedAudioQuality(
+            availableAudioQualityLabels,
+            audioQualityLabel,
+            "youtube-music",
+          ) || fallbackResolvedAudioQuality;
+        }
+
+        const fallbackCapability = track.isVideo === true
+          ? toTrackAudioQuality(matchedTrack.audioQuality) || toTrackAudioQuality(track.audioQuality) || null
+          : getHighestResolvedAudioQuality(
+            availableAudioQualityLabels,
+            audioQualityLabel,
+            "youtube-music",
+          ) || toTrackAudioQuality(matchedTrack.audioQuality) || toTrackAudioQuality(track.audioQuality) || null;
+
+        return {
+          source: fallbackSource,
+          resolvedAudioQuality: fallbackResolvedAudioQuality,
+          resolvedAvailableAudioQualityLabels: availableAudioQualityLabels,
+          resolvedAudioQualityLabel: audioQualityLabel,
+          resolvedVideoQuality: getResolvedVideoQualityFromSource(fallbackSource),
+          capability: fallbackCapability,
+        };
+      };
+
+      if ((!url || forceRefresh) && source === "youtube-music" && sourceId) {
+        const youtubeMusicApi = await getYoutubeMusicApi();
+        const resolvedSource = track.isVideo === true
+          ? await youtubeMusicApi.getYoutubeMusicVideoPlaybackSource(sourceId, videoQualityPreference || undefined)
+          : await youtubeMusicApi.getYoutubeMusicPlaybackSource(sourceId, requestedAudioQuality);
+        if (resolvedSource) {
+          url = resolvedSource.url;
+          audioUrl = resolvedSource.audioUrl;
+          fallbackUrl = resolvedSource.fallbackUrl;
+          fallbackVideoHeight = resolvedSource.fallbackVideoHeight;
+          videoHeight = resolvedSource.videoHeight;
+          type = resolvedSource.type;
+          resolvedAudioQuality = getEffectivePlaybackQuality(requestedAudioQuality, "youtube-music", track.isVideo === true);
+          resolvedAvailableAudioQualityLabels = Array.isArray(resolvedSource.availableAudioQualityLabels)
+            ? resolvedSource.availableAudioQualityLabels.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+            : [];
+          resolvedAudioQualityLabel = typeof resolvedSource.audioQualityLabel === "string"
+            ? resolvedSource.audioQualityLabel
+            : null;
+          if (track.isVideo === true) {
+            resolvedAudioQuality = getAudioQualityTierFromResolvedLabel(
+              resolvedAudioQualityLabel,
+              "youtube-music",
+            ) || getHighestResolvedAudioQuality(
+              resolvedAvailableAudioQualityLabels,
+              resolvedAudioQualityLabel,
+              "youtube-music",
+            ) || resolvedAudioQuality;
+          }
+          resolvedVideoQuality = getResolvedVideoQualityFromSource(resolvedSource);
+          if (track.isVideo !== true) {
+            capability = getHighestResolvedAudioQuality(
+              resolvedAvailableAudioQualityLabels,
+              resolvedAudioQualityLabel,
+              "youtube-music",
+            ) || toTrackAudioQuality(track.audioQuality) || null;
+          }
+          track.source = "youtube-music";
+          track.sourceId = sourceId;
+          track.streamUrl = resolvedSource.url;
+          track.streamUrls = {
+            ...(track.streamUrls || {}),
+            [requestedAudioQuality]: resolvedSource.url,
+          };
+          track.streamTypes = {
+            ...(track.streamTypes || {}),
+            [requestedAudioQuality]: resolvedSource.type,
+          };
+        }
+      } else if (tidalId && (!url || forceRefresh)) {
+        const musicApi = await loadMusicApiModule();
+        let tidalResolutionError: unknown = null;
+        const shouldBypassTidal = !forceRefresh && isTidalStreamingOutageActive();
+        const applyTidalResolution = (resolvedSource: TidalPlaybackResolution) => {
+          const res = resolvedSource;
+          const playbackSource = track.isVideo === true
+            ? {
+                ...res,
+                videoQualityPreference: videoQualityPreference || TIDAL_VIDEO_PLAYBACK_PREFERENCE,
+              }
+            : res.source;
+          url = playbackSource.url;
+          type = playbackSource.type;
+          resolvedAudioQuality = getEffectivePlaybackQuality(requestedAudioQuality, "tidal", track.isVideo === true);
+          if (track.isVideo === true) {
+            resolvedAudioQuality = toTrackAudioQuality(track.audioQuality) || resolvedAudioQuality;
+          }
+          if (track.isVideo !== true) {
+            capability = toTrackAudioQuality(res.capability) || null;
+          }
+          track.streamUrl = playbackSource.url;
+          track.streamUrls = {
+            ...(track.streamUrls || {}),
+            [requestedAudioQuality]: playbackSource.url,
+          };
+          track.streamTypes = {
+            ...(track.streamTypes || {}),
+            [requestedAudioQuality]: playbackSource.type,
+          };
+          track.tidalId = tidalId;
+          if (track.isVideo !== true && res.quality && isAudioQuality(res.quality)) {
+            resolvedAudioQuality = res.quality;
+          }
+          clearTidalStreamingOutage();
+        };
+        const applyFallbackResolution = (fallbackResolution: Awaited<ReturnType<typeof resolveYoutubeMusicFallback>>) => {
+          if (!fallbackResolution) {
+            return;
+          }
+
+          url = fallbackResolution.source.url;
+          audioUrl = fallbackResolution.source.audioUrl;
+          fallbackUrl = fallbackResolution.source.fallbackUrl;
+          fallbackVideoHeight = fallbackResolution.source.fallbackVideoHeight;
+          videoHeight = fallbackResolution.source.videoHeight;
+          type = fallbackResolution.source.type;
+          resolvedAudioQuality = fallbackResolution.resolvedAudioQuality;
+          resolvedAvailableAudioQualityLabels = fallbackResolution.resolvedAvailableAudioQualityLabels;
+          resolvedAudioQualityLabel = fallbackResolution.resolvedAudioQualityLabel;
+          resolvedVideoQuality = fallbackResolution.resolvedVideoQuality;
+          capability = fallbackResolution.capability;
+          if (!track.isVideo) {
+            track.streamUrl = fallbackResolution.source.url;
+          }
+          track.streamUrls = {
+            ...(track.streamUrls || {}),
+            [requestedAudioQuality]: fallbackResolution.source.url,
+          };
+          track.streamTypes = {
+            ...(track.streamTypes || {}),
+            [requestedAudioQuality]: fallbackResolution.source.type,
+          };
+        };
+        const resolveTidalPrimary = async () => {
+          try {
+            return track.isVideo === true
+              ? await musicApi.getVideoPlaybackSource(tidalId)
+              : await musicApi.getPlaybackSourceWithQuality(tidalId, requestedAudioQuality);
+          } catch (error) {
+            tidalResolutionError = error;
+            noteTidalStreamingOutage(error);
+            return null;
+          }
+        };
+        if (forceRefresh) {
+          musicApi.invalidateTrackStreamCache(tidalId);
+        }
+        if (shouldBypassTidal) {
+          applyFallbackResolution(await resolveYoutubeMusicFallback().catch(() => null));
+        } else {
+          const tidalResolutionPromise = resolveTidalPrimary();
+          const fallbackResolutionPromise = resolveYoutubeMusicFallback().catch(() => null);
+          const firstReady = await Promise.race([
+            tidalResolutionPromise.then((resolvedSource) => ({
+              kind: "tidal" as const,
+              resolvedSource,
+            })),
+            (async () => {
+              await new Promise<void>((resolve) => {
+                setTimeout(resolve, TIDAL_PRIMARY_RESOLUTION_HEAD_START_MS);
+              });
+              const resolvedFallback = await fallbackResolutionPromise;
+              return {
+                kind: "fallback" as const,
+                resolvedFallback,
+              };
+            })(),
+          ]);
+
+          if (firstReady.kind === "tidal" && firstReady.resolvedSource) {
+            applyTidalResolution(firstReady.resolvedSource);
+          } else if (firstReady.kind === "fallback" && firstReady.resolvedFallback) {
+            applyFallbackResolution(firstReady.resolvedFallback);
+          } else {
+            const [resolvedSource, resolvedFallback] = await Promise.all([
+              tidalResolutionPromise,
+              fallbackResolutionPromise,
+            ]);
+            if (resolvedSource) {
+              applyTidalResolution(resolvedSource);
+            } else if (resolvedFallback) {
+              applyFallbackResolution(resolvedFallback);
+            }
+          }
+        }
+
+        if (!url && tidalResolutionError) {
+          throw tidalResolutionError;
+        }
+      }
+
+      if (!url) {
+        const unresolvedResolution = {
+          resolvedAvailableAudioQualityLabels,
+          resolvedAudioQualityLabel,
+          resolvedVideoQuality,
+          source: null,
+          resolvedAudioQuality,
+          capability: toTrackAudioQuality(capability) || null,
+        };
+        playbackSourceResolutionCacheRef.current.delete(resolutionCacheKey);
+        return unresolvedResolution;
+      }
+
+      const playbackUrl = shouldBustCustomDirectTrackUrl(track, type, url)
+        ? appendPlaybackCacheBust(url)
+        : url;
+
+      const resolvedTarget = {
+        source: {
+          ...(audioUrl ? { audioUrl } : {}),
+          ...(resolvedAvailableAudioQualityLabels.length > 0 ? { availableAudioQualityLabels: resolvedAvailableAudioQualityLabels } : {}),
+          ...(resolvedAudioQualityLabel ? { audioQualityLabel: resolvedAudioQualityLabel } : {}),
+          ...(fallbackUrl ? { fallbackUrl } : {}),
+          ...(typeof fallbackVideoHeight === "number" ? { fallbackVideoHeight } : {}),
+          ...(typeof videoHeight === "number" ? { videoHeight } : {}),
+          url: playbackUrl,
+          type,
+        },
+        resolvedAvailableAudioQualityLabels,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
+        resolvedAudioQuality,
+        capability: toTrackAudioQuality(capability) || null,
+      };
+      playbackSourceResolutionCacheRef.current.set(resolutionCacheKey, {
+        expiresAt: Date.now() + PLAYBACK_SOURCE_RESOLUTION_CACHE_TTL_MS,
+        resolution: resolvedTarget,
+      });
+      return resolvedTarget;
+    })();
+
+    playbackSourceRequestCacheRef.current.set(requestCacheKey, request);
+
+    try {
+      return await request;
+    } finally {
+      playbackSourceRequestCacheRef.current.delete(requestCacheKey);
+    }
+  }, [clearTidalStreamingOutage, isTidalStreamingOutageActive, noteTidalStreamingOutage]);
+
+  const preparePlaybackTarget = useCallback(async (
+    track: Track,
+    quality: AudioQuality,
+    forceRefresh = false,
+  ) => {
+    const enginePromise = ensureEngine();
+    const sourcePromise = resolvePlaybackSource(track, quality, forceRefresh);
+    const preparedSourcePromise = sourcePromise.then(async (resolution) => {
+      if (!resolution.source) return resolution;
+      warmPlaybackOrigin(resolution.source.url);
+      const engine = await enginePromise;
+      await engine.preloadSourceType(resolution.source.type);
+      return resolution;
+    });
+
+    const [engine, resolution] = await Promise.all([enginePromise, preparedSourcePromise]);
     return {
-      url,
-      type,
+      engine,
+      resolvedAvailableAudioQualityLabels: resolution.resolvedAvailableAudioQualityLabels || [],
+      resolvedAudioQualityLabel: resolution.resolvedAudioQualityLabel || null,
+      resolvedVideoQuality: resolution.resolvedVideoQuality || null,
+      source: resolution.source || null,
+      resolvedAudioQuality: resolution.resolvedAudioQuality || null,
+      capability: resolution.capability || null,
     };
-  }, []);
+  }, [ensureEngine, resolvePlaybackSource]);
+
+  const prefetchPlaybackSource = useCallback((track: Track | null | undefined, quality = stateRef.current.quality) => {
+    if (!track || track.isUnavailable || shouldUseYoutubeEmbedForTrack(track)) return;
+
+    void resolvePlaybackSource(track, quality)
+      .then(async (resolution) => {
+        if (!resolution.source) return;
+        warmPlaybackOrigin(resolution.source.url);
+        if (resolution.source.type === "direct") {
+          await warmResolvedPlaybackSource(resolution.source);
+          return;
+        }
+        const engine = await ensureEngine();
+        await Promise.allSettled([
+          engine.preloadSourceType(resolution.source.type),
+          warmResolvedPlaybackSource(resolution.source),
+        ]);
+      })
+      .catch(() => {
+        // Ignore background prefetch failures.
+      });
+  }, [ensureEngine, resolvePlaybackSource, shouldUseYoutubeEmbedForTrack, warmResolvedPlaybackSource]);
+
+  const attemptYoutubeVideoFallbackPlayback = useCallback(async (track: Track) => {
+    if (track.source !== "youtube-music" || track.isVideo !== true) {
+      return false;
+    }
+
+    const playbackAttempt = beginPlaybackAttempt();
+    const currentState = stateRef.current;
+    const resumeTime = engineRef.current?.currentTime || currentState.currentTime || 0;
+    const shouldResume = !(engineRef.current?.paused ?? true) || currentState.isPlaying;
+    const {
+      engine,
+      source,
+      resolvedAudioQuality,
+      resolvedAvailableAudioQualityLabels,
+      resolvedAudioQualityLabel,
+      resolvedVideoQuality,
+      capability,
+    } = await preparePlaybackTarget(track, currentState.quality, true);
+    const fallbackSource = getCompatiblePlaybackFallbackSource(source);
+
+    if (!fallbackSource) {
+      return false;
+    }
+
+    return withPlaybackEngineTransitionLock(async () => {
+      if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+        return false;
+      }
+
+      await engine.restore(
+        fallbackSource,
+        track.replayGain || 0,
+        track.peak || 1,
+        resumeTime,
+      );
+
+      if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+        return false;
+      }
+
+      if (shouldResume) {
+        await engine.play();
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+          return false;
+        }
+
+        if (engine.paused) {
+          throw new Error("Playback did not start after YouTube fallback recovery");
+        }
+      }
+
+      setState((prev) => ({
+        ...prev,
+        currentTrack: prev.currentTrack ? applyTrackAudioCapability(prev.currentTrack, capability) : prev.currentTrack,
+        resolvedAudioQuality,
+        resolvedAvailableAudioQualityLabels,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality: getResolvedVideoQualityFromSource(fallbackSource) || resolvedVideoQuality,
+        duration: engine.duration || track.duration || prev.duration,
+        isLoading: false,
+        isPlaying: shouldResume && !engine.paused,
+      }));
+      setTimeline({
+        currentTime: engine.currentTime || resumeTime,
+        duration: engine.duration || track.duration || currentState.duration,
+        pendingSeekTime: null,
+      });
+      showInfoToast(`"${track.title}" fell back to a compatible YouTube video stream.`);
+      return true;
+    });
+  }, [beginPlaybackAttempt, isPlaybackAttemptCurrent, preparePlaybackTarget, withPlaybackEngineTransitionLock]);
 
   const handleTrackPlaybackFailure = useCallback(async (
     track: Track,
@@ -707,22 +2285,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       allowQueueFallback?: boolean;
       diagnosticTitle?: string;
       diagnosticMessage?: string;
+      suppressDiagnostic?: boolean;
     } = {},
   ) => {
     const {
-      allowQueueFallback = true,
+      allowQueueFallback = AUTO_SKIP_ON_PLAYBACK_FAILURE,
       diagnosticTitle = "Playback failed",
       diagnosticMessage = `Knobb couldn't load "${track.title}" right now.`,
+      suppressDiagnostic = false,
     } = options;
 
     console.error("Failed to load track:", error);
-    pushAppDiagnostic({
-      level: "error",
-      title: diagnosticTitle,
-      message: diagnosticMessage,
-      source: "player",
-      dedupeKey: `track-load-failed:${track.id}`,
-    });
+    if (!suppressDiagnostic) {
+      pushAppDiagnostic({
+        level: "error",
+        title: diagnosticTitle,
+        message: diagnosticMessage,
+        source: "player",
+        dedupeKey: `track-load-failed:${track.id}`,
+      });
+    }
     void reportClientErrorLazy(error, "player_track_load_failed", {
       trackId: track.id,
       title: track.title,
@@ -730,28 +2312,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const currentState = stateRef.current;
     const nextIndex = allowQueueFallback
-      ? getNextQueueIndex(currentState.queue, track, currentState.shuffle)
+      ? getNextQueueIndex(currentState.queue, track, currentState.shuffle, { wrap: currentState.repeat === "all" })
       : null;
     const nextTrack = nextIndex === null ? null : currentState.queue[nextIndex];
 
     if (nextTrack && nextTrack.id !== track.id) {
-      toast.error(`"${track.title}" is unavailable right now. Skipping to the next track.`);
+      showErrorToast(`"${track.title}" is unavailable right now. Skipping to the next track.`);
       await loadAndPlayRef.current(nextTrack);
       return;
     }
 
-    toast.error(`"${track.title}" is unavailable to play right now.`);
+    const detailedReason = getPlaybackFailureReason(error, track);
+
+    showErrorToast(
+      detailedReason
+        ? `"${track.title}" is unavailable to play right now. ${formatPlaybackFailureToast(detailedReason)}`
+        : `"${track.title}" is unavailable to play right now.`,
+    );
+    deactivateYoutubeEmbedPlayback();
     clearCurrentStatus();
+    setTimeline({
+      currentTime: 0,
+      duration: 0,
+      pendingSeekTime: null,
+    });
     setState((prev) => ({
       ...prev,
       currentTrack: null,
+      resolvedAudioQuality: null,
+      resolvedAvailableAudioQualityLabels: [],
+      resolvedAudioQualityLabel: null,
+      resolvedVideoQuality: null,
+      playbackMode: "native",
       hasPlaybackStarted: false,
       currentTime: 0,
       duration: 0,
       isLoading: false,
       isPlaying: false,
     }));
-  }, [clearCurrentStatus]);
+  }, [clearCurrentStatus, deactivateYoutubeEmbedPlayback]);
 
   const attemptAudioRecovery = useCallback(async (error: string) => {
     const currentState = stateRef.current;
@@ -760,7 +2359,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    if (getAudioErrorCode(error) !== 4) {
+    if (!shouldAttemptAudioRecovery(error, track)) {
       return false;
     }
 
@@ -773,12 +2372,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       resetAudioRecovery(track.id);
     }
 
-    const recoveryCandidates = getRecoveryQualityOrder(currentState.quality).filter(
+    const lockedRecoveryQuality = currentState.resolvedAudioQuality
+      ?? getPlayableAudioQualityForTrack(currentState.quality, track.source, track.audioQuality, track.isVideo === true);
+    const orderedCandidates = getRecoveryQualityOrderForSource(lockedRecoveryQuality, track.source).filter(
       (quality) => !audioRecoveryRef.current.attemptedQualities.includes(quality),
     );
-    const orderedCandidates = isAutoQualityEnabled(stateRef.current)
-      ? recoveryCandidates
-      : recoveryCandidates.slice(0, 1);
 
     if (orderedCandidates.length === 0) {
       return false;
@@ -791,9 +2389,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-      const engine = await ensureEngine();
-      const resumeTime = engine.currentTime || currentState.currentTime || 0;
+      const playbackAttempt = beginPlaybackAttempt();
+      const resumeTime = engineRef.current?.currentTime || currentState.currentTime || 0;
       for (const nextQuality of orderedCandidates) {
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+          return false;
+        }
+
         audioRecoveryRef.current = {
           trackId: track.id,
           attemptedQualities: [...audioRecoveryRef.current.attemptedQualities, nextQuality],
@@ -801,36 +2403,68 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         };
 
         try {
-          const source = await resolvePlaybackSource(track, nextQuality, true);
+          const {
+            engine,
+            source,
+            resolvedAudioQuality,
+            resolvedAvailableAudioQualityLabels,
+            resolvedAudioQualityLabel,
+            resolvedVideoQuality,
+            capability,
+          } = await preparePlaybackTarget(track, nextQuality, true);
           if (!source) {
             throw new Error(`No stream URL available for ${nextQuality} recovery`);
           }
 
-          await engine.restore(
-            source,
-            track.replayGain || 0,
-            track.peak || 1,
-            resumeTime,
-          );
-          await engine.play();
+          const recovered = await withPlaybackEngineTransitionLock(async () => {
+            if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+              return false;
+            }
 
-          if (engine.paused) {
-            throw new Error(`Playback did not start after ${nextQuality} recovery`);
+            await engine.restore(
+              source,
+              track.replayGain || 0,
+              track.peak || 1,
+              resumeTime,
+            );
+
+            if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+              return false;
+            }
+
+            await engine.play();
+
+            if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+              return false;
+            }
+
+            if (engine.paused) {
+              throw new Error(`Playback did not start after ${nextQuality} recovery`);
+            }
+
+            setState((prev) => ({
+              ...prev,
+              currentTrack: prev.currentTrack ? applyTrackAudioCapability(prev.currentTrack, capability) : prev.currentTrack,
+              resolvedAudioQuality,
+              resolvedAvailableAudioQualityLabels,
+              resolvedAudioQualityLabel,
+              resolvedVideoQuality: resolvedVideoQuality ?? prev.resolvedVideoQuality,
+              duration: engine.duration || track.duration || prev.duration,
+              isLoading: false,
+              isPlaying: true,
+            }));
+            setTimeline({
+              currentTime: engine.currentTime || resumeTime,
+              duration: engine.duration || track.duration || currentState.duration,
+              pendingSeekTime: null,
+            });
+
+            return true;
+          });
+
+          if (recovered) {
+            return true;
           }
-
-          setState((prev) => ({
-            ...prev,
-            currentTime: engine.currentTime || resumeTime,
-            duration: engine.duration || track.duration || prev.duration,
-            isLoading: false,
-            isPlaying: true,
-          }));
-
-          if (nextQuality !== currentState.quality) {
-            toast.info(`"${track.title}" resumed at ${nextQuality.toLowerCase()} quality.`);
-          }
-
-          return true;
         } catch (recoveryError) {
           console.warn("Audio recovery attempt failed:", recoveryError);
         }
@@ -843,12 +2477,82 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         active: false,
       };
     }
-  }, [ensureEngine, resetAudioRecovery, resolvePlaybackSource]);
+  }, [beginPlaybackAttempt, isPlaybackAttemptCurrent, preparePlaybackTarget, resetAudioRecovery, withPlaybackEngineTransitionLock]);
+
+  const schedulePlaybackInterruptionRecovery = useCallback((reason: "waiting" | "stalled") => {
+    if (typeof window === "undefined") return;
+
+    const currentTrack = stateRef.current.currentTrack;
+    const engine = engineRef.current;
+    if (!currentTrack || !engine) return;
+
+    clearPlaybackInterruptionRecovery();
+
+    const trackId = currentTrack.id;
+    playbackInterruptionTimeoutRef.current = window.setTimeout(() => {
+      playbackInterruptionTimeoutRef.current = null;
+
+      if (stateRef.current.currentTrack?.id !== trackId) {
+        return;
+      }
+
+      const activeEngine = engineRef.current;
+      if (!activeEngine || !activeEngine.isLoading) {
+        return;
+      }
+
+      void attemptAudioRecovery(`Playback stalled after ${reason}`);
+    }, PLAYBACK_INTERRUPTION_RECOVERY_DELAY_MS);
+  }, [attemptAudioRecovery, clearPlaybackInterruptionRecovery]);
+
+  const recordPlaybackInterruptionHealth = useCallback((reason: "waiting" | "stalled") => {
+    const track = stateRef.current.currentTrack;
+    if (!track) return;
+
+    const occurredAt = Date.now();
+    const { nextState, shouldWarn, interruptionCount } = updatePlaybackInterruptionHealth(
+      playbackInterruptionHealthRef.current,
+      {
+        occurredAt,
+        trackId: track.id,
+      },
+    );
+
+    playbackInterruptionHealthRef.current = nextState;
+
+    if (!shouldWarn) {
+      return;
+    }
+
+    void reportClientEventLazy(
+      "warn",
+      "player_buffering_health_degraded",
+      "Repeated playback interruptions detected",
+      {
+        interruptionCount,
+        quality: stateRef.current.quality,
+        reason,
+        resolvedAudioQuality: stateRef.current.resolvedAudioQuality,
+        source: track.source,
+        trackId: track.id,
+      },
+      "player",
+    );
+  }, []);
 
   const loadAndPlay = useCallback(async (
     track: Track,
     options: { allowQueueFallback?: boolean } = {},
   ) => {
+    const playbackAttempt = beginPlaybackAttempt();
+    beginPlaybackStartup(playbackAttempt, track.id);
+    invalidatePendingCrossfadeHandoff();
+    deactivateYoutubeEmbedPlayback();
+    const shouldUseYoutubeEmbed = shouldUseYoutubeEmbedForTrack(track);
+    const youtubeEmbedSourceId = getYoutubeEmbedSourceId(track);
+    if (!shouldUseYoutubeEmbed) {
+      void warmPlaybackStack({ includeDash: track.isVideo === true });
+    }
     resetAudioRecovery(track.id);
 
     if (!isTrackPlayable(track)) {
@@ -857,46 +2561,165 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     setState((prev) => ({
-      ...prev,
+      ...applyPlaybackSurfacePreference(prev, track),
       currentTrack: track,
+      resolvedAudioQuality: null,
+      resolvedAvailableAudioQualityLabels: [],
+      resolvedAudioQualityLabel: null,
+      resolvedVideoQuality: null,
+      playbackMode: shouldUseYoutubeEmbed ? "youtube-embed" : "native",
       hasPlaybackStarted: true,
       currentTime: 0,
       duration: track.duration,
       isLoading: true,
       isPlaying: false,
     }));
+    setTimeline({
+      currentTime: 0,
+      duration: track.duration,
+      pendingSeekTime: null,
+    });
+
+    if (shouldUseYoutubeEmbed && youtubeEmbedSourceId) {
+      try {
+        const started = await withPlaybackEngineTransitionLock(async () => {
+          const nativeEngine = engineRef.current ?? await ensureEngine();
+          markExpectedPause();
+          nativeEngine.pause();
+          const embedManager = getYoutubeEmbedManager();
+          await embedManager.load(youtubeEmbedSourceId, { autoplay: true });
+
+          if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+            return false;
+          }
+
+          const nextDuration = embedManager.getDuration() || track.duration;
+          setTimeline({
+            currentTime: 0,
+            duration: nextDuration,
+            pendingSeekTime: null,
+          });
+          setState((prev) => ({
+            ...prev,
+            playbackMode: "youtube-embed",
+            duration: nextDuration,
+            isLoading: false,
+            isPlaying: true,
+          }));
+          return true;
+        });
+
+        if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+          return;
+        }
+        if (!started) {
+          throw new Error("YouTube embed playback did not start");
+        }
+        syncCurrentStatus(track);
+        return;
+      } catch (error) {
+        if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+          return;
+        }
+
+        await handleTrackPlaybackFailure(track, error, options);
+        return;
+      } finally {
+        clearPlaybackStartup(playbackAttempt, track.id);
+      }
+    }
 
     const playFromResolvedUrl = async (forceRefresh = false) => {
-      const source = await resolvePlaybackSource(track, stateRef.current.quality, forceRefresh);
-
+      const {
+        engine,
+        source,
+        resolvedAudioQuality,
+        resolvedAvailableAudioQualityLabels,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
+        capability,
+      } = await preparePlaybackTarget(track, stateRef.current.quality, forceRefresh);
       if (!source) {
         return false;
       }
 
-      const engine = await ensureEngine();
-      await engine.load(source, track.replayGain || 0, track.peak || 1);
-      await engine.play();
+      return withPlaybackEngineTransitionLock(async () => {
+        if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+          return false;
+        }
 
-      if (engine.paused) {
-        throw new Error(forceRefresh ? "Playback did not start after stream refresh" : "Playback did not start");
-      }
+        const attemptPlayback = async (playbackSource: AudioPlaybackSource) => {
+          await engine.load(playbackSource, track.replayGain || 0, track.peak || 1);
+          if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+            return false;
+          }
 
-      return true;
+          await engine.play();
+          if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+            return false;
+          }
+
+          if (engine.paused) {
+            throw new Error(forceRefresh ? "Playback did not start after stream refresh" : "Playback did not start");
+          }
+
+          setState((prev) => ({
+            ...prev,
+            currentTrack: prev.currentTrack ? applyTrackAudioCapability(prev.currentTrack, capability) : prev.currentTrack,
+            resolvedAudioQuality,
+            resolvedAvailableAudioQualityLabels,
+            resolvedAudioQualityLabel,
+            resolvedVideoQuality: getResolvedVideoQualityFromSource(playbackSource) || resolvedVideoQuality,
+            duration: engine.duration || track.duration || prev.duration,
+            isLoading: false,
+            isPlaying: !engine.paused,
+          }));
+
+          return true;
+        };
+
+        try {
+          return await attemptPlayback(source);
+        } catch (error) {
+          const fallbackSource = getCompatiblePlaybackFallbackSource(source);
+          if (!fallbackSource) {
+            throw error;
+          }
+
+          console.warn("Split YouTube playback failed, falling back to muxed stream:", error);
+          const started = await attemptPlayback(fallbackSource);
+          if (started) {
+            showInfoToast(`"${track.title}" fell back to a compatible YouTube video stream.`);
+          }
+          return started;
+        }
+      });
     };
 
     try {
       const started = await playFromResolvedUrl(false);
+      if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+        return;
+      }
       if (!started) {
         throw new Error("No stream URL available for track");
       }
       syncCurrentStatus(track);
       return;
     } catch (error) {
+      if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+        return;
+      }
+
       let finalError = error;
       const tidalId = getResolvableTidalId(track);
-      if (tidalId) {
+      const shouldRetryWithFreshSource = Boolean(tidalId) || track.source === "youtube-music";
+      if (shouldRetryWithFreshSource) {
         try {
           const refreshed = await playFromResolvedUrl(true);
+          if (!isPlaybackAttemptCurrent(playbackAttempt)) {
+            return;
+          }
           if (refreshed) {
             syncCurrentStatus(track);
             return;
@@ -907,17 +2730,69 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
 
       await handleTrackPlaybackFailure(track, finalError, options);
+    } finally {
+      clearPlaybackStartup(playbackAttempt, track.id);
     }
-  }, [ensureEngine, handleTrackPlaybackFailure, resetAudioRecovery, resolvePlaybackSource, syncCurrentStatus]);
+  }, [applyPlaybackSurfacePreference, beginPlaybackAttempt, beginPlaybackStartup, clearPlaybackStartup, deactivateYoutubeEmbedPlayback, ensureEngine, handleTrackPlaybackFailure, invalidatePendingCrossfadeHandoff, isPlaybackAttemptCurrent, markExpectedPause, preparePlaybackTarget, resetAudioRecovery, shouldUseYoutubeEmbedForTrack, syncCurrentStatus, warmPlaybackStack, withPlaybackEngineTransitionLock]);
 
   loadAndPlayRef.current = loadAndPlay;
 
-  const advanceToNext = useCallback(() => {
+  const warmTrackPlayback = useCallback((track: Track) => {
+    if (!isTrackPlayable(track)) {
+      return;
+    }
+
+    if (shouldUseYoutubeEmbedForTrack(track)) {
+      void getYoutubeEmbedManager().warmup().catch(() => {
+        // Keep hover/focus warmup best-effort so discovery never surfaces errors.
+      });
+      return;
+    }
+
+    void warmPlaybackStack({ includeDash: track.isVideo === true });
+    void resolvePlaybackSource(track, stateRef.current.quality)
+      .then((resolution) => {
+        if (!resolution.source) {
+          return;
+        }
+
+        const preloadType = resolution.source.type;
+        if (engineRef.current) {
+          return Promise.allSettled([
+            engineRef.current.preloadSourceType(preloadType),
+            warmResolvedPlaybackSource(resolution.source),
+          ]).then(() => undefined);
+        }
+
+        return ensureEngine().then((engine) =>
+          Promise.allSettled([
+            engine.preloadSourceType(preloadType),
+            warmResolvedPlaybackSource(resolution.source),
+          ]).then(() => undefined),
+        );
+      })
+      .catch(() => {
+        // Keep hover/focus warmup best-effort so discovery never surfaces errors.
+      });
+  }, [ensureEngine, resolvePlaybackSource, shouldUseYoutubeEmbedForTrack, warmPlaybackStack, warmResolvedPlaybackSource]);
+
+  const advanceToNext = useCallback((options: { allowWrap?: boolean; restartCurrentWhenQueueEmpty?: boolean } = {}) => {
+    const { allowWrap = false, restartCurrentWhenQueueEmpty = false } = options;
     const currentState = stateRef.current;
+    if (!currentState.currentTrack) return;
+
+    if (currentState.queue.length === 0) {
+      if (restartCurrentWhenQueueEmpty) {
+        loadAndPlay(currentState.currentTrack);
+      }
+      return;
+    }
+
     const nextIndex = getNextQueueIndex(
       currentState.queue,
       currentState.currentTrack,
       currentState.shuffle,
+      { wrap: allowWrap },
     );
 
     if (nextIndex === null) return;
@@ -929,42 +2804,73 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const track = currentState.currentTrack;
     if (!track) return;
 
-    const engine = await ensureEngine();
-    const resumeTime = engine.currentTime || currentState.currentTime || 0;
-    const shouldResume = !engine.paused || currentState.isPlaying;
+    const playbackAttempt = beginPlaybackAttempt();
+    invalidatePendingCrossfadeHandoff();
+    const resumeTime = engineRef.current?.currentTime || currentState.currentTime || 0;
+    const shouldResume = !(engineRef.current?.paused ?? true) || currentState.isPlaying;
 
     try {
-      const source = await resolvePlaybackSource(track, quality, true);
+      const {
+        engine,
+        source,
+        resolvedAudioQuality,
+        resolvedAvailableAudioQualityLabels,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
+        capability,
+      } = await preparePlaybackTarget(track, quality, true);
       if (!source) {
         throw new Error("No stream URL available for selected quality");
       }
 
-      await engine.restore(
-        source,
-        track.replayGain || 0,
-        track.peak || 1,
-        resumeTime,
-      );
+      await withPlaybackEngineTransitionLock(async () => {
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+          return;
+        }
 
-      if (shouldResume) {
-        await engine.play();
-      }
+        await engine.restore(
+          source,
+          track.replayGain || 0,
+          track.peak || 1,
+          resumeTime,
+        );
 
-      setState((prev) => ({
-        ...prev,
-        quality,
-        currentTime: engine.currentTime || resumeTime,
-        duration: engine.duration || track.duration || prev.duration,
-        isLoading: false,
-        isPlaying: shouldResume && !engine.paused,
-      }));
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+          return;
+        }
+
+        if (shouldResume) {
+          await engine.play();
+          if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+            return;
+          }
+        }
+
+        setState((prev) => ({
+          ...prev,
+          currentTrack: prev.currentTrack ? applyTrackAudioCapability(prev.currentTrack, capability) : prev.currentTrack,
+          quality,
+          resolvedAudioQuality,
+          resolvedAvailableAudioQualityLabels,
+          resolvedAudioQualityLabel,
+          resolvedVideoQuality: resolvedVideoQuality ?? prev.resolvedVideoQuality,
+          duration: engine.duration || track.duration || prev.duration,
+          isLoading: false,
+          isPlaying: shouldResume && !engine.paused,
+        }));
+        setTimeline({
+          currentTime: engine.currentTime || resumeTime,
+          duration: engine.duration || track.duration || currentState.duration,
+          pendingSeekTime: null,
+        });
+      });
     } catch (error) {
       console.error("Failed to switch audio quality:", error);
       void reportClientErrorLazy(error, "player_quality_switch_failed", {
         trackId: track.id,
         quality,
       });
-      toast.error("Couldn't switch audio quality right now.");
+      showErrorToast("Couldn't switch audio quality right now.");
       persistAudioQuality(previousQuality);
       setState((prev) => ({
         ...prev,
@@ -972,7 +2878,116 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         isLoading: false,
       }));
     }
-  }, [ensureEngine, resolvePlaybackSource]);
+  }, [beginPlaybackAttempt, invalidatePendingCrossfadeHandoff, isPlaybackAttemptCurrent, preparePlaybackTarget, withPlaybackEngineTransitionLock]);
+
+  const refreshVideoPlaybackPreference = useCallback(async () => {
+    const currentState = stateRef.current;
+    const track = currentState.currentTrack;
+    if (!track || track.isVideo !== true) {
+      return;
+    }
+
+    if (currentState.playbackMode === "youtube-embed" && isYoutubeEmbedEligibleTrack(track)) {
+      showInfoToast("Video quality is managed by YouTube for embedded playback.");
+      return;
+    }
+
+    const playbackAttempt = beginPlaybackAttempt();
+    invalidatePendingCrossfadeHandoff();
+    const resumeTime = engineRef.current?.currentTime || currentState.currentTime || 0;
+    const shouldResume = !(engineRef.current?.paused ?? true) || currentState.isPlaying;
+
+    setState((prev) => ({ ...prev, isLoading: true }));
+
+    try {
+      const {
+        engine,
+        source,
+        resolvedAudioQuality,
+        resolvedAvailableAudioQualityLabels,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
+        capability,
+      } = await preparePlaybackTarget(track, currentState.quality, true);
+      if (!source) {
+        throw new Error("No stream URL available for selected video quality");
+      }
+
+      let nextResolvedVideoQuality = resolvedVideoQuality;
+      await withPlaybackEngineTransitionLock(async () => {
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+          return;
+        }
+
+        const restoreSource = async (playbackSource: AudioPlaybackSource) => {
+          await engine.restore(
+            playbackSource,
+            track.replayGain || 0,
+            track.peak || 1,
+            resumeTime,
+          );
+
+          if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+            return false;
+          }
+
+          if (shouldResume) {
+            await engine.play();
+            if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== track.id) {
+              return false;
+            }
+          }
+          nextResolvedVideoQuality = getResolvedVideoQualityFromSource(playbackSource) || nextResolvedVideoQuality;
+          return true;
+        };
+
+        try {
+          const restored = await restoreSource(source);
+          if (!restored) {
+            return;
+          }
+        } catch (error) {
+          const fallbackSource = getCompatiblePlaybackFallbackSource(source);
+          if (!fallbackSource) {
+            throw error;
+          }
+
+          console.warn("Split YouTube video refresh failed, falling back to muxed stream:", error);
+          const restored = await restoreSource(fallbackSource);
+          if (!restored) {
+            return;
+          }
+          showInfoToast(`"${track.title}" fell back to a compatible YouTube video stream.`);
+        }
+
+        setState((prev) => ({
+          ...prev,
+          currentTrack: prev.currentTrack ? applyTrackAudioCapability(prev.currentTrack, capability) : prev.currentTrack,
+          resolvedAudioQuality,
+          resolvedAvailableAudioQualityLabels,
+          resolvedAudioQualityLabel,
+          resolvedVideoQuality: nextResolvedVideoQuality ?? prev.resolvedVideoQuality,
+          duration: engine.duration || track.duration || prev.duration,
+          isLoading: false,
+          isPlaying: shouldResume && !engine.paused,
+        }));
+        setTimeline({
+          currentTime: engine.currentTime || resumeTime,
+          duration: engine.duration || track.duration || currentState.duration,
+          pendingSeekTime: null,
+        });
+      });
+    } catch (error) {
+      console.error("Failed to refresh video playback preference:", error);
+      void reportClientErrorLazy(error, "player_video_quality_refresh_failed", {
+        source: track.source,
+        sourceId: track.sourceId,
+        trackId: track.id,
+      });
+      showErrorToast("Couldn't switch video quality right now.");
+      setState((prev) => ({ ...prev, isLoading: false }));
+    }
+  }, [beginPlaybackAttempt, invalidatePendingCrossfadeHandoff, isPlaybackAttemptCurrent, preparePlaybackTarget, withPlaybackEngineTransitionLock]);
 
   useEffect(() => {
     if (!engineRef.current) return;
@@ -1013,36 +3028,52 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!engineRef.current) return;
+    engineRef.current.setLoop(state.repeat === "one");
+  }, [engineReadyVersion, state.repeat]);
+
+  useEffect(() => {
+    if (!engineRef.current) return;
     engineRef.current.setPreservePitch(state.preservePitch);
   }, [engineReadyVersion, state.preservePitch]);
+
 
   useEffect(() => {
     if (!state.sleepTimerEndsAt) return;
 
     const remainingMs = state.sleepTimerEndsAt - Date.now();
     if (remainingMs <= 0) {
-      engineRef.current?.pause();
+      markExpectedPause();
+      if (stateRef.current.playbackMode === "youtube-embed") {
+        getYoutubeEmbedManager().pause();
+      } else {
+        engineRef.current?.pause();
+      }
       setState((prev) => ({
         ...prev,
         isPlaying: false,
         sleepTimerEndsAt: null,
       }));
-      toast.info("Sleep timer ended. Playback paused.");
+      showInfoToast("Sleep timer ended. Playback paused.");
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      engineRef.current?.pause();
+      markExpectedPause();
+      if (stateRef.current.playbackMode === "youtube-embed") {
+        getYoutubeEmbedManager().pause();
+      } else {
+        engineRef.current?.pause();
+      }
       setState((prev) => ({
         ...prev,
         isPlaying: false,
         sleepTimerEndsAt: null,
       }));
-      toast.info("Sleep timer ended. Playback paused.");
+      showInfoToast("Sleep timer ended. Playback paused.");
     }, remainingMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [state.sleepTimerEndsAt]);
+  }, [markExpectedPause, state.sleepTimerEndsAt]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -1052,16 +3083,64 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const nextDuration = duration || stateRef.current.currentTrack?.duration || 0;
       const nextIsPlaying = !engine.paused;
       const nextTrackId = stateRef.current.currentTrack?.id ?? null;
+      const activePendingSeek = pendingSeekRef.current;
+      const stabilizedCurrentTime = stabilizePlaybackProgressTime(
+        stateRef.current.currentTime,
+        currentTime,
+        {
+          duration: nextDuration,
+          isPlaying: nextIsPlaying,
+          pendingSeek: activePendingSeek,
+        },
+      );
+      const nextProgress = { currentTime: stabilizedCurrentTime, trackId: nextTrackId };
+
+      if (shouldIgnoreProgressWhileSeekSettles(activePendingSeek, nextProgress)) {
+        const stabilizedTime = activePendingSeek?.time ?? stateRef.current.currentTime;
+
+        stateRef.current = {
+          ...stateRef.current,
+          currentTime: stabilizedTime,
+          duration: nextDuration,
+          isPlaying: nextIsPlaying,
+        };
+
+        setTimeline((prev) => (
+          prev.duration === nextDuration
+            ? prev
+            : {
+              ...prev,
+              duration: nextDuration,
+            }
+        ));
+
+        setState((prev) => {
+          if (prev.duration === nextDuration && prev.isPlaying === nextIsPlaying) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            duration: nextDuration,
+            isPlaying: nextIsPlaying,
+          };
+        });
+        return;
+      }
+
+      if (activePendingSeek?.trackId === nextTrackId) {
+        clearPendingSeek(nextTrackId);
+      }
 
       stateRef.current = {
         ...stateRef.current,
-        currentTime,
+        currentTime: stabilizedCurrentTime,
         duration: nextDuration,
         isPlaying: nextIsPlaying,
       };
 
       const nextSnapshot = {
-        currentTime,
+        currentTime: stabilizedCurrentTime,
         duration: nextDuration,
         isPlaying: nextIsPlaying,
         trackId: nextTrackId,
@@ -1072,10 +3151,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
 
       lastProgressRenderRef.current = nextSnapshot;
+      setTimeline((prev) => (
+        prev.currentTime === stabilizedCurrentTime && prev.duration === nextDuration && prev.pendingSeekTime === null
+          ? prev
+          : {
+            currentTime: stabilizedCurrentTime,
+            duration: nextDuration,
+            pendingSeekTime: null,
+          }
+      ));
 
       setState((prev) => {
         if (
-          prev.currentTime === currentTime &&
           prev.duration === nextDuration &&
           prev.isPlaying === nextIsPlaying
         ) {
@@ -1084,7 +3171,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         return {
           ...prev,
-          currentTime,
           duration: nextDuration,
           isPlaying: nextIsPlaying,
         };
@@ -1092,19 +3178,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
 
     engine.on("ended", () => {
+      if (engine.isCrossfading || transitionInProgressRef.current) return;
       const currentState = stateRef.current;
       if (currentState.repeat === "one") {
         engine.seek(0);
-        void engine.play();
+        void engine.play().catch(async () => {
+          if (stateRef.current.currentTrack) {
+            await loadAndPlay(stateRef.current.currentTrack, { allowQueueFallback: false });
+          }
+        });
         return;
       }
 
-      if (currentState.queue.length > 0 && currentState.currentTrack) {
+      if (currentState.currentTrack) {
         const currentIndex = getQueueTrackIndex(currentState.queue, currentState.currentTrack);
         const hasFollowingTrack = currentIndex >= 0 && currentIndex < currentState.queue.length - 1;
 
-        if (hasFollowingTrack || currentState.repeat === "all" || currentState.shuffle) {
-          advanceToNext();
+        if (currentState.repeat === "all" || hasFollowingTrack || currentState.shuffle) {
+          advanceToNext({
+            allowWrap: currentState.repeat === "all",
+            restartCurrentWhenQueueEmpty: currentState.repeat === "all",
+          });
           return;
         }
       }
@@ -1115,35 +3209,116 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     engine.on("crossfade", async () => {
       const currentState = stateRef.current;
-      if (!currentState.currentTrack || currentState.queue.length === 0) return;
+      if (!currentState.currentTrack || currentState.queue.length === 0) {
+        engine.cancelPendingCrossfade();
+        return;
+      }
 
-      const currentIndex = getQueueTrackIndex(currentState.queue, currentState.currentTrack);
+      const triggerTrack = currentState.currentTrack;
+      const triggerTrackId = triggerTrack.id;
+
+      const currentIndex = getQueueTrackIndex(currentState.queue, triggerTrack);
+      if (currentState.repeat === "one") {
+        engine.cancelPendingCrossfade();
+        return;
+      }
+
       if (!currentState.shuffle && currentIndex === currentState.queue.length - 1 && currentState.repeat !== "all") {
+        engine.cancelPendingCrossfade();
         return;
       }
 
       const nextIndex = getNextQueueIndex(
         currentState.queue,
-        currentState.currentTrack,
+        triggerTrack,
         currentState.shuffle,
+        { wrap: currentState.repeat === "all" },
       );
-      if (nextIndex === null) return;
+      if (nextIndex === null) {
+        engine.cancelPendingCrossfade();
+        return;
+      }
 
       const nextTrack = currentState.queue[nextIndex];
-      setState((prev) => ({
-        ...prev,
-        currentTrack: nextTrack,
+      const nextTrackQueueKey = getTrackMixQueueKey(nextTrack);
+      const crossfadeAttempt = crossfadeAttemptRef.current + 1;
+      crossfadeAttemptRef.current = crossfadeAttempt;
+
+      const {
+        source,
+        resolvedAudioQuality,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
+        capability,
+      } = await preparePlaybackTarget(nextTrack, currentState.quality);
+      if (!source) {
+        engine.cancelPendingCrossfade();
+        return;
+      }
+
+      if (crossfadeAttemptRef.current !== crossfadeAttempt || stateRef.current.currentTrack?.id !== triggerTrackId) {
+        engine.cancelPendingCrossfade();
+        return;
+      }
+
+      const latestState = stateRef.current;
+      const latestNextIndex = getNextQueueIndex(
+        latestState.queue,
+        latestState.currentTrack,
+        latestState.shuffle,
+        { wrap: latestState.repeat === "all" },
+      );
+      if (latestNextIndex === null) {
+        engine.cancelPendingCrossfade();
+        return;
+      }
+
+      const latestNextTrack = latestState.queue[latestNextIndex];
+      if (!latestNextTrack || getTrackMixQueueKey(latestNextTrack) !== nextTrackQueueKey) {
+        engine.cancelPendingCrossfade();
+        return;
+      }
+
+      transitionInProgressRef.current = true;
+      setTimeline({
         currentTime: 0,
         duration: nextTrack.duration,
+        pendingSeekTime: null,
+      });
+      setState((prev) => ({
+        ...prev,
+        currentTrack: applyTrackAudioCapability(nextTrack, capability),
+        currentTime: 0,
+        duration: nextTrack.duration,
+        resolvedAudioQuality,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
       }));
 
-      const source = await resolvePlaybackSource(nextTrack, currentState.quality);
-      if (!source) return;
+      try {
+        await engine.crossfadeInto(source, nextTrack.replayGain || 0, nextTrack.peak || 1);
+      } catch (error) {
+        if (crossfadeAttemptRef.current !== crossfadeAttempt || stateRef.current.currentTrack?.id !== nextTrack.id) {
+          return;
+        }
 
-      await engine.crossfadeInto(source, nextTrack.replayGain || 0, nextTrack.peak || 1);
+        console.error("Crossfade handoff failed:", error);
+        void reportClientErrorLazy(error, "player_crossfade_handoff_failed", {
+          trackId: nextTrack.id,
+        });
+        await loadAndPlay(nextTrack, { allowQueueFallback: false });
+      } finally {
+        if (crossfadeAttemptRef.current === crossfadeAttempt) {
+          transitionInProgressRef.current = false;
+          setState((prev) => ({ ...prev, isLoading: false }));
+        }
+      }
     });
 
     engine.on("play", () => {
+      clearPlaybackInterruptionRecovery();
+      clearUnexpectedPauseRecovery();
+      clearPlaybackStartup(undefined, stateRef.current.currentTrack?.id ?? null);
       const currentTrack = stateRef.current.currentTrack;
       if (currentTrack) {
         syncCurrentStatus(currentTrack);
@@ -1152,32 +3327,58 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
 
     engine.on("pause", () => {
+      if (recoverFromUnexpectedPause("native")) {
+        return;
+      }
+
+      clearPlaybackInterruptionRecovery();
       clearCurrentStatus();
       setState((prev) => ({ ...prev, isPlaying: false }));
     });
 
     engine.on("error", (error: string) => {
+      clearPlaybackInterruptionRecovery();
       void (async () => {
+        if (error.startsWith("Web Audio effects unavailable:")) {
+          console.warn("Audio engine warning:", error);
+          void reportClientErrorLazy(error, "audio_engine_effects_unavailable");
+          setState((prev) => ({ ...prev, isLoading: false }));
+          return;
+        }
+
+        const currentTrack = stateRef.current.currentTrack;
+        if (isPlaybackStartupActiveForTrack(currentTrack?.id)) {
+          console.warn("Ignoring runtime media error during active playback startup:", error);
+          return;
+        }
+
+        if (currentTrack?.source === "youtube-music" && currentTrack.isVideo === true) {
+          try {
+            const recoveredWithFallback = await attemptYoutubeVideoFallbackPlayback(currentTrack);
+            if (recoveredWithFallback) {
+              return;
+            }
+          } catch (fallbackError) {
+            console.error("YouTube video fallback recovery failed:", fallbackError);
+            void reportClientErrorLazy(fallbackError, "youtube_video_fallback_recovery_failed", {
+              sourceId: currentTrack.sourceId,
+              trackId: currentTrack.id,
+            });
+          }
+        }
+
         const recovered = await attemptAudioRecovery(error);
         if (recovered) {
           return;
         }
 
         console.error("Audio engine error:", error);
-        pushAppDiagnostic({
-          level: "error",
-          title: "Audio engine hit an error",
-          message: error,
-          source: "player",
-          dedupeKey: `audio-engine:${error}`,
-        });
         void reportClientErrorLazy(error, "audio_engine_error");
 
-        const currentTrack = stateRef.current.currentTrack;
-        if (currentTrack) {
-          await handleTrackPlaybackFailure(currentTrack, error, {
-            diagnosticTitle: "Audio engine hit an error",
-            diagnosticMessage: error,
+        const failedTrack = stateRef.current.currentTrack;
+        if (failedTrack) {
+          await handleTrackPlaybackFailure(failedTrack, error, {
+            suppressDiagnostic: true,
           });
           return;
         }
@@ -1190,43 +3391,250 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setState((prev) => ({ ...prev, isLoading: true }));
     });
 
+    engine.on("interrupted", (reason) => {
+      recordPlaybackInterruptionHealth(reason);
+      schedulePlaybackInterruptionRecovery(reason);
+    });
+
     engine.on("canplay", () => {
+      clearPlaybackInterruptionRecovery();
+      if (!engine.paused) {
+        return;
+      }
+
       setState((prev) => ({ ...prev, isLoading: false }));
     });
 
-    return () => { };
-  }, [advanceToNext, attemptAudioRecovery, clearCurrentStatus, engineReadyVersion, handleTrackPlaybackFailure, resolvePlaybackSource, syncCurrentStatus]);
+    return () => {
+      engine.on("play", () => { });
+      engine.on("pause", () => { });
+      engine.on("ended", () => { });
+      engine.on("timeupdate", () => { });
+      engine.on("error", () => { });
+      engine.on("loadstart", () => { });
+      engine.on("canplay", () => { });
+      engine.on("crossfade", () => { });
+      engine.on("interrupted", () => { });
+    };
+  }, [advanceToNext, attemptAudioRecovery, attemptYoutubeVideoFallbackPlayback, clearCurrentStatus, clearPendingSeek, clearPlaybackInterruptionRecovery, clearPlaybackStartup, clearUnexpectedPauseRecovery, engineReadyVersion, handleTrackPlaybackFailure, isPlaybackStartupActiveForTrack, loadAndPlay, preparePlaybackTarget, recordPlaybackInterruptionHealth, recoverFromUnexpectedPause, schedulePlaybackInterruptionRecovery, syncCurrentStatus]);
 
   useEffect(() => {
     resetAudioRecovery(state.currentTrack?.id ?? null);
   }, [resetAudioRecovery, state.currentTrack?.id]);
+
+  useEffect(() => clearUnexpectedPauseRecovery, [clearUnexpectedPauseRecovery]);
+
+  useEffect(() => {
+    if (!state.currentTrack) return;
+
+    const nextIndex = getNextQueueIndex(state.queue, state.currentTrack, state.shuffle, {
+      wrap: state.repeat === "all",
+    });
+    if (nextIndex === null) return;
+
+    const nextTrack = state.queue[nextIndex];
+    if (!nextTrack || nextTrack.isUnavailable) return;
+
+    const timeoutId = window.setTimeout(() => {
+      prefetchPlaybackSource(nextTrack, state.quality);
+    }, nextTrack.isVideo === true ? 150 : state.isPlaying ? 1000 : 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [prefetchPlaybackSource, state.currentTrack, state.isPlaying, state.quality, state.queue, state.repeat, state.shuffle]);
+
+  useEffect(() => {
+    const embedManager = getYoutubeEmbedManager();
+
+    const handleTimeUpdate = (currentTime: number, duration: number) => {
+      if (stateRef.current.playbackMode !== "youtube-embed") {
+        return;
+      }
+
+      const nextDuration = duration || stateRef.current.currentTrack?.duration || 0;
+      const nextIsPlaying = !embedManager.isPaused();
+      const nextTrackId = stateRef.current.currentTrack?.id ?? null;
+      const activePendingSeek = pendingSeekRef.current;
+      const stabilizedCurrentTime = stabilizePlaybackProgressTime(
+        stateRef.current.currentTime,
+        currentTime,
+        {
+          duration: nextDuration,
+          isPlaying: nextIsPlaying,
+          pendingSeek: activePendingSeek,
+        },
+      );
+
+      if (activePendingSeek?.trackId === nextTrackId) {
+        clearPendingSeek(nextTrackId);
+      }
+
+      stateRef.current = {
+        ...stateRef.current,
+        currentTime: stabilizedCurrentTime,
+        duration: nextDuration,
+        isPlaying: nextIsPlaying,
+      };
+
+      setTimeline((prev) => (
+        prev.currentTime === stabilizedCurrentTime && prev.duration === nextDuration && prev.pendingSeekTime === null
+          ? prev
+          : {
+            currentTime: stabilizedCurrentTime,
+            duration: nextDuration,
+            pendingSeekTime: null,
+          }
+      ));
+      setState((prev) => {
+        if (
+          prev.duration === nextDuration &&
+          prev.isPlaying === nextIsPlaying &&
+          prev.isLoading === false
+        ) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          duration: nextDuration,
+          isPlaying: nextIsPlaying,
+          isLoading: false,
+        };
+      });
+    };
+
+    const handlePlay = () => {
+      if (stateRef.current.playbackMode !== "youtube-embed") {
+        return;
+      }
+
+      clearPlaybackInterruptionRecovery();
+      clearUnexpectedPauseRecovery();
+      clearPlaybackStartup(undefined, stateRef.current.currentTrack?.id ?? null);
+      const currentTrack = stateRef.current.currentTrack;
+      if (currentTrack) {
+        syncCurrentStatus(currentTrack);
+      }
+      setState((prev) => ({ ...prev, isPlaying: true, isLoading: false }));
+    };
+
+    const handlePause = () => {
+      if (stateRef.current.playbackMode !== "youtube-embed") {
+        return;
+      }
+
+      if (recoverFromUnexpectedPause("youtube-embed")) {
+        return;
+      }
+
+      clearPlaybackInterruptionRecovery();
+      clearCurrentStatus();
+      setState((prev) => ({ ...prev, isPlaying: false, isLoading: false }));
+    };
+
+    const handleEnded = () => {
+      if (stateRef.current.playbackMode !== "youtube-embed") {
+        return;
+      }
+
+      const currentState = stateRef.current;
+      if (currentState.repeat === "one") {
+        embedManager.seek(0);
+        void embedManager.play();
+        return;
+      }
+
+      if (currentState.currentTrack) {
+        const currentIndex = getQueueTrackIndex(currentState.queue, currentState.currentTrack);
+        const hasFollowingTrack = currentIndex >= 0 && currentIndex < currentState.queue.length - 1;
+
+        if (currentState.repeat === "all" || hasFollowingTrack || currentState.shuffle) {
+          advanceToNext({
+            allowWrap: currentState.repeat === "all",
+            restartCurrentWhenQueueEmpty: currentState.repeat === "all",
+          });
+          return;
+        }
+      }
+
+      clearCurrentStatus();
+      setState((prev) => ({ ...prev, isPlaying: false }));
+    };
+
+    const handleError = (error: string) => {
+      if (stateRef.current.playbackMode !== "youtube-embed") {
+        return;
+      }
+
+      console.error("YouTube embed playback error:", error);
+      void reportClientErrorLazy(error, "youtube_embed_error");
+      showErrorToast("YouTube playback is unavailable right now.");
+      clearCurrentStatus();
+      setState((prev) => ({ ...prev, isPlaying: false, isLoading: false }));
+    };
+
+    const unsubscribeTimeUpdate = embedManager.on("timeupdate", handleTimeUpdate);
+    const unsubscribePlay = embedManager.on("play", handlePlay);
+    const unsubscribePause = embedManager.on("pause", handlePause);
+    const unsubscribeEnded = embedManager.on("ended", handleEnded);
+    const unsubscribeError = embedManager.on("error", handleError);
+
+    return () => {
+      unsubscribeTimeUpdate();
+      unsubscribePlay();
+      unsubscribePause();
+      unsubscribeEnded();
+      unsubscribeError();
+    };
+  }, [advanceToNext, clearCurrentStatus, clearPendingSeek, clearPlaybackInterruptionRecovery, clearPlaybackStartup, clearUnexpectedPauseRecovery, deactivateYoutubeEmbedPlayback, recoverFromUnexpectedPause, syncCurrentStatus]);
 
   useEffect(() => {
     if (!engineRef.current) return;
     engineRef.current.setVolume(state.volume);
   }, [engineReadyVersion, state.volume]);
 
-  useEffect(() => applyTrackAccent(state.currentTrack), [state.currentTrack]);
+  useLayoutEffect(() => applyTrackAccent(state.currentTrack), [state.currentTrack]);
 
   useEffect(() => {
+    if (!state.currentTrack) {
+      updateMediaSessionMetadata(null);
+      return;
+    }
+
     updateMediaSessionMetadata(state.currentTrack);
-  }, [state.currentTrack]);
+  }, [mediaSessionTrackSignature, state.currentTrack, state.isPlaying]);
 
   useEffect(() => {
     updateMediaSessionPlaybackState(state.isPlaying, Boolean(state.currentTrack));
   }, [state.currentTrack, state.isPlaying]);
 
   useEffect(() => {
-    if (!state.currentTrack) return;
+    return subscribeToDiscordPresenceBridge(() => {
+      setDiscordPresenceBridgeVersion((version) => version + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToDiscordWebhookSettings(() => {
+      setDiscordWebhookSettingsVersion((version) => version + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!state.currentTrack) {
+      clearMediaSessionPositionState();
+      return;
+    }
 
     updateMediaSessionPositionState(
-      state.currentTime,
-      state.duration || state.currentTrack.duration,
+      timeline.currentTime,
+      timeline.duration || state.currentTrack.duration,
       state.playbackSpeed,
     );
-  }, [state.currentTime, state.currentTrack, state.duration, state.playbackSpeed]);
+  }, [timeline.currentTime, timeline.duration, state.currentTrack, state.isPlaying, state.playbackSpeed]);
 
-  const discordPresenceTimeBucket = Math.floor(state.currentTime / 15);
+  const discordPresenceTimeBucket = Math.floor(timeline.currentTime / 15);
 
   useEffect(() => {
     void syncDiscordPresence({
@@ -1239,7 +3647,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.error("Failed to sync Discord presence", error);
     });
   }, [
+    discordPresenceBridgeVersion,
     discordPresenceEnabled,
+    state.currentTrack,
+    state.currentTrack?.id,
+    state.isPlaying,
+    discordPresenceTimeBucket,
+    state.duration,
+  ]);
+
+  useEffect(() => {
+    void syncDiscordWebhookPresence({
+      track: state.currentTrack,
+      isPlaying: state.isPlaying,
+      currentTime: stateRef.current.currentTime,
+      duration: state.duration || state.currentTrack?.duration || 0,
+    }).catch((error) => {
+      console.error("Failed to sync Discord web sharing", error);
+    });
+  }, [
+    discordWebhookSettingsVersion,
     state.currentTrack,
     state.currentTrack?.id,
     state.isPlaying,
@@ -1303,8 +3730,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       try {
-        const engine = await ensureEngine();
-        const source = await resolvePlaybackSource(restoredTrack, stateRef.current.quality);
+        if (shouldUseYoutubeEmbedForTrack(restoredTrack)) {
+          const youtubeEmbedSourceId = getYoutubeEmbedSourceId(restoredTrack);
+          if (!youtubeEmbedSourceId) {
+            return;
+          }
+
+          const embedManager = getYoutubeEmbedManager();
+          await embedManager.load(youtubeEmbedSourceId, {
+            autoplay: false,
+            startSeconds: stateRef.current.currentTime,
+          });
+
+          const embedDuration = embedManager.getDuration() || restoredTrack.duration || stateRef.current.duration;
+          setTimeline((prev) => ({
+            ...prev,
+            duration: embedDuration,
+          }));
+          setState((prev) => ({
+            ...applyPlaybackSurfacePreference(prev, restoredTrack),
+            playbackMode: "youtube-embed",
+            duration: embedDuration,
+            isLoading: false,
+            isPlaying: false,
+          }));
+          return;
+        }
+
+        const {
+          engine,
+          source,
+          resolvedAudioQuality,
+          resolvedAvailableAudioQualityLabels,
+          resolvedAudioQualityLabel,
+          resolvedVideoQuality,
+        } = await preparePlaybackTarget(restoredTrack, stateRef.current.quality);
 
         if (!source) return;
 
@@ -1314,14 +3774,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           restoredTrack.peak || 1,
           stateRef.current.currentTime,
         );
+        setState((prev) => ({
+          ...prev,
+          resolvedAudioQuality: resolvedAudioQuality ?? prev.resolvedAudioQuality,
+          resolvedAvailableAudioQualityLabels: resolvedAvailableAudioQualityLabels.length > 0
+            ? resolvedAvailableAudioQualityLabels
+            : prev.resolvedAvailableAudioQualityLabels,
+          resolvedAudioQualityLabel: resolvedAudioQualityLabel ?? prev.resolvedAudioQualityLabel,
+          resolvedVideoQuality: resolvedVideoQuality ?? prev.resolvedVideoQuality,
+        }));
       } catch (error) {
         console.error("Failed to restore playback session:", error);
         void reportClientErrorLazy(error, "player_restore_failed");
       }
     })();
-  }, [ensureEngine, resolvePlaybackSource]);
+  }, [applyPlaybackSurfacePreference, preparePlaybackTarget, shouldUseYoutubeEmbedForTrack]);
 
   const restoreRemoteSession = useCallback(async (snapshot: PlaybackSessionSnapshot) => {
+    const playbackAttempt = beginPlaybackAttempt();
     const previousState = stateRef.current;
     const previousQuality = previousState.quality;
     const previousTrack = previousState.currentTrack;
@@ -1337,61 +3807,104 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       throw new Error("Remote session has no playable track.");
     }
 
+    invalidatePendingCrossfadeHandoff();
+
     const queue = requestedQueue.some((track) => track.id === currentTrack.id)
       ? requestedQueue
       : [currentTrack, ...requestedQueue];
     const resumeTime = Math.max(0, snapshot.currentTime || 0);
     const nextQuality = snapshot.quality || stateRef.current.quality;
+    const initialDuration = snapshot.duration || currentTrack.duration || previousState.duration;
 
     setState((prev) => ({
-      ...applyAutoRightPanelPreference(prev),
+      ...applyPlaybackSurfacePreference(prev, currentTrack),
       currentTrack,
+      resolvedAudioQuality: null,
+      resolvedAvailableAudioQualityLabels: [],
+      resolvedAudioQualityLabel: null,
+      resolvedVideoQuality: null,
       queue,
       currentTime: resumeTime,
       duration: snapshot.duration || currentTrack.duration || prev.duration,
       hasPlaybackStarted: true,
       isLoading: true,
       isPlaying: false,
+      autoQualityEnabled: nextQuality === "AUTO",
       quality: nextQuality,
     }));
+    setTimeline({
+      currentTime: resumeTime,
+      duration: initialDuration,
+      pendingSeekTime: null,
+    });
 
     try {
-      const engine = await ensureEngine();
-      const source = await resolvePlaybackSource(currentTrack, nextQuality);
+      const {
+        engine,
+        source,
+        resolvedAudioQuality,
+        resolvedAvailableAudioQualityLabels,
+        resolvedAudioQualityLabel,
+        resolvedVideoQuality,
+        capability,
+      } = await preparePlaybackTarget(currentTrack, nextQuality);
       if (!source) {
         throw new Error("No stream URL available for the selected remote track");
       }
 
-      await engine.restore(
-        source,
-        currentTrack.replayGain || 0,
-        currentTrack.peak || 1,
-        resumeTime,
-      );
+      await withPlaybackEngineTransitionLock(async () => {
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== currentTrack.id) {
+          return;
+        }
 
-      if (snapshot.isPlaying) {
-        await engine.play();
-      } else {
-        engine.pause();
-      }
+        await engine.restore(
+          source,
+          currentTrack.replayGain || 0,
+          currentTrack.peak || 1,
+          resumeTime,
+        );
 
-      persistAudioQuality(nextQuality);
-      if (snapshot.isPlaying) {
-        syncCurrentStatus(currentTrack);
-      } else {
-        clearCurrentStatus();
-      }
-      setState((prev) => ({
-        ...applyAutoRightPanelPreference(prev),
-        currentTrack,
-        queue,
-        currentTime: engine.currentTime || resumeTime,
-        duration: engine.duration || snapshot.duration || currentTrack.duration || prev.duration,
-        hasPlaybackStarted: true,
-        isLoading: false,
-        isPlaying: snapshot.isPlaying && !engine.paused,
-        quality: nextQuality,
-      }));
+        if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== currentTrack.id) {
+          return;
+        }
+
+        if (snapshot.isPlaying) {
+          await engine.play();
+          if (!isPlaybackAttemptCurrent(playbackAttempt) || stateRef.current.currentTrack?.id !== currentTrack.id) {
+            return;
+          }
+        } else {
+          markExpectedPause();
+          engine.pause();
+        }
+
+        persistAudioQuality(nextQuality);
+        if (snapshot.isPlaying) {
+          syncCurrentStatus(currentTrack);
+        } else {
+          clearCurrentStatus();
+        }
+        setState((prev) => ({
+          ...applyPlaybackSurfacePreference(prev, currentTrack),
+          currentTrack: applyTrackAudioCapability(currentTrack, capability),
+          resolvedAudioQuality,
+          resolvedAvailableAudioQualityLabels,
+          resolvedAudioQualityLabel,
+          resolvedVideoQuality,
+          queue,
+          duration: engine.duration || snapshot.duration || currentTrack.duration || prev.duration,
+          hasPlaybackStarted: true,
+          isLoading: false,
+          isPlaying: snapshot.isPlaying && !engine.paused,
+          autoQualityEnabled: nextQuality === "AUTO",
+          quality: nextQuality,
+        }));
+        setTimeline({
+          currentTime: engine.currentTime || resumeTime,
+          duration: engine.duration || snapshot.duration || currentTrack.duration || initialDuration,
+          pendingSeekTime: null,
+        });
+      });
     } catch (error) {
       console.error("Failed to restore remote session:", error);
       void reportClientErrorLazy(error, "player_remote_restore_failed", {
@@ -1403,7 +3916,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       try {
         const engine = await ensureEngine();
         if (previousTrack) {
-          const previousSource = await resolvePlaybackSource(previousTrack, previousQuality);
+          const { source: previousSource } = await preparePlaybackTarget(previousTrack, previousQuality);
           if (previousSource) {
             await engine.restore(
               previousSource,
@@ -1415,12 +3928,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             if (previousWasPlaying) {
               await engine.play();
             } else {
+              markExpectedPause();
               engine.pause();
             }
           } else {
+            markExpectedPause();
             engine.pause();
           }
         } else {
+          markExpectedPause();
           engine.pause();
         }
       } catch (rollbackError) {
@@ -1436,10 +3952,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         clearCurrentStatus();
       }
 
+      setTimeline({
+        currentTime: previousTime,
+        duration: previousState.duration,
+        pendingSeekTime: null,
+      });
       setState(previousState);
       throw error;
     }
-  }, [applyAutoRightPanelPreference, clearCurrentStatus, ensureEngine, resolvePlaybackSource, syncCurrentStatus]);
+  }, [applyPlaybackSurfacePreference, beginPlaybackAttempt, clearCurrentStatus, ensureEngine, invalidatePendingCrossfadeHandoff, isPlaybackAttemptCurrent, markExpectedPause, preparePlaybackTarget, syncCurrentStatus, withPlaybackEngineTransitionLock]);
 
   const syncPlaybackSessionState = useCallback(() => {
     if (!user) return Promise.resolve();
@@ -1458,28 +3979,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const play = useCallback((track: Track, queue?: Track[]) => {
-    const nextQueue = queue ? filterPlayableTracks(queue) : undefined;
-    const nextTrack = isTrackPlayable(track) ? track : nextQueue?.[0];
+    void primeMediaPlayback();
+    engineRef.current?.preparePlayback();
+    const requestedQueue = queue ? filterPlayableTracks(queue) : [];
+    const nextTrack = isTrackPlayable(track) ? track : requestedQueue[0];
+    const nextQueue = nextTrack
+      ? requestedQueue.length === 0
+        ? [nextTrack]
+        : requestedQueue.some((queuedTrack) => queuedTrack.id === nextTrack.id)
+          ? requestedQueue
+          : [nextTrack, ...requestedQueue]
+      : requestedQueue;
 
     if (!nextTrack) {
       setState((prev) => ({
         ...prev,
-        queue: nextQueue ?? prev.queue,
+        queue: nextQueue.length > 0 ? nextQueue : prev.queue,
         isLoading: false,
       }));
       if (!isTrackPlayable(track)) {
-        toast.error(`"${track.title}" is unavailable to play right now.`);
+        showErrorToast(`"${track.title}" is unavailable to play right now.`);
       }
       return;
     }
 
+    prefetchPlaybackSource(nextTrack);
     setState((prev) => ({
-      ...applyAutoRightPanelPreference(prev),
+      ...applyPlaybackSurfacePreference(prev, nextTrack),
       hasPlaybackStarted: true,
-      ...(nextQueue ? { queue: nextQueue } : {}),
+      queue: nextQueue,
     }));
     void loadAndPlay(nextTrack);
-  }, [applyAutoRightPanelPreference, loadAndPlay]);
+  }, [applyPlaybackSurfacePreference, loadAndPlay, prefetchPlaybackSource]);
 
   const playAlbum = useCallback(async (album: AlbumPlaybackTarget) => {
     setState((prev) => ({ ...prev, isLoading: true }));
@@ -1521,12 +4052,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [play]);
 
-  const playArtist = useCallback(async (artistId: number, artistName?: string) => {
+  const playArtist = useCallback(async (
+    artistId: number | string,
+    artistName?: string,
+    source: "tidal" | "youtube-music" = "tidal",
+  ) => {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
-      const musicApi = await loadMusicApiModule();
-      const tracks = await musicApi.getArtistPopularTracks(artistId, 50);
-      const appTracks = filterPlayableTracks(tracks.map((track) => musicApi.tidalTrackToAppTrack(track)));
+      if (source !== "tidal" || typeof artistId !== "number") {
+        throw new Error("YouTube Music artist playback is no longer supported outside search results");
+      }
+
+      const appTracks = await loadMusicApiModule().then(async (musicApi) => {
+        const tracks = await musicApi.getArtistPopularTracks(artistId, 50);
+        return filterPlayableTracks(tracks.map((track) => musicApi.tidalTrackToAppTrack(track)));
+      });
 
       if (appTracks.length > 0) {
         play(appTracks[0], appTracks);
@@ -1542,9 +4082,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ? `Knobb couldn't load tracks for ${artistName} right now.`
           : "Knobb couldn't load this artist's popular tracks right now.",
         source: "player",
-        dedupeKey: `play-artist-failed:${artistId}`,
+        dedupeKey: `play-artist-failed:${source}:${artistId}`,
       });
-      void reportClientErrorLazy(error, "player_artist_play_failed", { artistId });
+      void reportClientErrorLazy(error, "player_artist_play_failed", { artistId: String(artistId), source });
       setState((prev) => ({ ...prev, isLoading: false }));
     }
   }, [play]);
@@ -1595,7 +4135,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      toast.error("Mix unavailable for this track");
+      showErrorToast("Mix unavailable for this track");
       setState((prev) => ({ ...prev, isLoading: false }));
     } catch (error) {
       console.error("Failed to start track mix:", error);
@@ -1610,7 +4150,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         trackId: track.id,
         tidalId: track.tidalId,
       });
-      toast.error("Couldn't start a mix for this track");
+      showErrorToast("Couldn't start a mix for this track");
       setState((prev) => ({ ...prev, isLoading: false }));
     }
   }, [play, playArtist]);
@@ -1620,6 +4160,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (stateRef.current.playbackMode === "youtube-embed") {
+      const embedManager = getYoutubeEmbedManager();
+      void (async () => {
+        if (embedManager.isPaused()) {
+          setState((prev) => (
+            prev.hasPlaybackStarted
+              ? prev
+              : { ...prev, hasPlaybackStarted: Boolean(prev.currentTrack) }
+          ));
+          await embedManager.play().catch((error) => {
+            console.error("Failed to resume YouTube embed playback:", error);
+            showErrorToast("YouTube playback is unavailable right now.");
+          });
+          return;
+        }
+
+        markExpectedPause();
+        embedManager.pause();
+      })();
+      return;
+    }
+
+    void primeMediaPlayback();
+    engineRef.current?.preparePlayback();
     void (async () => {
       const engine = await ensureEngine();
 
@@ -1641,15 +4205,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      markExpectedPause();
       engine.pause();
     })();
-  }, [ensureEngine, loadAndPlay]);
+  }, [ensureEngine, loadAndPlay, markExpectedPause]);
 
   const next = useCallback(() => {
     if (!stateRef.current.hasPlaybackStarted && stateRef.current.currentTrack) {
       setState((prev) => ({ ...prev, hasPlaybackStarted: true }));
     }
-    advanceToNext();
+    advanceToNext({
+      allowWrap: stateRef.current.repeat === "all",
+    });
   }, [advanceToNext]);
 
   const addToQueue = useCallback((track: Track) => {
@@ -1675,35 +4242,89 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const previous = useCallback(() => {
     const currentState = stateRef.current;
-    if (!currentState.currentTrack || currentState.queue.length === 0) return;
+    if (!currentState.currentTrack) return;
 
     if (!currentState.hasPlaybackStarted) {
       setState((prev) => ({ ...prev, hasPlaybackStarted: true }));
     }
 
-    if ((engineRef.current?.currentTime || 0) > 3) {
-      engineRef.current?.seek(0);
+    const currentPlaybackTime = currentState.playbackMode === "youtube-embed"
+      ? getYoutubeEmbedManager().getCurrentTime()
+      : (engineRef.current?.currentTime || 0);
+
+    if (currentPlaybackTime > 3) {
+      if (currentState.playbackMode === "youtube-embed") {
+        getYoutubeEmbedManager().seek(0);
+      } else {
+        engineRef.current?.seek(0);
+      }
       return;
     }
 
-    const previousIndex = getPreviousQueueIndex(currentState.queue, currentState.currentTrack);
+    if (currentState.queue.length === 0) {
+      if (currentState.playbackMode === "youtube-embed") {
+        getYoutubeEmbedManager().seek(0);
+      } else {
+        engineRef.current?.seek(0);
+      }
+      return;
+    }
+
+    const previousIndex = getPreviousQueueIndex(currentState.queue, currentState.currentTrack, {
+      wrap: currentState.repeat === "all",
+    });
     if (previousIndex === null) return;
     void loadAndPlay(currentState.queue[previousIndex]);
   }, [loadAndPlay]);
 
   const seek = useCallback((time: number) => {
-    engineRef.current?.seek(time);
-    setState((prev) => ({ ...prev, currentTime: time }));
-  }, []);
+    const currentDuration = stateRef.current.playbackMode === "youtube-embed"
+      ? getYoutubeEmbedManager().getDuration()
+      : engineRef.current?.duration
+      || stateRef.current.duration
+      || stateRef.current.currentTrack?.duration
+      || 0;
+    const nextTime = Number.isFinite(time)
+      ? Math.min(Math.max(time, 0), currentDuration > 0 ? currentDuration : time)
+      : 0;
+
+    if (stateRef.current.playbackMode === "youtube-embed") {
+      getYoutubeEmbedManager().seek(nextTime);
+    } else {
+      engineRef.current?.seek(nextTime);
+    }
+    armPendingSeek(nextTime);
+    stateRef.current = {
+      ...stateRef.current,
+      currentTime: nextTime,
+    };
+    setTimeline((prev) => ({
+      ...prev,
+      currentTime: nextTime,
+      pendingSeekTime: nextTime,
+    }));
+  }, [armPendingSeek]);
 
   const toggleShuffle = useCallback(() => {
     setState((prev) => ({ ...prev, shuffle: !prev.shuffle }));
   }, []);
 
   const toggleRepeat = useCallback(() => {
+    const nextRepeat = stateRef.current.repeat === "off"
+      ? "all"
+      : stateRef.current.repeat === "all"
+        ? "one"
+        : "off";
+
+    // Make repeat mode effective immediately for end-of-track handlers that read from the ref.
+    stateRef.current = {
+      ...stateRef.current,
+      repeat: nextRepeat,
+    };
+
     setState((prev) => ({
       ...prev,
-      repeat: prev.repeat === "off" ? "all" : prev.repeat === "all" ? "one" : "off",
+      repeat: nextRepeat,
     }));
   }, []);
 
@@ -1740,25 +4361,81 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     ));
   }, []);
 
+  const setFullScreen = useCallback((isFullScreen: boolean) => {
+    setState((prev) => (prev.isFullScreen === isFullScreen ? prev : { ...prev, isFullScreen }));
+  }, []);
+
+  const toggleFullScreen = useCallback(() => {
+    setState((prev) => ({ ...prev, isFullScreen: !prev.isFullScreen }));
+  }, []);
+
   const setQuality = useCallback((quality: AudioQuality) => {
-    const previousQuality = stateRef.current.quality;
+    const currentState = stateRef.current;
+    const previousQuality = currentState.quality;
     if (previousQuality === quality) return;
 
+    if (currentState.playbackMode === "youtube-embed" && getYoutubeEmbedSourceId(currentState.currentTrack)) {
+      persistAudioQuality(quality);
+      persistAutoQualityEnabled(quality === "AUTO");
+      setState((prev) => ({
+        ...prev,
+        autoQualityEnabled: quality === "AUTO",
+        quality,
+        isLoading: false,
+      }));
+      showInfoToast("Playback quality is managed by YouTube for embedded playback.");
+      return;
+    }
+
+    const currentTrack = currentState.currentTrack;
+    const currentTrackSource = currentTrack ? getTrackSource(currentTrack) : null;
+    const currentTrackCapability = currentTrack?.audioQuality || null;
+    const currentResolvedQuality = currentState.resolvedAudioQuality
+      || (currentTrack
+        ? getPlayableAudioQualityForTrack(
+            previousQuality,
+            currentTrackSource,
+            currentTrackCapability,
+            currentTrack.isVideo === true,
+          )
+        : null);
+    const nextResolvedQuality = currentTrack
+      ? getPlayableAudioQualityForTrack(
+          quality,
+          currentTrackSource,
+          currentTrackCapability,
+          currentTrack.isVideo === true,
+        )
+      : null;
+    const shouldReloadCurrentTrack = Boolean(currentTrack && currentResolvedQuality !== nextResolvedQuality);
+
     persistAudioQuality(quality);
+    persistAutoQualityEnabled(quality === "AUTO");
     setState((prev) => ({
       ...prev,
+      autoQualityEnabled: quality === "AUTO",
       quality,
-      isLoading: prev.currentTrack ? true : prev.isLoading,
+      resolvedAudioQuality: shouldReloadCurrentTrack ? prev.resolvedAudioQuality : nextResolvedQuality,
+      resolvedAvailableAudioQualityLabels: shouldReloadCurrentTrack ? [] : prev.resolvedAvailableAudioQualityLabels,
+      resolvedAudioQualityLabel: shouldReloadCurrentTrack ? null : prev.resolvedAudioQualityLabel,
+      isLoading: shouldReloadCurrentTrack ? true : prev.isLoading,
     }));
 
-    if (stateRef.current.currentTrack) {
+    if (currentTrack && shouldReloadCurrentTrack) {
       void refreshCurrentTrackQuality(quality, previousQuality);
     }
   }, [refreshCurrentTrackQuality]);
 
   const setAutoQualityEnabled = useCallback((enabled: boolean) => {
+    const currentQuality = stateRef.current.quality;
+    const nextQuality = enabled ? "AUTO" : currentQuality === "AUTO" ? "HIGH" : currentQuality;
     persistAutoQualityEnabled(enabled);
-    setState((prev) => ({ ...prev, autoQualityEnabled: enabled }));
+    persistAudioQuality(nextQuality);
+    setState((prev) => ({
+      ...prev,
+      autoQualityEnabled: enabled,
+      quality: nextQuality,
+    }));
   }, []);
 
   const toggleNormalization = useCallback(() => {
@@ -1928,21 +4605,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handlePlay = () => {
-      if (!(engineRef.current?.paused ?? true) || stateRef.current.currentTrack) {
+      const isEmbedMode = stateRef.current.playbackMode === "youtube-embed";
+      const isPaused = isEmbedMode
+        ? getYoutubeEmbedManager().isPaused()
+        : (engineRef.current?.paused ?? true);
+
+      if (!isPaused || stateRef.current.currentTrack) {
         togglePlay();
       }
     };
     const handlePause = () => {
-      if (!(engineRef.current?.paused ?? true)) {
+      const isEmbedMode = stateRef.current.playbackMode === "youtube-embed";
+      const isPaused = isEmbedMode
+        ? getYoutubeEmbedManager().isPaused()
+        : (engineRef.current?.paused ?? true);
+
+      if (!isPaused) {
         togglePlay();
       }
     };
     const handleSeekBackward = (details?: MediaSessionActionDetails) => {
-      seek(Math.max(0, (engineRef.current?.currentTime || 0) - (details?.seekOffset || MEDIA_SESSION_SKIP_SECONDS)));
+      const currentTime = stateRef.current.playbackMode === "youtube-embed"
+        ? getYoutubeEmbedManager().getCurrentTime()
+        : (engineRef.current?.currentTime || 0);
+      seek(Math.max(0, currentTime - (details?.seekOffset || MEDIA_SESSION_SKIP_SECONDS)));
     };
     const handleSeekForward = (details?: MediaSessionActionDetails) => {
-      const duration = engineRef.current?.duration || stateRef.current.duration || 0;
-      const nextTime = (engineRef.current?.currentTime || 0) + (details?.seekOffset || MEDIA_SESSION_SKIP_SECONDS);
+      const duration = stateRef.current.playbackMode === "youtube-embed"
+        ? getYoutubeEmbedManager().getDuration()
+        : engineRef.current?.duration || stateRef.current.duration || 0;
+      const currentTime = stateRef.current.playbackMode === "youtube-embed"
+        ? getYoutubeEmbedManager().getCurrentTime()
+        : (engineRef.current?.currentTime || 0);
+      const nextTime = currentTime + (details?.seekOffset || MEDIA_SESSION_SKIP_SECONDS);
       seek(duration > 0 ? Math.min(duration, nextTime) : nextTime);
     };
     const handleSeekTo = (details?: MediaSessionActionDetails) => {
@@ -1950,7 +4645,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       seek(details.seekTime);
     };
     const handleStop = () => {
-      engineRef.current?.pause();
+      markExpectedPause();
+      if (stateRef.current.playbackMode === "youtube-embed") {
+        getYoutubeEmbedManager().pause();
+      } else {
+        engineRef.current?.pause();
+      }
       seek(0);
     };
 
@@ -1973,11 +4673,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setMediaSessionActionHandler("seekto", null);
       setMediaSessionActionHandler("stop", null);
     };
-  }, [next, previous, seek, togglePlay]);
+  }, [markExpectedPause, next, previous, seek, togglePlay]);
 
   const contextValue = useMemo<PlayerContextType>(() => ({
-    ...state,
+    currentTrack: state.currentTrack,
+    resolvedAudioQuality: state.resolvedAudioQuality,
+    resolvedAvailableAudioQualityLabels: state.resolvedAvailableAudioQualityLabels,
+    resolvedAudioQualityLabel: state.resolvedAudioQualityLabel,
+    resolvedVideoQuality: state.resolvedVideoQuality,
+    playbackMode: state.playbackMode,
+    hasPlaybackStarted: state.hasPlaybackStarted,
+    isPlaying: state.isPlaying,
+    queue: state.queue,
+    shuffle: state.shuffle,
+    repeat: state.repeat,
+    volume: state.volume,
+    showRightPanel: state.showRightPanel,
+    rightPanelTab: state.rightPanelTab,
+    isLoading: state.isLoading,
+    autoQualityEnabled: state.quality === "AUTO",
+    quality: state.quality,
+    normalization: state.normalization,
+    equalizerEnabled: state.equalizerEnabled,
+    eqGains: state.eqGains,
+    eqPreset: state.eqPreset,
+    preampDb: state.preampDb,
+    monoAudioEnabled: state.monoAudioEnabled,
+    crossfadeDuration: state.crossfadeDuration,
+    playbackSpeed: state.playbackSpeed,
+    preservePitch: state.preservePitch,
+    sleepTimerEndsAt: state.sleepTimerEndsAt,
+    isFullScreen: state.isFullScreen,
     play,
+    warmTrackPlayback,
     playAlbum,
     addToQueue,
     togglePlay,
@@ -1993,6 +4721,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setRightPanelTab,
     setAutoQualityEnabled,
     setQuality,
+    refreshVideoPlaybackPreference,
     toggleNormalization,
     toggleEqualizer,
     setEqBandGain,
@@ -2009,6 +4738,111 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     playArtist,
     startTrackMix,
     restoreRemoteSession,
+    toggleFullScreen,
+    setFullScreen,
+  }), [
+    addToQueue,
+    applyEqPreset,
+    next,
+    openRightPanel,
+    play,
+    playAlbum,
+    playArtist,
+    previous,
+    removeFromQueue,
+    reorderQueue,
+    resetEqualizer,
+    restoreRemoteSession,
+    seek,
+    state.crossfadeDuration,
+    state.currentTrack,
+    state.eqGains,
+    state.eqPreset,
+    state.equalizerEnabled,
+    state.hasPlaybackStarted,
+    state.isLoading,
+    state.isPlaying,
+    state.monoAudioEnabled,
+    state.normalization,
+    state.playbackMode,
+    state.playbackSpeed,
+    state.preampDb,
+    state.preservePitch,
+    state.quality,
+    state.queue,
+    state.resolvedAudioQuality,
+    state.resolvedAvailableAudioQualityLabels,
+    state.resolvedAudioQualityLabel,
+    state.resolvedVideoQuality,
+    state.repeat,
+    state.rightPanelTab,
+    state.showRightPanel,
+    state.shuffle,
+    state.sleepTimerEndsAt,
+    state.isFullScreen,
+    state.volume,
+    setCrossfadeDuration,
+    setEqBandGain,
+    setMonoAudioEnabled,
+    setAutoQualityEnabled,
+    setPlaybackSpeed,
+    setPreampDb,
+    setPreservePitch,
+    setQuality,
+    refreshVideoPlaybackPreference,
+    setRightPanelOpen,
+    setRightPanelTab,
+    setSleepTimer,
+    setVolume,
+    startTrackMix,
+    toggleEqualizer,
+    toggleNormalization,
+    togglePlay,
+    toggleRepeat,
+    toggleRightPanel,
+    toggleShuffle,
+    toggleFullScreen,
+    setFullScreen,
+    warmTrackPlayback,
+  ]);
+
+  const commandValue = useMemo<PlayerCommandContextType>(() => ({
+    play,
+    warmTrackPlayback,
+    playAlbum,
+    addToQueue,
+    togglePlay,
+    next,
+    previous,
+    seek,
+    toggleShuffle,
+    toggleRepeat,
+    setVolume,
+    toggleRightPanel,
+    openRightPanel,
+    setRightPanelOpen,
+    setRightPanelTab,
+    setAutoQualityEnabled,
+    setQuality,
+    refreshVideoPlaybackPreference,
+    toggleNormalization,
+    toggleEqualizer,
+    setEqBandGain,
+    applyEqPreset,
+    resetEqualizer,
+    setPreampDb,
+    setMonoAudioEnabled,
+    setCrossfadeDuration,
+    setPlaybackSpeed,
+    setPreservePitch,
+    setSleepTimer,
+    reorderQueue,
+    removeFromQueue,
+    playArtist,
+    startTrackMix,
+    restoreRemoteSession,
+    toggleFullScreen,
+    setFullScreen,
   }), [
     addToQueue,
     applyEqPreset,
@@ -2031,31 +4865,60 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPreampDb,
     setPreservePitch,
     setQuality,
+    refreshVideoPlaybackPreference,
     setRightPanelOpen,
     setRightPanelTab,
     setSleepTimer,
     setVolume,
     startTrackMix,
-    state,
     toggleEqualizer,
     toggleNormalization,
     togglePlay,
     toggleRepeat,
     toggleRightPanel,
     toggleShuffle,
+    toggleFullScreen,
+    setFullScreen,
+    warmTrackPlayback,
   ]);
 
   return (
-    <PlayerContext.Provider
-      value={contextValue}
-    >
-      {children}
-    </PlayerContext.Provider>
+    <PlayerCommandContext.Provider value={commandValue}>
+      <PlayerCurrentTrackContext.Provider value={state.currentTrack}>
+        <PlayerContext.Provider value={contextValue}>
+          <PlayerTimelineContext.Provider value={timeline}>
+            {children}
+          </PlayerTimelineContext.Provider>
+        </PlayerContext.Provider>
+      </PlayerCurrentTrackContext.Provider>
+    </PlayerCommandContext.Provider>
   );
 }
 
 export function usePlayer() {
   const context = useContext(PlayerContext);
   if (!context) throw new Error("usePlayer must be used inside PlayerProvider");
+  return context;
+}
+
+export function usePlayerCommands() {
+  const context = useContext(PlayerCommandContext);
+  if (!context) throw new Error("usePlayerCommands must be used inside PlayerProvider");
+  return context;
+}
+
+export function usePlayerCurrentTrack() {
+  const context = useContext(PlayerCurrentTrackContext);
+  if (context === undefined) throw new Error("usePlayerCurrentTrack must be used inside PlayerProvider");
+  return context;
+}
+
+export function useOptionalPlayerWarmTrackPlayback() {
+  return useContext(PlayerCommandContext)?.warmTrackPlayback;
+}
+
+export function usePlayerTimeline() {
+  const context = useContext(PlayerTimelineContext);
+  if (!context) throw new Error("usePlayerTimeline must be used inside PlayerProvider");
   return context;
 }

@@ -91,6 +91,16 @@ export function preparePlaylist(playlist: SourcePlaylist): SourcePlaylist {
   return playlist;
 }
 
+export function prepareVideo(video: SourceTrack): SourceTrack {
+  let normalized: SourceTrack = { ...video, type: "video" };
+
+  if (!video.artist && Array.isArray(video.artists) && video.artists.length > 0) {
+    normalized = { ...normalized, artist: video.artists[0] };
+  }
+
+  return normalized;
+}
+
 export function prepareArtist(artist: SourceArtist): SourceArtist {
   const picture =
     artist.picture ||
@@ -210,6 +220,10 @@ export function extractStreamUrlFromManifest(manifest: string) {
 
     try {
       const parsed = JSON.parse(decoded);
+      if (typeof parsed?.url === "string") {
+        return parsed.url;
+      }
+
       if (Array.isArray(parsed?.urls) && parsed.urls.length > 0) {
         return parsed.urls[0] as string;
       }

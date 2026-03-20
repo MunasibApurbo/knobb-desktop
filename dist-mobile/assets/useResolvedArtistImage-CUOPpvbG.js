@@ -1,0 +1,1 @@
+import{r as c}from"./index-DKK_mt8D.js";import{H as u,F as v}from"./musicApi-xI5-vHu-.js";function h(o,e,s){const[f,t]=c.useState(()=>u(o||0,e,s));return c.useEffect(()=>{let r=!1;const n=u(o||0,e,s);return t(l=>l===n?l:n),!o&&!s||e&&e!=="/placeholder.svg"?()=>{r=!0}:(v(o||0,e,s).then(l=>{r||t(l||"/placeholder.svg")}),()=>{r=!0})},[o,s,e]),f}export{h as u};

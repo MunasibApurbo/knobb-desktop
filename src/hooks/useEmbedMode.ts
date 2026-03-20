@@ -2,7 +2,7 @@ import { useLocation } from "react-router-dom";
 
 export function useEmbedMode() {
   const location = useLocation();
-  if (location.pathname.startsWith("/embed/")) {
+  if (location.pathname.startsWith("/embed/") || location.pathname.startsWith("/embed-player/")) {
     return true;
   }
 

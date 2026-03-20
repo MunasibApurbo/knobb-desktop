@@ -50,7 +50,7 @@ function buildDescription({ title, artist, album }) {
 
 function buildRedirectUrl(siteOrigin, trackId, query) {
   const redirectQuery = new URLSearchParams();
-  ["title", "artist", "album", "cover", "theme"].forEach((key) => {
+  ["title", "artist", "album", "cover", "theme", "size"].forEach((key) => {
     const value = query[key];
     if (value) redirectQuery.set(key, value);
   });
@@ -209,7 +209,7 @@ export async function handler(event) {
   }
 
   const publicQuery = new URLSearchParams();
-  ["title", "artist", "album", "cover", "theme"].forEach((key) => {
+  ["title", "artist", "album", "cover", "theme", "size"].forEach((key) => {
     const value = String(query[key] || "").trim();
     if (value) publicQuery.set(key, value);
   });

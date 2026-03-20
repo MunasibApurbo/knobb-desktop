@@ -1,24 +1,25 @@
 import { createRoot } from "react-dom/client";
 import React, { Component, ReactNode } from "react";
 import { reportClientErrorLazy } from "@/lib/runtimeModules";
-import { isKnobbDesktopApp } from "@/lib/desktopApp";
+import {
+  attemptDynamicImportRecovery,
+  clearDynamicImportRecovery,
+  resetKnobbShellRuntime,
+} from "@/lib/dynamicImportRecovery";
+import { installNativeContextMenuBlocker } from "@/lib/nativeContextMenu";
+import { scheduleBackgroundTask } from "@/lib/performanceProfile";
+import { preloadInitialRouteModule } from "@/lib/routePreload";
+import { CONTACT_PATH, PUBLIC_HOME_PATH } from "@/lib/routes";
 import "./index.css";
 
-type AppModule = { default: React.ComponentType };
+let appModulePromise: Promise<typeof import("./App")> | null = null;
 
-function scheduleNonCriticalTask(task: () => void, timeout = 1500) {
-  if (typeof window === "undefined") {
-    task();
-    return () => undefined;
+function preloadAppModule() {
+  if (!appModulePromise) {
+    appModulePromise = import("./App");
   }
 
-  if ("requestIdleCallback" in window) {
-    const idleId = window.requestIdleCallback(task, { timeout });
-    return () => window.cancelIdleCallback(idleId);
-  }
-
-  const timeoutId = window.setTimeout(task, Math.min(timeout, 900));
-  return () => window.clearTimeout(timeoutId);
+  return appModulePromise;
 }
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -32,6 +33,11 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
   }
 
   override componentDidCatch(error: Error, info: React.ErrorInfo) {
+    if (attemptDynamicImportRecovery(error)) {
+      this.setState({ error: null });
+      return;
+    }
+
     console.error("React render error:", error, info);
     void reportClientErrorLazy(error, "react_render_error", {
       componentStack: info.componentStack || "",
@@ -61,8 +67,32 @@ if (!rootElement) {
 }
 
 const root = createRoot(rootElement);
+installNativeContextMenuBlocker();
+
+async function renderApp() {
+  const { default: App } = await preloadAppModule();
+
+  root.render(
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+}
+
+async function prepareRuntimeShell() {
+  if (typeof window === "undefined") return;
+
+  if (import.meta.env.DEV) {
+    await resetKnobbShellRuntime(window);
+  }
+}
 
 window.addEventListener("error", (event) => {
+  if (attemptDynamicImportRecovery(event.error || event.message)) {
+    event.preventDefault();
+    return;
+  }
+
   console.error("Window error:", event.error || event.message);
   void reportClientErrorLazy(event.error || event.message, "window_error", {
     filename: event.filename || "",
@@ -72,42 +102,48 @@ window.addEventListener("error", (event) => {
 });
 
 window.addEventListener("unhandledrejection", (event) => {
+  if (attemptDynamicImportRecovery(event.reason)) {
+    event.preventDefault();
+    return;
+  }
+
   console.error("Unhandled promise rejection:", event.reason);
   void reportClientErrorLazy(event.reason, "unhandled_promise_rejection");
 });
 
-import("./App.tsx")
-  .then((module: AppModule) => {
-    const App = module.default;
-    const desktopApp = isKnobbDesktopApp();
+prepareRuntimeShell()
+  .then(async () => {
+    void preloadInitialRouteModule(window.location.pathname).catch(() => undefined);
+    await preloadAppModule();
 
-    root.render(
-      <AppErrorBoundary>
-        <App />
-      </AppErrorBoundary>
-    );
+    clearDynamicImportRecovery();
+    await renderApp();
 
-    scheduleNonCriticalTask(() => {
+    if (window.location.pathname !== PUBLIC_HOME_PATH && window.location.pathname !== CONTACT_PATH) {
       void import("@/lib/localDiscordPresenceBridge")
         .then((bridgeModule) => {
           bridgeModule.installLocalDiscordPresenceBridge();
         })
         .catch(() => undefined);
+    }
 
-      if ("serviceWorker" in navigator && !desktopApp) {
+    scheduleBackgroundTask(() => {
+      if ("serviceWorker" in navigator && import.meta.env.PROD) {
         void navigator.serviceWorker.register("/sw.js").catch((error) => {
           console.error("Service worker registration failed:", error);
         });
       }
 
-      if ("serviceWorker" in navigator && desktopApp) {
-        void navigator.serviceWorker.getRegistrations()
-          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
-          .catch(() => undefined);
+      if ("serviceWorker" in navigator && !import.meta.env.PROD) {
+        void resetKnobbShellRuntime(window);
       }
-    });
+    }, 1500);
   })
   .catch((error) => {
+    if (attemptDynamicImportRecovery(error)) {
+      return;
+    }
+
     console.error("Failed to bootstrap app:", error);
     void reportClientErrorLazy(error, "app_bootstrap_failed");
     root.render(

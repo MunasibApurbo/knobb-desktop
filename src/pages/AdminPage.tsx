@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Shield, UserRound } from "lucide-react";
+import { Loader2, Search, Shield, User } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -175,7 +175,7 @@ export default function AdminPage() {
                         <img src={entry.avatar_url} alt="" className="h-11 w-11 object-cover" />
                       ) : (
                         <div className="flex h-11 w-11 items-center justify-center border border-white/10 bg-black/40 text-muted-foreground">
-                          <UserRound className="h-4 w-4" />
+                          <User className="h-4 w-4" />
                         </div>
                       )}
                       <div className="min-w-0 flex-1">

@@ -1,0 +1,64 @@
+/* transition for preloader */
+
+.landing-wrapper .transition {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 100000;
+    pointer-events: none;
+  }
+  
+  .landing-wrapper .transition-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    transform: scaleY(1);
+    transform-origin: top;
+    will-change: transform;
+  }
+  
+  .landing-wrapper .transition-overlay.overlay-1 {
+    background-color: #000000;
+  }
+  
+  .landing-wrapper .transition-overlay.overlay-2 {
+    background-color: #000000;
+  }
+  
+  .landing-wrapper .transition-overlay.overlay-3 {
+    background-color: #000000;
+  }
+  
+  .landing-wrapper .transition-overlay.overlay-4 {
+    background-color: #000000;
+  }
+  
+  .landing-wrapper .transition-overlay.overlay-5 {
+    background-color: #000000;
+  }
+
+  .landing-wrapper .transition-logo-container {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100001;
+    color: #fff;
+    pointer-events: none;
+    --knob-rotation: 0deg;
+  }
+
+  .landing-wrapper .transition-logo-container .relative {
+    /* Target the rotating part of the knob in BrandLogo */
+    animation: knob-spin 2s linear infinite;
+  }
+
+  @keyframes knob-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }

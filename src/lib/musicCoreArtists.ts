@@ -13,6 +13,7 @@ import {
   prepareAlbum,
   prepareArtist,
   prepareTrack,
+  prepareVideo,
 } from "@/lib/musicCoreTransforms";
 import {
   extractPayload,
@@ -32,6 +33,7 @@ type ArtistDeps = {
   cache: APICache;
   requestJson: (relativePath: string, options?: FetchWithRetryOptions) => Promise<unknown>;
   searchAlbums: (query: string, limit?: number) => Promise<SearchResponse<SourceAlbum>>;
+  searchVideos: (query: string, limit?: number) => Promise<SearchResponse<SourceTrack>>;
   getArtist: (artistId: number, options?: ArtistPageOptions) => Promise<SourceArtistPage | null>;
   getArtistTopTracks: (artistId: number, limit?: number) => Promise<SourceTrack[]>;
 };
@@ -101,7 +103,7 @@ export async function getArtistTopTracks(
 }
 
 export async function getArtist(
-  { cache, requestJson, searchAlbums, getArtistTopTracks: loadArtistTopTracks }: ArtistDeps,
+  { cache, requestJson, searchAlbums, searchVideos, getArtistTopTracks: loadArtistTopTracks }: ArtistDeps,
   artistId: number,
   options: ArtistPageOptions = {},
 ) {
@@ -154,6 +156,10 @@ export async function getArtist(
   const entries = Array.isArray(contentPayload) ? contentPayload : [contentPayload];
   const albumMap = new Map<number, SourceAlbum>();
   const trackMap = new Map<number, SourceTrack>();
+  const videoMap = new Map<number, SourceTrack>();
+
+  const isVideo = (v: unknown): boolean =>
+    isRecord(v) && typeof v.id === "number" && String(v.type || "").toUpperCase() === "VIDEO";
 
   const scan = (value: unknown, visited = new Set<unknown>()) => {
     if (!isRecord(value) && !Array.isArray(value)) return;
@@ -166,17 +172,21 @@ export async function getArtist(
     }
 
     const item = unwrapItem(value);
-    if (isRecord(item) && typeof item.id === "number" && "numberOfTracks" in item) {
+    if (isRecord(item) && typeof item.id === "number" && "numberOfTracks" in item && !isVideo(item)) {
       albumMap.set(item.id, prepareAlbum(item as SourceAlbum));
     }
-    if (isRecord(item) && typeof item.id === "number" && "duration" in item && "album" in item) {
+    if (isRecord(item) && typeof item.id === "number" && "duration" in item && "album" in item && !isVideo(item)) {
       trackMap.set(item.id, prepareTrack(item as SourceTrack));
+    }
+    if (isVideo(item) && isRecord(item)) {
+      videoMap.set(item.id as number, prepareVideo(item as SourceTrack));
     }
 
     Object.values(value).forEach((nested) => scan(nested, visited));
   };
 
   entries.forEach((entry) => scan(entry));
+  scan(primaryPayload);
 
   if (!options.lightweight) {
     try {
@@ -193,6 +203,22 @@ export async function getArtist(
       }
     } catch {
       // Ignore supplemental search errors.
+    }
+
+    try {
+      const videoSearchResult = await searchVideos(artist.name, 20);
+      for (const item of videoSearchResult.items) {
+        const itemArtistId = item.artist?.id;
+        const matchesArtist =
+          itemArtistId === artistId ||
+          (Array.isArray(item.artists) && item.artists.some((a) => a.id === artistId));
+
+        if (matchesArtist && !videoMap.has(item.id)) {
+          videoMap.set(item.id, prepareVideo(item));
+        }
+      }
+    } catch {
+      // Ignore supplemental video search errors.
     }
   }
 
@@ -212,11 +238,16 @@ export async function getArtist(
     tracks = await loadArtistTopTracks(artistId, 20);
   }
 
+  const videos = Array.from(videoMap.values()).sort(
+    (a, b) => new Date(b.album?.releaseDate || 0).getTime() - new Date(a.album?.releaseDate || 0).getTime(),
+  );
+
   const result: SourceArtistPage = {
     ...artist,
     albums,
     eps,
     tracks,
+    videos,
   };
 
   await cache.set("artist", cacheKey, result);

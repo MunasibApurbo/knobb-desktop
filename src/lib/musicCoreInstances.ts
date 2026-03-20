@@ -14,6 +14,31 @@ import {
   UPTIME_URLS,
 } from "@/lib/musicCoreShared";
 
+function mergeWithFallbackInstances(
+  instances: InstanceDescriptor[],
+  fallbackUrls: readonly string[],
+  fallbackVersion = "2.4",
+) {
+  const merged = new Map<string, InstanceDescriptor>();
+
+  for (const instance of instances) {
+    const normalizedUrl = normalizeOrigin(instance.url) || instance.url;
+    if (!normalizedUrl) continue;
+    merged.set(normalizedUrl, {
+      url: normalizedUrl,
+      version: instance.version,
+    });
+  }
+
+  for (const url of fallbackUrls) {
+    if (!merged.has(url)) {
+      merged.set(url, { url, version: fallbackVersion });
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
 export class InstanceStore {
   private loadPromise: Promise<Record<InstanceType, InstanceDescriptor[]>> | null = null;
   private currentInstances: Record<InstanceType, InstanceDescriptor[]> = this.normalizePayload(null);
@@ -159,8 +184,8 @@ export class InstanceStore {
         }));
 
       return {
-        api: api.length > 0 ? api : API_INSTANCE_POOL.map((url) => ({ url, version: "2.4" })),
-        streaming: streaming.length > 0 ? streaming : STREAMING_INSTANCE_POOL.map((url) => ({ url, version: "2.4" })),
+        api: mergeWithFallbackInstances(api, API_INSTANCE_POOL),
+        streaming: mergeWithFallbackInstances(streaming, STREAMING_INSTANCE_POOL),
       };
     }
 

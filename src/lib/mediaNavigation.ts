@@ -1,11 +1,13 @@
 import type { NavigateFunction } from "react-router-dom";
 import { toast } from "sonner";
 import { searchAlbums } from "@/lib/musicApi";
+import { APP_HOME_PATH } from "@/lib/routes";
 import { getResolvableTidalId, inferTidalIdFromTrackId } from "@/lib/trackIdentity";
 import { getTrackMixId } from "@/lib/trackMix";
 import type { Track } from "@/types/music";
+import { buildSourceTrackId, getTrackSource, getTrackSourceId } from "@/lib/librarySources";
 
-export type PlaylistRouteKind = "tidal" | "user" | "shared" | "liked";
+export type PlaylistRouteKind = "tidal" | "youtube-music" | "user" | "shared" | "liked";
 
 const DEFAULT_PUBLIC_SITE_ORIGIN = "https://knobb.netlify.app";
 
@@ -72,14 +74,16 @@ export async function copyPlainTextToClipboard(text: string) {
   }
 }
 
-export function buildArtistPath(artistId: number, artistName: string) {
+export function buildArtistPath(artistId: number | string, artistName: string, source: "tidal" | "youtube-music" | "local" = "tidal") {
   const params = new URLSearchParams({ name: artistName });
-  return `/artist/${artistId}?${params.toString()}`;
+  const normalizedArtistId = source === "youtube-music" ? `ytm-${artistId}` : artistId;
+  return `/artist/${normalizedArtistId}?${params.toString()}`;
 }
 
-export function buildArtistMixPath(artistId: number, artistName: string) {
+export function buildArtistMixPath(artistId: number | string, artistName: string, source: "tidal" | "youtube-music" | "local" = "tidal") {
   const params = new URLSearchParams({ name: artistName });
-  return `/artist/${artistId}/mix?${params.toString()}`;
+  const normalizedArtistId = source === "youtube-music" ? `ytm-${artistId}` : artistId;
+  return `/artist/${normalizedArtistId}/mix?${params.toString()}`;
 }
 
 export function buildTrackMixPath(track: Pick<Track, "mixes" | "title" | "artist" | "coverUrl">) {
@@ -103,26 +107,49 @@ export function buildAlbumPath({
   albumId,
   title,
   artistName,
+  source = "tidal",
 }: {
   albumId: number | string;
   title?: string;
   artistName?: string;
+  source?: "tidal" | "youtube-music";
 }) {
   const params = new URLSearchParams();
   if (title) params.set("title", title);
   if (artistName) params.set("artist", artistName);
 
   const normalizedAlbumId =
-    typeof albumId === "string" && albumId.startsWith("tidal-")
+    typeof albumId === "string" && (albumId.startsWith("tidal-") || albumId.startsWith("ytm-"))
       ? albumId
-      : `tidal-${albumId}`;
+      : source === "youtube-music"
+        ? `ytm-${albumId}`
+        : `tidal-${albumId}`;
 
   const query = params.toString();
   return `/album/${normalizedAlbumId}${query ? `?${query}` : ""}`;
 }
 
-export function getTrackShareIdentifier(track: Pick<Track, "id" | "localFileId" | "tidalId">) {
+export function buildTrackAlbumPath(
+  track: Pick<Track, "album" | "albumId" | "artist" | "source">,
+) {
+  if (!track.albumId) return null;
+
+  return buildAlbumPath({
+    albumId: track.albumId,
+    title: track.album,
+    artistName: track.artist,
+    source: track.source === "youtube-music" ? "youtube-music" : "tidal",
+  });
+}
+
+export function getTrackShareIdentifier(track: Pick<Track, "id" | "localFileId" | "source" | "sourceId" | "tidalId">) {
   if (track.localFileId) return `local-${track.localFileId}`;
+
+  const source = getTrackSource(track as Track);
+  const sourceId = getTrackSourceId(track as Track);
+  if (sourceId) {
+    return buildSourceTrackId(source, sourceId);
+  }
 
   const tidalId = getResolvableTidalId(track);
   if (tidalId) return `tidal-${tidalId}`;
@@ -151,6 +178,20 @@ function buildTrackSharePathWithRedirect(
   return `/track/${encodeURIComponent(trackId)}${query ? `?${query}` : ""}`;
 }
 
+function buildTrackEmbedRedirectPath(
+  track: Pick<Track, "album" | "artist" | "coverUrl" | "title">,
+  trackId: string,
+) {
+  const params = new URLSearchParams();
+  if (track.title) params.set("title", track.title);
+  if (track.artist) params.set("artist", track.artist);
+  if (track.album) params.set("album", track.album);
+  if (track.coverUrl) params.set("cover", track.coverUrl);
+
+  const query = params.toString();
+  return `/embed/track/${encodeURIComponent(trackId)}${query ? `?${query}` : ""}`;
+}
+
 export function buildTrackSharePath(
   track: Pick<Track, "album" | "albumId" | "artist" | "coverUrl" | "id" | "localFileId" | "mixes" | "tidalId" | "title">,
 ) {
@@ -162,7 +203,7 @@ export function buildTrackShareUrl(
 ) {
   const trackId = getTrackShareIdentifier(track);
   if (trackId && inferTidalIdFromTrackId(trackId)) {
-    const path = buildTrackSharePathWithRedirect(track, `/embed/track/${encodeURIComponent(trackId)}`);
+    const path = buildTrackSharePathWithRedirect(track, buildTrackEmbedRedirectPath(track, trackId));
     return path ? toAbsoluteUrl(path) : null;
   }
 
@@ -182,6 +223,12 @@ export function buildTrackUri(track: Pick<Track, "id" | "localFileId" | "tidalId
     return `knobb:track:local:${encodeURIComponent(track.localFileId)}`;
   }
 
+  const source = getTrackSource(track as Track);
+  const sourceId = getTrackSourceId(track as Track);
+  if (sourceId) {
+    return `knobb:track:${source}:${encodeURIComponent(sourceId)}`;
+  }
+
   const tidalId = getResolvableTidalId(track);
   if (tidalId) {
     return `knobb:track:tidal:${tidalId}`;
@@ -191,21 +238,18 @@ export function buildTrackUri(track: Pick<Track, "id" | "localFileId" | "tidalId
 }
 
 function buildTrackDestinationPath(
-  track: Pick<Track, "album" | "albumId" | "artist" | "coverUrl" | "mixes" | "title">,
+  track: Pick<Track, "album" | "albumId" | "artist" | "coverUrl" | "mixes" | "title" | "source">,
   trackId: string,
 ) {
-  if (track.albumId) {
-    const basePath = buildAlbumPath({
-      albumId: track.albumId,
-      title: track.album,
-      artistName: track.artist,
-    });
+  const albumPath = buildTrackAlbumPath(track);
+  if (albumPath) {
+    const basePath = albumPath;
     const url = new URL(basePath, "https://knobb.local");
     url.searchParams.set("trackId", trackId);
     return `${url.pathname}${url.search}`;
   }
 
-  return buildTrackMixPath(track) || "/";
+  return buildTrackMixPath(track) || APP_HOME_PATH;
 }
 
 export function buildPlaylistPath({

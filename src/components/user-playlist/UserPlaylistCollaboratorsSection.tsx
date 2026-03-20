@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DESTRUCTIVE_OUTLINE_BUTTON_CLASS } from "@/components/ui/surfaceStyles";
 import {
   Select,
   SelectContent,
@@ -23,7 +24,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserPlus,
-  UserRound,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +89,7 @@ export function UserPlaylistCollaboratorsSection({
         className,
       )}
     >
-      <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(30,215,96,0.14),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02)),rgba(255,255,255,0.02)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] sm:p-6">
+      <div className="overflow-hidden rounded-[32px] border border-white/10 bg-black/35 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] sm:p-6">
         <div
           className={cn(
             "flex flex-col gap-4 lg:flex-row lg:items-end",
@@ -158,7 +159,7 @@ export function UserPlaylistCollaboratorsSection({
 
       <div className={cn("grid gap-6", isOwner ? "xl:grid-cols-[360px_minmax(0,1fr)]" : "grid-cols-1")}>
         {isOwner ? (
-          <div className="website-panel-surface overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
+          <div className="website-panel-surface overflow-hidden rounded-[32px] border border-white/10 bg-black/30 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
             <div className="border-b border-white/10 px-5 py-5">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/42">
                 <UserPlus className="h-3.5 w-3.5" />
@@ -245,7 +246,7 @@ export function UserPlaylistCollaboratorsSection({
           </div>
         ) : null}
 
-        <div className="website-panel-surface overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
+        <div className="website-panel-surface overflow-hidden rounded-[32px] border border-white/10 bg-black/30 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
           <div className="border-b border-white/10 px-5 py-5">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/42">
               <Crown className="h-3.5 w-3.5" />
@@ -280,7 +281,7 @@ export function UserPlaylistCollaboratorsSection({
                 return (
                   <div
                     key={`${collaborator.user_id}-${collaborator.role}`}
-                    className="user-playlist-manage-row rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 transition-colors hover:bg-white/[0.04]"
+                    className="user-playlist-manage-row menu-sweep-hover rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 transition-colors hover:bg-white/[0.04]"
                   >
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex min-w-0 items-center gap-3">
@@ -291,9 +292,9 @@ export function UserPlaylistCollaboratorsSection({
                             className="h-12 w-12 shrink-0 rounded-[18px] border border-white/10 object-cover"
                           />
                         ) : (
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] text-xs font-semibold tracking-[0.14em] text-foreground">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05] text-xs font-semibold tracking-[0.14em] text-foreground">
                             {displayName === `${collaborator.user_id.slice(0, 8)}…` ? (
-                              <UserRound className="h-4 w-4 text-muted-foreground" />
+                              <User className="h-4 w-4 text-muted-foreground" />
                             ) : (
                               getInitials(displayName)
                             )}
@@ -337,7 +338,7 @@ export function UserPlaylistCollaboratorsSection({
                           </Select>
                           <Button
                             variant="ghost"
-                            className="user-playlist-manage-control user-playlist-manage-button website-form-control h-11 rounded-full border border-white/10 px-4 text-sm font-medium text-red-300 hover:bg-red-500/10 hover:text-red-200 focus-visible:ring-0 focus-visible:ring-offset-0"
+                            className={`${DESTRUCTIVE_OUTLINE_BUTTON_CLASS} user-playlist-manage-control user-playlist-manage-button px-4 font-medium`}
                             onClick={() => onRemoveCollaborator(collaborator.user_id)}
                           >
                             Remove

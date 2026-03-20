@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getTotalDuration, formatDuration } from "@/lib/utils";
+import { getTotalDuration, formatDuration, cn } from "@/lib/utils";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,16 +15,15 @@ import { TrackListRow } from "@/components/detail/TrackListRow";
 import { Play, Pause, Shuffle, Heart, AlertCircle, RefreshCw, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageTransition } from "@/components/PageTransition";
-import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { motion } from "framer-motion";
 import { PlaylistShareDropdownButton } from "@/components/PlaylistShareDropdownButton";
 import { filterAudioTracks, getPlaylistWithTracks, getTidalImageUrl, tidalTrackToAppTrack } from "@/lib/musicApi";
 import { Track } from "@/types/music";
 import { toast } from "sonner";
 import { PlaylistLink } from "@/components/PlaylistLink";
+import { PlaylistContextMenu } from "@/components/PlaylistContextMenu";
 import { TrackContextMenu } from "@/components/TrackContextMenu";
 import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
 import { downloadTracks } from "@/lib/downloadHelpers";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
@@ -44,20 +44,19 @@ export default function PlaylistPage() {
     coverUrl: string;
   } | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const scrollY = useMainScrollY();
   const fetchedRef = useRef<string>("");
   const playlistId = id ? id.replace(/^tidal-/, "") : "";
 
   usePageMetadata(playlist ? {
-    title: playlist.title,
+    title: `${playlist.title} | Listen on Knobb`,
     description:
       playlist.description.trim() ||
-      `Play ${playlist.title} on Knobb.${tracks.length > 0 ? ` ${tracks.length} tracks in the playlist.` : ""}`,
+      `Listen to ${playlist.title} on Knobb. ${tracks.length > 0 ? `${tracks.length} tracks in the playlist.` : ""} High-quality audio discovery and archives.`,
     image: playlist.coverUrl || undefined,
     imageAlt: `${playlist.title} playlist cover`,
+    twitterCard: "summary",
     robots: isEmbedMode ? "noindex, nofollow" : undefined,
     type: "music.playlist",
     structuredData: {
@@ -74,27 +73,25 @@ export default function PlaylistPage() {
 
   const loadPlaylist = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
     setError(false);
 
     try {
       const cleanId = id.replace(/^tidal-/, "");
-      const { playlist: playlistInfo, tracks: tidalTracks } = await getPlaylistWithTracks(cleanId);
+      const { playlist: playlistInfo, tracks: loadedTracks } = await getPlaylistWithTracks(cleanId);
 
       if (!playlistInfo) {
         setError(true);
         return;
       }
 
-      const coverId = playlistInfo.squareImage || playlistInfo.image || "";
       setPlaylist({
         title: playlistInfo.title,
         description: playlistInfo.description || "",
-        coverUrl: getTidalImageUrl(coverId, "750x750"),
+        coverUrl: getTidalImageUrl(playlistInfo.squareImage || playlistInfo.image || "", "750x750"),
       });
 
       const appTracks = filterAudioTracks(
-        tidalTracks.map((track, index) => ({
+        loadedTracks.map((track, index) => ({
           ...tidalTrackToAppTrack(track),
           id: `tidal-${track.id}-${index}`,
         })),
@@ -103,8 +100,6 @@ export default function PlaylistPage() {
     } catch (e) {
       console.error("Failed to load playlist:", e);
       setError(true);
-    } finally {
-      setLoading(false);
     }
   }, [id]);
 
@@ -114,9 +109,7 @@ export default function PlaylistPage() {
     loadPlaylist();
   }, [id, loadPlaylist]);
 
-  if (loading) return <LoadingSkeleton variant="detail" />;
-
-  if (error || !playlist) {
+  if (error && !playlist) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <AlertCircle className="w-12 h-12 text-muted-foreground" />
@@ -128,7 +121,13 @@ export default function PlaylistPage() {
     );
   }
 
-  const isCurrentPlaylist = currentTrack && tracks.some((t) => t.id === currentTrack.id);
+  const resolvedPlaylist = playlist ?? {
+    title: "Playlist",
+    description: "",
+    coverUrl: tracks[0]?.coverUrl || "/placeholder.svg",
+  };
+
+  const isCurrentPlaylist = currentTrack && tracks.some((t) => isSameTrack(t, currentTrack));
 
   const handleToggleFavoritePlaylist = async () => {
     if (!playlist || !playlistId) return;
@@ -195,22 +194,22 @@ export default function PlaylistPage() {
   if (isEmbedMode) {
     return (
       <div className="min-h-screen bg-[#050505] p-4 text-white">
-        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_48%),rgba(255,255,255,0.03)] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
+        <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] shadow-[0_24px_120px_rgba(0,0,0,0.45)]">
           <div className="grid gap-5 border-b border-white/10 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:p-5">
-            <img src={playlist.coverUrl || "/placeholder.svg"} alt={playlist.title} className="aspect-square w-full rounded-[22px] object-cover" />
+            <img src={resolvedPlaylist.coverUrl || "/placeholder.svg"} alt={resolvedPlaylist.title} className="aspect-square w-full rounded-[22px] object-cover" />
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/45">Knobb Playlist</p>
-              <h1 className="mt-3 truncate text-3xl font-black tracking-tight text-white">{playlist.title}</h1>
-              {playlist.description ? (
-                <p className="mt-3 line-clamp-2 text-sm leading-6 text-white/68">{playlist.description}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">Knobb Playlist</p>
+              <h1 className="mt-3 truncate text-3xl font-black tracking-tight text-white">{resolvedPlaylist.title}</h1>
+              {resolvedPlaylist.description ? (
+                <p className="mt-3 line-clamp-2 text-sm leading-6 text-white/68">{resolvedPlaylist.description}</p>
               ) : null}
-              <p className="mt-4 text-xs font-medium uppercase tracking-[0.18em] text-white/45">
+              <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
                 {tracks.length} tracks {tracks.length > 0 ? `• ${getTotalDuration(tracks)}` : ""}
               </p>
               <div className="mt-5 flex flex-wrap gap-3">
                 <Button
                   variant="secondary"
-                  className="rounded-full border border-white/10 bg-white text-black hover:bg-white/90"
+                  className="menu-sweep-hover rounded-full border border-white/10 bg-white text-black hover:bg-white/90"
                   onClick={() => {
                     if (isCurrentPlaylist) togglePlay();
                     else if (tracks.length > 0) play(tracks[0], tracks);
@@ -222,7 +221,7 @@ export default function PlaylistPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  className="rounded-full border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.1]"
+                  className="menu-sweep-hover rounded-full border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.1]"
                   onClick={openFullPlaylist}
                 >
                   Open in Knobb
@@ -235,7 +234,7 @@ export default function PlaylistPage() {
             {tracks.slice(0, 5).map((track, index) => (
               <button
                 key={`${track.id}-${index}`}
-                className="grid w-full grid-cols-[28px_44px_minmax(0,1fr)_56px] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
+                className="menu-sweep-hover grid w-full grid-cols-[28px_44px_minmax(0,1fr)_56px] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
                 onClick={() => play(track, tracks)}
               >
                 <span className="text-sm text-white/38">{index + 1}</span>
@@ -255,18 +254,28 @@ export default function PlaylistPage() {
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="page-shell">
         <DetailHero
-          artworkUrl={playlist.coverUrl || "/placeholder.svg"}
+          artworkUrl={resolvedPlaylist.coverUrl || "/placeholder.svg"}
+          artworkWrapper={(artwork) => (
+            <PlaylistContextMenu
+              title={resolvedPlaylist.title}
+              playlistId={playlistId}
+              coverUrl={resolvedPlaylist.coverUrl}
+              kind="tidal"
+              tracks={tracks}
+            >
+              {artwork}
+            </PlaylistContextMenu>
+          )}
           dragPayload={tracks.length > 0 ? {
-            label: playlist.title,
+            label: resolvedPlaylist.title,
             source: "playlist",
             tracks,
           } : undefined}
           label="Playlist"
-          scrollY={scrollY}
-          title={<PlaylistLink title={playlist.title} playlistId={playlistId} className="text-inherit" />}
-          body={playlist.description ? <p>{playlist.description}</p> : undefined}
+          title={<PlaylistLink title={resolvedPlaylist.title} playlistId={playlistId} className="text-inherit" />}
+          body={resolvedPlaylist.description ? <p>{resolvedPlaylist.description}</p> : undefined}
           meta={
             <>
               <span className="detail-chip">
@@ -341,11 +350,12 @@ export default function PlaylistPage() {
         </DetailActionBar>
 
         {tracks.length > 0 && (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <VirtualizedTrackList
               items={tracks}
               getItemKey={(track, index) => `${track.id}-${index}`}
               rowHeight={86}
+              className="content-visibility-list"
               renderRow={(track, i) => {
                 const isCurrent = isSameTrack(currentTrack, track);
                 return (

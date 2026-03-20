@@ -1,0 +1,1 @@
+import{r as a}from"./index-DKK_mt8D.js";import{M as o}from"./metadataContext-BlrYv078.js";function d(r){const t=a.useContext(o);if(!t)throw new Error("usePageMetadata must be used inside MetadataProvider");const e=r?JSON.stringify(r):"",s=a.useMemo(()=>e?JSON.parse(e):null,[e]);a.useEffect(()=>(t.setPageMetadata(s),()=>{t.setPageMetadata(null)}),[t,s])}export{d as u};

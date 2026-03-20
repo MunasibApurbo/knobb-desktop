@@ -53,6 +53,31 @@ export function getPlaybackDeviceName() {
   if (typeof navigator === "undefined") return "This browser";
 
   const userAgent = navigator.userAgent.toLowerCase();
+  const desktopPlatform = typeof window !== "undefined" && window.knobbDesktop?.isDesktopApp
+    ? window.knobbDesktop.platform
+    : userAgent.includes("electron/")
+      ? navigator.platform
+      : null;
+  const normalizedDesktopPlatform = typeof desktopPlatform === "string"
+    ? desktopPlatform.toLowerCase()
+    : "";
+
+  if (normalizedDesktopPlatform) {
+    const platform = normalizedDesktopPlatform.includes("iphone") || normalizedDesktopPlatform.includes("ipad")
+      ? "iPhone"
+      : normalizedDesktopPlatform.includes("android")
+        ? "Android"
+        : normalizedDesktopPlatform.includes("darwin") || normalizedDesktopPlatform.includes("mac")
+          ? "Mac"
+          : normalizedDesktopPlatform.includes("win")
+            ? "Windows"
+            : normalizedDesktopPlatform.includes("linux")
+              ? "Linux"
+              : "Desktop";
+
+    return `Knobb Desktop on ${platform}`;
+  }
+
   const browser = userAgent.includes("edg/")
     ? "Edge"
     : userAgent.includes("chrome/")
@@ -105,12 +130,12 @@ function parseQueue(value: Json) {
 type PlaybackSessionRow = Tables<"playback_sessions">;
 
 function mapPlaybackSession(row: PlaybackSessionRow): PlaybackSessionSnapshot {
-  const quality = row.quality === "LOW" || row.quality === "MEDIUM" || row.quality === "HIGH" || row.quality === "LOSSLESS" || row.quality === "MAX"
+  const quality = row.quality === "AUTO" || row.quality === "LOW" || row.quality === "MEDIUM" || row.quality === "HIGH" || row.quality === "LOSSLESS" || row.quality === "MAX"
     ? row.quality
     : "HIGH";
 
   return {
-    currentTime: Number.isFinite(row.current_time) ? row.current_time : 0,
+    currentTime: Number.isFinite(row.position_seconds) ? row.position_seconds : 0,
     currentTrack: parseTrack(row.current_track_data),
     deviceId: row.device_id,
     deviceName: row.device_name,
@@ -145,7 +170,7 @@ export async function upsertPlaybackSession(input: {
       queue_data: input.queue
         .filter((track) => !track.isLocal)
         .map((track) => sanitizeTrack(track)) as unknown as Json,
-      current_time: input.currentTime,
+      position_seconds: input.currentTime,
       duration: input.duration,
       is_playing: input.isPlaying,
       quality: input.quality,

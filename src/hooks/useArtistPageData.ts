@@ -7,7 +7,10 @@ import {
   getArtistById,
   getArtistPopularTracks,
   getMixWithTracks,
+  getRecommendations,
   getSimilarArtists,
+  getVideoInfo,
+  searchVideos,
   searchAlbums,
   getTidalImageUrl,
   searchArtists,
@@ -18,10 +21,9 @@ import {
   tidalTrackToAppTrack,
 } from "@/lib/musicApi";
 import { Track } from "@/types/music";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
 
 export type RelatedArtist = {
-  id: number;
+  id: number | string;
   name: string;
   picture: string;
 };
@@ -35,12 +37,12 @@ type UseArtistPageDataOptions = {
 type UseArtistPageDataResult = {
   albums: TidalAlbum[];
   artist: TidalArtist | null;
+  artistVideos: Track[];
   bio: string;
   loading: boolean;
   radioLoading: boolean;
   radioTracks: Track[];
   relatedArtists: RelatedArtist[];
-  scrollY: number;
   setShowAllAlbums: Dispatch<SetStateAction<boolean>>;
   setShowAllRelated: Dispatch<SetStateAction<boolean>>;
   setShowAllRadio: Dispatch<SetStateAction<boolean>>;
@@ -59,6 +61,7 @@ type UseArtistPageDataResult = {
 type ArtistPageSnapshot = {
   albums: TidalAlbum[];
   artist: TidalArtist | null;
+  artistVideos: Track[];
   bio: string;
   radioTracks: Track[];
   relatedArtists: RelatedArtist[];
@@ -106,6 +109,7 @@ function createEmptySnapshot(): ArtistPageSnapshot {
   return {
     albums: [],
     artist: null,
+    artistVideos: [],
     bio: "",
     radioTracks: [],
     relatedArtists: [],
@@ -330,6 +334,58 @@ async function loadArtistTracks(found: TidalArtist, seededTracks?: TidalTrack[] 
     .slice(0, 25);
 }
 
+function getCandidateArtistVideos({
+  artistId,
+  artistName,
+  tracks,
+}: {
+  artistId: number | null;
+  artistName: string;
+  tracks: TidalTrack[];
+}) {
+  return getCandidateArtistTracks({
+    artistId,
+    artistName,
+    tracks,
+  }).slice(0, 20);
+}
+
+async function loadArtistVideos(found: TidalArtist, artistName: string) {
+  const queries = Array.from(new Set([found.name, artistName].map((value) => value.trim()).filter(Boolean)));
+  if (queries.length === 0) return [] as TidalTrack[];
+
+  const results = await Promise.all(
+    queries.map((query) => searchVideos(query, 30).catch(() => [] as TidalTrack[])),
+  );
+
+  return getCandidateArtistVideos({
+    artistId: found.id,
+    artistName: found.name,
+    tracks: dedupeTidalTracks(results.flat()),
+  }).slice(0, 20);
+}
+
+async function enrichArtistVideos(videos: TidalTrack[]) {
+  if (videos.length === 0) return videos;
+
+  const enriched = await Promise.all(
+    videos.slice(0, 8).map(async (video) => {
+      const officialVideo = await getVideoInfo(video.id).catch(() => null);
+      return officialVideo || video;
+    }),
+  );
+
+  const merged = new Map<number, TidalTrack>();
+  for (const video of videos) {
+    merged.set(video.id, video);
+  }
+  for (const video of enriched) {
+    merged.set(video.id, video);
+  }
+
+  return videos.map((video) => merged.get(video.id) || video);
+}
+
 const artistPageCache = new Map<string, ArtistPageSnapshot>();
 const artistRadioRequestCache = new Map<string, Promise<Track[]>>();
 
@@ -389,7 +445,9 @@ export function useArtistPageData({ artistName, includeRadio = true, id }: UseAr
   const hasInitialReleases = initialSnapshot.albums.length > 0 || initialSnapshot.singlesAndEps.length > 0;
   const hasInitialRelatedArtists = initialSnapshot.relatedArtists.length > 0;
   const hasInitialRadioTracks = initialSnapshot.radioTracks.length > 0;
+  const hasInitialArtistVideos = initialSnapshot.artistVideos.length > 0;
   const [artist, setArtist] = useState<TidalArtist | null>(() => initialSnapshot.artist);
+  const [artistVideos, setArtistVideos] = useState<Track[]>(() => initialSnapshot.artistVideos);
   const [topTracks, setTopTracks] = useState<Track[]>(() => initialSnapshot.topTracks);
   const [radioTracks, setRadioTracks] = useState<Track[]>(() => initialSnapshot.radioTracks);
   const [albums, setAlbums] = useState<TidalAlbum[]>(() => initialSnapshot.albums);
@@ -404,12 +462,11 @@ export function useArtistPageData({ artistName, includeRadio = true, id }: UseAr
   const [showAllRelated, setShowAllRelated] = useState(false);
   const [showAllAlbums, setShowAllAlbums] = useState(false);
   const [showAllSinglesAndEps, setShowAllSinglesAndEps] = useState(false);
-  const scrollY = useMainScrollY();
-
   useLayoutEffect(() => {
     const cached = artistPageCache.get(requestKey) ?? createEmptySnapshot();
 
     setArtist(cached.artist);
+    setArtistVideos(cached.artistVideos);
     setTopTracks(cached.topTracks);
     setRadioTracks(cached.radioTracks);
     setAlbums(cached.albums);
@@ -434,6 +491,9 @@ export function useArtistPageData({ artistName, includeRadio = true, id }: UseAr
         const artistId = parseArtistId(id);
         const searchFallbackTracksPromise = artistName
           ? searchTracks(artistName, 50).catch(() => [] as TidalTrack[])
+          : Promise.resolve([] as TidalTrack[]);
+        const searchFallbackVideosPromise = artistName
+          ? searchVideos(artistName, 30).catch(() => [] as TidalTrack[])
           : Promise.resolve([] as TidalTrack[]);
         const searchFallbackAlbumsPromise = artistName
           ? searchAlbums(artistName, 30).catch(() => [] as TidalAlbum[])
@@ -494,6 +554,33 @@ export function useArtistPageData({ artistName, includeRadio = true, id }: UseAr
         updateArtistPageCache(requestKey, {
           artist: found,
         });
+
+        if (!hasInitialArtistVideos) {
+          void (async () => {
+            try {
+              const quickVideos = getCandidateArtistVideos({
+                artistId: found.id,
+                artistName: found.name,
+                tracks: await searchFallbackVideosPromise,
+              });
+              const resolvedVideos = quickVideos.length > 0 ? quickVideos.slice(0, 20) : await loadArtistVideos(found, artistName);
+              const enrichedVideos = await enrichArtistVideos(resolvedVideos);
+              if (cancelled) return;
+
+              const appVideos = enrichedVideos
+                .map((track) => tidalTrackToAppTrack(track))
+                .filter((track) => track.isVideo === true);
+
+              setArtistVideos(appVideos);
+              updateArtistPageCache(requestKey, {
+                artist: found,
+                artistVideos: appVideos,
+              });
+            } catch (e) {
+              console.error("Failed to load artist videos:", e);
+            }
+          })();
+        }
 
         if (found.bio) {
           setBio(found.bio);
@@ -728,17 +815,17 @@ export function useArtistPageData({ artistName, includeRadio = true, id }: UseAr
     return () => {
       cancelled = true;
     };
-  }, [artistName, hasInitialRadioTracks, hasInitialRelatedArtists, hasInitialReleases, hasInitialTopTracks, id, includeRadio, requestKey]);
+  }, [artistName, hasInitialArtistVideos, hasInitialRadioTracks, hasInitialRelatedArtists, hasInitialReleases, hasInitialTopTracks, id, includeRadio, requestKey]);
 
   return {
     albums,
     artist,
+    artistVideos,
     bio,
     loading,
     radioLoading,
     radioTracks,
     relatedArtists,
-    scrollY,
     setShowAllAlbums,
     setShowAllRelated,
     setShowAllRadio,

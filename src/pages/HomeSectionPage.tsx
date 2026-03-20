@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { PageTransition } from "@/components/PageTransition";
-import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { useHomeFeeds } from "@/hooks/useHomeFeeds";
 import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
 import { usePlayHistory } from "@/hooks/usePlayHistory";
@@ -12,10 +11,11 @@ import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { useSavedAlbums } from "@/hooks/useSavedAlbums";
 import { ArtistCardWrapper, HomeAlbumCard, TrackCard } from "@/components/home/HomeMediaCards";
 import { HOME_SECTION_CONFIG, isHomeSectionKey } from "@/lib/homeSections";
+import { APP_HOME_PATH } from "@/lib/routes";
 
 const stagger = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.04 } },
+  show: { opacity: 1, transition: { staggerChildren: 0.02, delayChildren: 0.01 } },
 };
 
 export default function HomeSectionPage() {
@@ -44,7 +44,7 @@ export default function HomeSectionPage() {
   });
 
   if (!section || !isHomeSectionKey(section)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={APP_HOME_PATH} replace />;
   }
 
   const config = HOME_SECTION_CONFIG[section];
@@ -59,11 +59,7 @@ export default function HomeSectionPage() {
             ? recommendedAlbums
             : recommendedArtists;
 
-  if (!loaded) {
-    return <LoadingSkeleton variant="grid" />;
-  }
-
-  if (error && items.length === 0) {
+  if (loaded && error && items.length === 0) {
     return (
       <PageTransition>
         <div className="hover-desaturate-page space-y-8 px-4 py-8 md:px-6">
@@ -166,11 +162,11 @@ export default function HomeSectionPage() {
                 </motion.div>
               ))}
           </motion.div>
-        ) : (
+        ) : loaded ? (
           <div className="border border-white/10 px-5 py-10 text-center text-muted-foreground">
-            Nothing to show here right now. <Link to="/" className="underline underline-offset-4">Go back home</Link>.
+            Nothing to show here right now. <Link to={APP_HOME_PATH} className="underline underline-offset-4">Go back home</Link>.
           </div>
-        )}
+        ) : null}
       </div>
     </PageTransition>
   );

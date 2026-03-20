@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
 
+env:
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+  VITE_SITE_URL: ${{ vars.VITE_SITE_URL }}
+  VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+
 jobs:
   release-macos:
     name: Release macOS desktop
@@ -25,6 +31,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate desktop release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$package_version" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${package_version}."
+            exit 1
+          fi
 
       - name: Build web app
         run: npm run build
@@ -56,9 +72,6 @@ jobs:
         env:
           APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
         run: |
-          if [ -z "$APPLE_CSC_LINK" ]; then
-            exit 0
-          fi
           if printf '%s' "$APPLE_CSC_LINK" | base64 --decode > "$RUNNER_TEMP/apple-signing-cert.p12" 2>/dev/null; then
             exit 0
           fi
@@ -72,35 +85,9 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "${{ secrets.APPLE_CSC_LINK }}" ]; then
-            export CSC_LINK="$RUNNER_TEMP/apple-signing-cert.p12"
-            export CSC_KEY_PASSWORD="${{ secrets.APPLE_CSC_KEY_PASSWORD }}"
-          fi
+          export CSC_LINK="$RUNNER_TEMP/apple-signing-cert.p12"
+          export CSC_KEY_PASSWORD="${{ secrets.APPLE_CSC_KEY_PASSWORD }}"
           npx electron-builder --mac --publish always
-
-      - name: Package macOS Discord Companion
-        if: steps.macos_release_prereqs.outputs.ready == 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -n "${{ secrets.APPLE_CSC_LINK }}" ]; then
-            export CSC_LINK="$RUNNER_TEMP/apple-signing-cert.p12"
-            export CSC_KEY_PASSWORD="${{ secrets.APPLE_CSC_KEY_PASSWORD }}"
-          fi
-          npx electron-builder --config electron-builder.companion.yml --mac --publish never
-
-      - name: Upload macOS Discord Companion assets
-        if: startsWith(github.ref, 'refs/tags/v') && steps.macos_release_prereqs.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "$GITHUB_REF_NAME" \
-            release/companion/Knobb-Discord-Companion-macOS.dmg \
-            release/companion/Knobb-Discord-Companion-macOS.zip \
-            release/companion/companion-mac.yml \
-            --clobber
 
       - name: Report skipped macOS publishing
         if: steps.macos_release_prereqs.outputs.ready != 'true'
@@ -121,6 +108,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate desktop release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $packageVersion = node -p "require('./package.json').version"
+          if ($packageVersion -ne $env:GITHUB_REF_NAME.Substring(1)) {
+            Write-Error "Tag $env:GITHUB_REF_NAME does not match package.json version $packageVersion."
+          }
 
       - name: Build web app
         run: npm run build
@@ -148,19 +144,3 @@ jobs:
             $env:CSC_KEY_PASSWORD = '${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}'
           }
           npx electron-builder --win --publish always
-
-      - name: Package Windows Discord Companion
-        shell: pwsh
-        run: |
-          if (-not [string]::IsNullOrWhiteSpace('${{ secrets.WINDOWS_CSC_LINK }}')) {
-            $env:CSC_LINK = '${{ steps.decode_windows_cert.outputs.cert_path }}'
-            $env:CSC_KEY_PASSWORD = '${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}'
-          }
-          npx electron-builder --config electron-builder.companion.yml --win --publish never
-
-      - name: Upload Windows Discord Companion assets
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$env:GITHUB_REF_NAME" release/companion/Knobb-Discord-Companion-Setup.exe release/companion/companion.yml --clobber

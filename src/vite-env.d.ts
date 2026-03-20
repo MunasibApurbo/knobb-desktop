@@ -38,9 +38,36 @@ interface KnobbDesktopBridge {
   getConfigDirectory?: () => Promise<string | null>;
   getConfigFilePath?: () => Promise<string | null>;
   getConfigExampleFilePath?: () => Promise<string | null>;
+  getDiscordPresenceStatus?: () => Promise<{
+    ok: boolean;
+    configured: boolean;
+    discordConnected: boolean;
+    bridgeVersion?: string;
+  } | null>;
+  setDiscordPresenceActivity?: (activity: {
+    details: string;
+    state: string;
+    largeImageText: string;
+    largeImageUrl?: string;
+    sourceUrl?: string;
+    smallImageKey: "play" | "pause";
+    smallImageText: string;
+    startTimestamp?: number;
+    endTimestamp?: number;
+  }) => Promise<boolean | void>;
+  clearDiscordPresenceActivity?: () => Promise<boolean | void>;
+  onDiscordPresenceStatus?: (
+    listener: (status: {
+      ok: boolean;
+      configured: boolean;
+      discordConnected: boolean;
+      bridgeVersion?: string;
+    }) => void,
+  ) => (() => void) | void;
   getUpdateStatus?: () => Promise<KnobbDesktopUpdateStatus | null>;
   checkForUpdates?: () => Promise<KnobbDesktopUpdateStatus | null>;
   quitAndInstallUpdate?: () => Promise<boolean>;
+  beginAuthSession?: () => Promise<boolean>;
   onUpdateStatus?: (listener: (status: KnobbDesktopUpdateStatus) => void) => () => void;
   openExternal: (url: string) => Promise<boolean>;
   openConfigDirectory?: () => Promise<boolean>;

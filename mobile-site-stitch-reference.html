@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knobb Mobile Site Stitch Reference</title>
+    <style>
+      :root {
+        --bg: #050505;
+        --surface: rgba(255, 255, 255, 0.05);
+        --surface-strong: rgba(255, 255, 255, 0.08);
+        --text: #f6f6f6;
+        --muted: #b8b8b8;
+        --line: rgba(255, 255, 255, 0.12);
+        --shadow: 0 24px 64px rgba(0, 0, 0, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.07), transparent 28%),
+          linear-gradient(180deg, #0a0a0a 0%, #020202 42%, #000000 100%);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .frame {
+        width: min(100%, 430px);
+        margin: 0 auto;
+        min-height: 100vh;
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(0, 0, 0, 0.74);
+      }
+
+      .screen + .screen {
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem;
+        backdrop-filter: blur(18px);
+        background: rgba(5, 5, 5, 0.78);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.65rem;
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background:
+          radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.14) 28%, transparent 30%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04));
+      }
+
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.75rem;
+        padding: 0 1rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.05);
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .section {
+        padding: 1rem;
+      }
+
+      .eyebrow,
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0 0.8rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      .service-title {
+        margin: 0;
+        line-height: 0.92;
+        letter-spacing: -0.05em;
+        text-transform: uppercase;
+        font-style: italic;
+      }
+
+      h1 {
+        margin-top: 1rem;
+        font-size: clamp(2.9rem, 14vw, 4.7rem);
+      }
+
+      h2 {
+        font-size: 1.55rem;
+      }
+
+      h3,
+      .service-title {
+        font-size: 1.35rem;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1.25rem;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 3rem;
+        padding: 0 1.1rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.05);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+
+      .button.primary {
+        background: #ffffff;
+        color: #000000;
+        border-color: #ffffff;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 1.5rem;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+        box-shadow: var(--shadow);
+      }
+
+      .hero-card {
+        margin-top: 1.5rem;
+        overflow: hidden;
+      }
+
+      .hero-card img {
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+      }
+
+      .hero-meta,
+      .content-card,
+      .contact-card,
+      .form-card {
+        padding: 1rem;
+      }
+
+      .hero-meta {
+        background: rgba(0, 0, 0, 0.42);
+      }
+
+      .hero-meta strong,
+      .track-copy strong,
+      .contact-item strong {
+        display: block;
+        color: var(--text);
+      }
+
+      .track-list,
+      .service-list,
+      .contact-list,
+      .form-grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .track-item {
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        gap: 0.85rem;
+        align-items: center;
+        padding: 0.75rem;
+      }
+
+      .track-item img {
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+        border-radius: 1rem;
+      }
+
+      .track-copy strong {
+        font-size: 1rem;
+        line-height: 1.2;
+      }
+
+      .track-copy span {
+        display: block;
+        margin-top: 0.35rem;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.45;
+      }
+
+      .service-item {
+        overflow: hidden;
+        border-radius: 1.75rem 1.75rem 0 0;
+      }
+
+      .service-item img {
+        aspect-ratio: 16 / 10;
+        object-fit: cover;
+      }
+
+      .service-copy {
+        padding: 1rem;
+      }
+
+      .service-copy .service-title {
+        margin-bottom: 0.55rem;
+      }
+
+      .service-item.stats {
+        background: radial-gradient(circle at 78% 18%, rgba(77, 124, 255, 0.42), rgba(0, 0, 0, 0.92) 70%);
+      }
+
+      .service-item.playing {
+        background: radial-gradient(circle at 18% 18%, rgba(124, 231, 255, 0.28), rgba(0, 0, 0, 0.92) 72%);
+      }
+
+      .service-item.discovery {
+        background: radial-gradient(circle at 82% 20%, rgba(148, 161, 93, 0.3), rgba(0, 0, 0, 0.92) 72%);
+      }
+
+      .service-item.releases {
+        background: radial-gradient(circle at 18% 18%, rgba(255, 171, 64, 0.34), rgba(0, 0, 0, 0.92) 72%);
+      }
+
+      .contact-item,
+      .field {
+        display: grid;
+        gap: 0.45rem;
+      }
+
+      .contact-item {
+        padding: 0.95rem 1rem;
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .contact-item strong,
+      .field label {
+        font-size: 0.74rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .field input,
+      .field select,
+      .field textarea {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        background: #161616;
+        color: var(--text);
+        padding: 0.95rem 1rem;
+        font: inherit;
+      }
+
+      .field textarea {
+        min-height: 9rem;
+        resize: vertical;
+      }
+
+      .submit-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .footer-grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .footer-group strong {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .footer-group p,
+      .footer-group a {
+        display: block;
+        margin: 0.2rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Mobile-friendly standalone reference extracted from the current public site -->
+    <main class="frame">
+      <section class="screen">
+        <header class="topbar">
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>Knobb</span>
+          </a>
+          <a class="cta" href="/auth">Unlock Library</a>
+        </header>
+
+        <section class="section">
+          <span class="eyebrow">Landing Screen</span>
+          <h1>Experience Music Beyond Playback</h1>
+          <p>
+            This is the mobile version of the current public homepage, simplified into a single file for Google Stitch redesign work.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="/browse">Open Player</a>
+            <a class="button" href="/contact">Talk To Us</a>
+          </div>
+
+          <article class="card hero-card">
+            <img src="/images/knobb/hero_abstract.png" alt="Knobb hero art" />
+            <div class="hero-meta">
+              <strong>Hero Fallback Visual</strong>
+              <p>Current mobile and tablet landing experience uses a static version of the hero instead of the desktop 3D scene.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="section">
+          <article class="card content-card">
+            <span class="chip">Product Story</span>
+            <h2 style="margin-top:0.85rem;">Why Knobb Feels Different</h2>
+            <p>
+              The public site currently frames Knobb as a premium listening world with beautiful playback, expressive visuals, and a more curated approach to discovery.
+            </p>
+          </article>
+        </section>
+
+        <section class="section">
+          <h2 style="margin-bottom:1rem;">Trending Tracks</h2>
+          <div class="track-list">
+            <article class="card track-item">
+              <img src="/images/featured/feat-1.webp" alt="Sub Urban - Cradles artwork" />
+              <div class="track-copy">
+                <strong>Sub Urban - Cradles</strong>
+                <span>Featured in the current landing carousel.</span>
+              </div>
+            </article>
+            <article class="card track-item">
+              <img src="/images/featured/feat-2.webp" alt="Imagine Dragons - Believer artwork" />
+              <div class="track-copy">
+                <strong>Imagine Dragons - Believer</strong>
+                <span>One of the highlighted tracks in the public homepage story.</span>
+              </div>
+            </article>
+            <article class="card track-item">
+              <img src="/images/featured/feat-3.webp" alt="Bebe Rexha - I'm a Mess artwork" />
+              <div class="track-copy">
+                <strong>Bebe Rexha - I&apos;m a Mess</strong>
+                <span>Represents the pop-forward part of the featured stack.</span>
+              </div>
+            </article>
+            <article class="card track-item">
+              <img src="/images/featured/feat-4.webp" alt="Billie Eilish - Happier Than Ever artwork" />
+              <div class="track-copy">
+                <strong>Billie Eilish - Happier Than Ever</strong>
+                <span>The final visible track in the mobile landing set.</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 style="margin-bottom:1rem;">Core Product Stories</h2>
+          <div class="service-list">
+            <article class="card service-item stats">
+              <img src="/images/promo/stats_new.webp" alt="Listening Stats preview" />
+              <div class="service-copy">
+                <div class="service-title">Listening Stats</div>
+                <p>Dive into counted plays, peak hours, and artist trends.</p>
+              </div>
+            </article>
+
+            <article class="card service-item playing">
+              <img src="/images/promo/lyrics.webp" alt="Now Playing preview" />
+              <div class="service-copy">
+                <div class="service-title">Now Playing</div>
+                <p>Rendered lyrics and high-fidelity artwork make playback feel cinematic.</p>
+              </div>
+            </article>
+
+            <article class="card service-item discovery">
+              <img src="/images/promo/artists.webp" alt="Artist Discovery preview" />
+              <div class="service-copy">
+                <div class="service-title">Artist Discovery</div>
+                <p>Explore a curated universe of global icons and new obsessions.</p>
+              </div>
+            </article>
+
+            <article class="card service-item releases">
+              <img src="/images/promo/releases.webp" alt="Latest Drops preview" />
+              <div class="service-copy">
+                <div class="service-title">Latest Drops</div>
+                <p>Stay ahead with fresh tracks and albums from the artists you already follow.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <article class="card content-card">
+            <div class="footer-grid">
+              <div class="footer-group">
+                <strong>Knobb</strong>
+                <p>The new dimension of listening.</p>
+              </div>
+              <div class="footer-group">
+                <strong>Experience</strong>
+                <a href="/browse">Browse</a>
+                <a href="/browse">Library</a>
+                <a href="/settings">Settings</a>
+              </div>
+              <div class="footer-group">
+                <strong>Social</strong>
+                <a href="https://github.com/MunasibApurbo/knobb-desktop">GitHub</a>
+              </div>
+              <div class="footer-group">
+                <strong>Legal</strong>
+                <p>Knobb © 2026</p>
+                <p>support@knobb.io</p>
+              </div>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="screen">
+        <header class="topbar">
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>Knobb</span>
+          </a>
+          <a class="cta" href="/auth">Unlock Library</a>
+        </header>
+
+        <section class="section">
+          <article class="card contact-card">
+            <span class="eyebrow">Contact Screen</span>
+            <h1>Start A Project With Knobb</h1>
+            <p>
+              This matches the current mobile contact page content and field order, stripped down into a clean Stitch-friendly layout.
+            </p>
+
+            <div class="contact-list" style="margin-top:1.2rem;">
+              <div class="contact-item">
+                <strong>Project Inquiries</strong>
+                <span>hello@knobb.app</span>
+              </div>
+              <div class="contact-item">
+                <strong>Social</strong>
+                <span>@knobb_music</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="section">
+          <article class="card form-card">
+            <h2>Tell Us About Your Vision</h2>
+            <p style="margin-top:0.75rem;">
+              The current page presents this as a premium inquiry form for website, app, redesign, and consultation work.
+            </p>
+
+            <form class="form-grid" style="margin-top:1.15rem;">
+              <div class="field">
+                <label for="firstName">First Name</label>
+                <input id="firstName" name="firstName" placeholder="Your first name" />
+              </div>
+              <div class="field">
+                <label for="lastName">Last Name</label>
+                <input id="lastName" name="lastName" placeholder="Your last name" />
+              </div>
+              <div class="field">
+                <label for="email">Email Address</label>
+                <input id="email" name="email" placeholder="your@email.com" />
+              </div>
+              <div class="field">
+                <label for="phone">Phone Number</label>
+                <input id="phone" name="phone" placeholder="+1 (555) 123-4567" />
+              </div>
+              <div class="field">
+                <label for="projectType">Project Type</label>
+                <select id="projectType" name="projectType">
+                  <option>Website Development</option>
+                  <option>Web Application</option>
+                  <option>Mobile Application</option>
+                  <option>E-commerce Platform</option>
+                  <option>Website Redesign</option>
+                  <option>Consultation</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="message">Project Details</label>
+                <textarea id="message" name="message" placeholder="Tell me about your project, goals, timeline, and budget..."></textarea>
+              </div>
+              <div class="submit-row">
+                <a class="button primary" href="#">Send Message</a>
+                <span style="color:var(--muted);font-size:0.82rem;line-height:1.45;">Current page promises a reply within 24 hours.</span>
+              </div>
+            </form>
+          </article>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

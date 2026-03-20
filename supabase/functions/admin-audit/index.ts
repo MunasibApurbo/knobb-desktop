@@ -1,11 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST,OPTIONS",
-};
+const PRIMARY_APP_ORIGIN = "https://knobb.netlify.app";
+const DEFAULT_ALLOWED_ORIGINS = [
+  PRIMARY_APP_ORIGIN,
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
 
 const PAGE_SIZE = 25;
 const RECENT_LIMIT = 50;
@@ -37,7 +42,40 @@ type AuthRow = {
   last_sign_in_at: string | null;
 };
 
-function json(status: number, body: unknown) {
+function normalizeOrigin(value: string | null) {
+  if (!value) return null;
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function getAllowedOrigins() {
+  const configured = Deno.env.get("ALLOWED_ORIGINS");
+  if (!configured?.trim()) {
+    return new Set(DEFAULT_ALLOWED_ORIGINS);
+  }
+
+  const origins = configured
+    .split(",")
+    .map((entry) => normalizeOrigin(entry.trim()))
+    .filter((entry): entry is string => Boolean(entry));
+
+  return new Set(origins.length > 0 ? origins : DEFAULT_ALLOWED_ORIGINS);
+}
+
+function buildCorsHeaders(origin: string | null) {
+  return {
+    "Access-Control-Allow-Origin": origin ?? PRIMARY_APP_ORIGIN,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    Vary: "Origin",
+  };
+}
+
+function json(status: number, body: unknown, corsHeaders: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -344,30 +382,42 @@ async function getUserAuditPayload(
 }
 
 serve(async (req) => {
+  const origin = normalizeOrigin(req.headers.get("origin"));
+  const allowedOrigins = getAllowedOrigins();
+  const isOriginAllowed = !origin || allowedOrigins.has(origin);
+  const corsHeaders = buildCorsHeaders(origin);
+
   if (req.method === "OPTIONS") {
+    if (!isOriginAllowed) {
+      return new Response("Origin not allowed", { status: 403, headers: corsHeaders });
+    }
     return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return json(405, { error: "Method not allowed" });
+    return json(405, { error: "Method not allowed" }, corsHeaders);
+  }
+
+  if (!isOriginAllowed) {
+    return json(403, { error: "Origin not allowed" }, corsHeaders);
   }
 
   const authHeader = req.headers.get("authorization") || "";
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   const token = match?.[1]?.trim();
   if (!token) {
-    return json(401, { error: "Unauthorized" });
+    return json(401, { error: "Unauthorized" }, corsHeaders);
   }
 
   const authenticatedUser = await getAuthenticatedUser(token);
   if (!authenticatedUser || !hasAdminRole(authenticatedUser)) {
-    return json(403, { error: "Admin access required" });
+    return json(403, { error: "Admin access required" }, corsHeaders);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {
-    return json(500, { error: "Server not configured" });
+    return json(500, { error: "Server not configured" }, corsHeaders);
   }
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
@@ -392,24 +442,24 @@ serve(async (req) => {
         users: searchResults.users,
         page,
         has_more: searchResults.hasMore,
-      });
+      }, corsHeaders);
     }
 
     if (action === "getUserAudit") {
       const userId = typeof body.userId === "string" ? body.userId.trim() : "";
       if (!userId) {
-        return json(400, { error: "userId is required" });
+        return json(400, { error: "userId is required" }, corsHeaders);
       }
 
       const audit = await getUserAuditPayload(serviceClient, userId);
-      return json(200, { audit });
+      return json(200, { audit }, corsHeaders);
     }
 
-    return json(400, { error: "Unknown action" });
+    return json(400, { error: "Unknown action" }, corsHeaders);
   } catch (error) {
     console.error("admin-audit error", error);
     return json(500, {
       error: error instanceof Error ? error.message : "Unexpected error",
-    });
+    }, corsHeaders);
   }
 });

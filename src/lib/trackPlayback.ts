@@ -4,7 +4,6 @@ export type PlayableTrackCandidate = Pick<Track, "isUnavailable" | "isVideo">;
 
 export function getTrackPlaybackIssue(track: PlayableTrackCandidate | null | undefined) {
   if (!track) return "unavailable";
-  if (track.isVideo === true) return "video";
   if (track.isUnavailable === true) return "unavailable";
   return null;
 }

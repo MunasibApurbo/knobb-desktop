@@ -20,18 +20,21 @@ describe("track playback helpers", () => {
     expect(getTrackPlaybackIssue(baseTrack)).toBeNull();
   });
 
-  it("flags unavailable tracks and videos", () => {
+  it("flags only unavailable tracks", () => {
     expect(getTrackPlaybackIssue({ ...baseTrack, isUnavailable: true })).toBe("unavailable");
-    expect(getTrackPlaybackIssue({ ...baseTrack, isVideo: true })).toBe("video");
+    expect(getTrackPlaybackIssue({ ...baseTrack, isVideo: true })).toBeNull();
   });
 
-  it("filters non-playable tracks from queues and recommendations", () => {
+  it("filters only unavailable tracks from queues and recommendations", () => {
     const tracks = [
       baseTrack,
       { ...baseTrack, id: "track-2", isUnavailable: true },
       { ...baseTrack, id: "track-3", isVideo: true },
     ];
 
-    expect(filterPlayableTracks(tracks)).toEqual([baseTrack]);
+    expect(filterPlayableTracks(tracks)).toEqual([
+      baseTrack,
+      { ...baseTrack, id: "track-3", isVideo: true },
+    ]);
   });
 });

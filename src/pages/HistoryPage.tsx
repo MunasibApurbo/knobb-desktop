@@ -3,8 +3,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLikedSongs } from "@/contexts/LikedSongsContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePlayHistory } from "@/hooks/usePlayHistory";
-import { formatDuration, getTotalDuration } from "@/lib/utils";
+import { formatDuration, getTotalDuration, cn } from "@/lib/utils";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 import { Button } from "@/components/ui/button";
+import { DESTRUCTIVE_ICON_BUTTON_CLASS } from "@/components/ui/surfaceStyles";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -17,7 +19,11 @@ import { Clock, Search, Trash2, Loader2, HeartOff, X, Play, ListFilter, ChevronD
 import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail/DetailActionBar";
+import {
+  DetailActionBar,
+  DETAIL_ACTION_BUTTON_CLASS,
+  DETAIL_DESTRUCTIVE_ACTION_BUTTON_CLASS,
+} from "@/components/detail/DetailActionBar";
 import { DetailHero } from "@/components/detail/DetailHero";
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import { PageTransition } from "@/components/PageTransition";
@@ -25,7 +31,6 @@ import { TrackContextMenu } from "@/components/TrackContextMenu";
 import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
 import { motion } from "framer-motion";
 import { getTrackAddedAtLocale } from "@/lib/trackAddedAt";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
 import { collapseHistoryToLatestUniqueTrack } from "@/lib/playHistoryDisplay";
 import type { PlayHistoryEntry } from "@/hooks/usePlayHistory";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
@@ -69,11 +74,8 @@ export default function HistoryPage() {
   const { user } = useAuth();
   const { isLiked, toggleLike } = useLikedSongs();
   const { language } = useLanguage();
-  const { getHistory, clearHistory } = usePlayHistory();
+  const { getHistory, readCachedHistory, clearHistory } = usePlayHistory();
   const navigate = useNavigate();
-  const scrollY = useMainScrollY();
-  const [history, setHistory] = useState<PlayHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filterQuery, setFilterQuery] = useState("");
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const deferredFilterQuery = useDeferredValue(filterQuery);
@@ -81,6 +83,13 @@ export default function HistoryPage() {
     () => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     []
   );
+  const initialCachedHistory = useMemo(
+    () => readCachedHistory({ limit: 5000, since: monthAgoIso }),
+    [monthAgoIso, readCachedHistory],
+  );
+  const [history, setHistory] = useState<PlayHistoryEntry[]>(initialCachedHistory);
+  const [loading, setLoading] = useState(() => Boolean(user) && initialCachedHistory.length === 0);
+  const [refreshing, setRefreshing] = useState(false);
   const locale = useMemo(() => getTrackAddedAtLocale(language), [language]);
   const playedAtFormatters = useMemo(
     () => ({
@@ -105,11 +114,24 @@ export default function HistoryPage() {
 
   useEffect(() => {
     if (!user) {
+      setHistory([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    getHistory({ limit: 5000, since: monthAgoIso }).then(setHistory).finally(() => setLoading(false));
+
+    const cachedHistory = readCachedHistory({ limit: 5000, since: monthAgoIso });
+    setLoading(cachedHistory.length === 0);
+    setRefreshing(cachedHistory.length > 0);
+    if (cachedHistory.length > 0) {
+      setHistory(cachedHistory);
+    }
+
+    getHistory({ limit: 5000, since: monthAgoIso })
+      .then(setHistory)
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
 
     // Listen for realtime updates to play history
     const channel = supabase
@@ -123,7 +145,10 @@ export default function HistoryPage() {
         },
         () => {
           // Re-fetch history when changes occur
-          getHistory({ limit: 5000, since: monthAgoIso }).then(setHistory);
+          setRefreshing(true);
+          getHistory({ limit: 5000, since: monthAgoIso })
+            .then(setHistory)
+            .finally(() => setRefreshing(false));
         }
       )
       .subscribe();
@@ -131,7 +156,7 @@ export default function HistoryPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [user, getHistory, monthAgoIso]);
+  }, [user, getHistory, monthAgoIso, readCachedHistory]);
 
   const uniqueHistory = useMemo(() => collapseHistoryToLatestUniqueTrack(history), [history]);
 
@@ -161,6 +186,7 @@ export default function HistoryPage() {
   const coverUrl = uniqueHistory[0]?.coverUrl || "/placeholder.svg";
   const hasActiveFilters = filter !== "all" || filterQuery.trim().length > 0;
   const canPlayHistory = filteredHistory.length > 0;
+  const showInitialLoadingState = loading && history.length === 0;
 
   const handleClearHistory = async () => {
     const confirmed = window.confirm("Clear your listening history from the last 30 days? This cannot be undone.");
@@ -174,9 +200,10 @@ export default function HistoryPage() {
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="page-shell">
         <DetailHero
           artworkUrl={coverUrl}
+          backgroundVariant={uniqueHistory.length > 0 ? "rich" : "plain-black"}
           body={(
             <p>
               Plays from the last 30 days, with quick filtering by track, artist, album, and liked status.
@@ -185,14 +212,27 @@ export default function HistoryPage() {
           label="Library"
           meta={(
             <>
-              <span className="detail-chip">
-                <span>Plays</span>
-                <strong>{uniqueHistory.length}</strong>
-              </span>
+              {showInitialLoadingState ? (
+                <span className="detail-chip">
+                  <span>Status</span>
+                  <strong>Loading</strong>
+                </span>
+              ) : (
+                <span className="detail-chip">
+                  <span>Plays</span>
+                  <strong>{uniqueHistory.length}</strong>
+                </span>
+              )}
               {filteredHistory.length > 0 ? (
                 <span className="detail-chip">
                   <span>Runtime</span>
                   <strong>{getTotalDuration(filteredHistory)}</strong>
+                </span>
+              ) : null}
+              {refreshing && uniqueHistory.length > 0 ? (
+                <span className="detail-chip">
+                  <span>Status</span>
+                  <strong>Refreshing</strong>
                 </span>
               ) : null}
               {hasActiveFilters ? (
@@ -203,7 +243,6 @@ export default function HistoryPage() {
               ) : null}
             </>
           )}
-          scrollY={scrollY}
           title="Recently Played"
         />
 
@@ -260,7 +299,7 @@ export default function HistoryPage() {
                 <button
                   type="button"
                   onClick={() => setFilterQuery("")}
-                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground transition-colors hover:text-white"
+                  className={`absolute right-3 top-1/2 z-10 h-7 w-7 -translate-y-1/2 ${DESTRUCTIVE_ICON_BUTTON_CLASS}`}
                   aria-label="Clear history filter"
                 >
                   <X className="h-4 w-4" />
@@ -272,7 +311,7 @@ export default function HistoryPage() {
           )}
           <Button
             variant="secondary"
-            className={DETAIL_ACTION_BUTTON_CLASS}
+            className={DETAIL_DESTRUCTIVE_ACTION_BUTTON_CLASS}
             disabled={uniqueHistory.length === 0}
             onClick={() => void handleClearHistory()}
           >
@@ -282,27 +321,28 @@ export default function HistoryPage() {
         </DetailActionBar>
 
         {!user ? (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <div className="space-y-4 py-12 text-center">
               <p className="text-sm text-muted-foreground">Sign in to see your play history.</p>
               <Button onClick={() => navigate("/auth")}>Sign In</Button>
             </div>
           </section>
-        ) : loading ? (
-          <section className="border border-white/10 bg-white/[0.02]">
-            <div className="flex justify-center py-12">
+        ) : showInitialLoadingState ? (
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Checking your recent plays…</p>
             </div>
           </section>
         ) : uniqueHistory.length === 0 ? (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <div className="py-12 text-center">
               <Clock className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
               <p className="text-muted-foreground">No history yet. Start playing some tracks!</p>
             </div>
           </section>
         ) : filteredHistory.length === 0 ? (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <div className="space-y-3 py-12 text-center">
               <Search className="mx-auto h-10 w-10 text-muted-foreground" />
               <p className="text-white">No matching plays found.</p>
@@ -312,7 +352,7 @@ export default function HistoryPage() {
             </div>
           </section>
         ) : (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <VirtualizedTrackList
               items={filteredHistory}
               rowHeight={86}
@@ -342,7 +382,6 @@ export default function HistoryPage() {
                       isCurrent={isCurrent}
                       isLiked={isLiked(track.id)}
                       isPlaying={isPlaying}
-                      mobileMeta={track.album ? `${track.album} • ${playedAtLabel}` : playedAtLabel}
                       onDragHandleStart={(event) => {
                         startPlaylistDrag(event.dataTransfer, {
                           label: track.title,

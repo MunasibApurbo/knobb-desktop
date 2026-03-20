@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knobb Mobile Landing Reference</title>
+    <style>
+      :root {
+        --bg: #050505;
+        --panel: #101010;
+        --panel-strong: #161616;
+        --text: #f5f5f5;
+        --muted: #b8b8b8;
+        --line: rgba(255, 255, 255, 0.12);
+        --line-strong: rgba(255, 255, 255, 0.2);
+        --pill: rgba(255, 255, 255, 0.06);
+        --cyan: #7be7ff;
+        --blue: #4d7cff;
+        --amber: #ffab40;
+        --olive: #94a15d;
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 28%),
+          linear-gradient(180deg, #090909 0%, #020202 38%, #000 100%);
+        color: var(--text);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .page-shell {
+        min-height: 100vh;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem;
+        backdrop-filter: blur(20px);
+        background: rgba(5, 5, 5, 0.72);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.65rem;
+        font-size: 0.95rem;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background:
+          radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.15) 28%, transparent 30%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04));
+        box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.08);
+      }
+
+      .topbar-cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.75rem;
+        padding: 0 1rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--pill);
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .section {
+        padding: 1rem;
+      }
+
+      .hero {
+        padding-top: 1.5rem;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .hero h1 {
+        margin: 1rem 0 0.85rem;
+        font-size: clamp(3rem, 14vw, 4.75rem);
+        line-height: 0.88;
+        letter-spacing: -0.06em;
+        text-transform: uppercase;
+        font-style: italic;
+      }
+
+      .hero-copy {
+        max-width: 34rem;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1.6;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1.25rem;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 3rem;
+        padding: 0 1.15rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+
+      .button.primary {
+        background: #fff;
+        color: #000;
+        border-color: #fff;
+      }
+
+      .hero-visual-card,
+      .panel,
+      .feature-card,
+      .track-card,
+      .service-card,
+      .footer-card {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+        box-shadow: var(--shadow);
+      }
+
+      .hero-visual-card {
+        margin-top: 1.5rem;
+        overflow: hidden;
+        border-radius: 1.75rem;
+      }
+
+      .hero-visual-card img {
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+      }
+
+      .hero-visual-meta {
+        display: grid;
+        gap: 0.65rem;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.45);
+      }
+
+      .hero-visual-meta strong {
+        font-size: 1rem;
+        letter-spacing: -0.03em;
+      }
+
+      .hero-visual-meta span {
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .panel {
+        padding: 1.15rem;
+        border-radius: 1.5rem;
+      }
+
+      .panel h2,
+      .section-title {
+        margin: 0 0 0.75rem;
+        font-size: 1.55rem;
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+        text-transform: uppercase;
+        font-style: italic;
+      }
+
+      .panel p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+
+      .stat-chip {
+        padding: 0.9rem 0.75rem;
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .stat-chip strong {
+        display: block;
+        font-size: 1.05rem;
+        letter-spacing: -0.04em;
+      }
+
+      .stat-chip span {
+        display: block;
+        margin-top: 0.25rem;
+        color: var(--muted);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .tracks {
+        display: grid;
+        gap: 0.9rem;
+      }
+
+      .track-card {
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        gap: 0.9rem;
+        align-items: center;
+        padding: 0.75rem;
+        border-radius: 1.4rem;
+      }
+
+      .track-card img {
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+        border-radius: 1rem;
+      }
+
+      .track-card strong {
+        display: block;
+        font-size: 1rem;
+        line-height: 1.2;
+      }
+
+      .track-card span {
+        display: block;
+        margin-top: 0.35rem;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.45;
+      }
+
+      .service-card {
+        overflow: hidden;
+        border-radius: 1.75rem 1.75rem 0 0;
+      }
+
+      .service-card-media {
+        aspect-ratio: 16 / 10;
+        overflow: hidden;
+      }
+
+      .service-card-media img {
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .service-card-copy {
+        padding: 1rem;
+      }
+
+      .service-card-copy strong {
+        display: block;
+        margin-bottom: 0.55rem;
+        font-size: 1.45rem;
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+        text-transform: uppercase;
+        font-style: italic;
+      }
+
+      .service-card-copy p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .service-card.stats {
+        background: radial-gradient(circle at 78% 22%, rgba(77, 124, 255, 0.42), rgba(0, 0, 0, 0.9) 70%);
+      }
+
+      .service-card.playing {
+        background: radial-gradient(circle at 18% 22%, rgba(123, 231, 255, 0.3), rgba(0, 0, 0, 0.9) 72%);
+      }
+
+      .service-card.discovery {
+        background: radial-gradient(circle at 80% 25%, rgba(148, 161, 93, 0.3), rgba(0, 0, 0, 0.9) 72%);
+      }
+
+      .service-card.releases {
+        background: radial-gradient(circle at 16% 20%, rgba(255, 171, 64, 0.34), rgba(0, 0, 0, 0.9) 72%);
+      }
+
+      .footer {
+        padding: 1rem 1rem 2.5rem;
+      }
+
+      .footer-card {
+        padding: 1.25rem;
+        border-radius: 1.5rem;
+      }
+
+      .footer-grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .footer-group strong {
+        display: block;
+        margin-bottom: 0.55rem;
+        font-size: 0.82rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .footer-group p,
+      .footer-group a {
+        display: block;
+        margin: 0.2rem 0;
+        line-height: 1.5;
+        color: var(--text);
+      }
+
+      @media (min-width: 720px) {
+        body {
+          background:
+            radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 28%),
+            linear-gradient(180deg, #090909 0%, #020202 38%, #000 100%);
+        }
+
+        .page-shell {
+          max-width: 430px;
+          margin: 0 auto;
+          border-left: 1px solid rgba(255, 255, 255, 0.06);
+          border-right: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(0, 0, 0, 0.78);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Extracted from src/pages/LandingPage.tsx for mobile redesign work -->
+    <main class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>Knobb</span>
+        </a>
+        <a class="topbar-cta" href="/auth">Unlock Library</a>
+      </header>
+
+      <section class="section hero">
+        <span class="eyebrow">The New Dimension Of Listening</span>
+        <h1>Experience Music Beyond Playback</h1>
+        <p class="hero-copy">
+          Knobb turns your music routine into a cinematic mobile-first experience with immersive visuals, living stats, beautiful lyrics, and artist discovery that feels curated instead of crowded.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="/browse">Open Player</a>
+          <a class="button" href="/contact">Talk To Us</a>
+        </div>
+
+        <article class="hero-visual-card">
+          <img src="/images/knobb/hero_abstract.png" alt="Knobb abstract hero art" />
+          <div class="hero-visual-meta">
+            <strong>Mobile Hero Reference</strong>
+            <span>Static fallback of the current hero used on tablet and smaller viewports.</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="panel">
+          <h2>Why Knobb Feels Different</h2>
+          <p>
+            The public site currently introduces Knobb as a premium listening universe: expressive presentation, fast access to your library, and a product story built around immersion rather than utility alone.
+          </p>
+          <div class="stats-row">
+            <div class="stat-chip">
+              <strong>4</strong>
+              <span>Core promos</span>
+            </div>
+            <div class="stat-chip">
+              <strong>10</strong>
+              <span>Featured tracks</span>
+            </div>
+            <div class="stat-chip">
+              <strong>1</strong>
+              <span>Player entry</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Trending Tracks</h2>
+        <div class="tracks">
+          <article class="track-card">
+            <img src="/images/featured/feat-1.webp" alt="Sub Urban - Cradles artwork" />
+            <div>
+              <strong>Sub Urban - Cradles</strong>
+              <span>Featured in the current landing carousel as part of the public homepage story.</span>
+            </div>
+          </article>
+          <article class="track-card">
+            <img src="/images/featured/feat-2.webp" alt="Imagine Dragons - Believer artwork" />
+            <div>
+              <strong>Imagine Dragons - Believer</strong>
+              <span>Used as one of the highlighted tracks in the mobile featured stack.</span>
+            </div>
+          </article>
+          <article class="track-card">
+            <img src="/images/featured/feat-3.webp" alt="Bebe Rexha - I'm a Mess artwork" />
+            <div>
+              <strong>Bebe Rexha - I'm a Mess</strong>
+              <span>Represents the energetic, pop-forward side of the current featured strip.</span>
+            </div>
+          </article>
+          <article class="track-card">
+            <img src="/images/featured/feat-4.webp" alt="Billie Eilish - Happier Than Ever artwork" />
+            <div>
+              <strong>Billie Eilish - Happier Than Ever</strong>
+              <span>The final track in the visible mobile landing stack on the current homepage.</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section grid">
+        <h2 class="section-title">Core Product Stories</h2>
+
+        <article class="service-card stats">
+          <div class="service-card-media">
+            <img src="/images/promo/stats_new.webp" alt="Listening Stats preview" />
+          </div>
+          <div class="service-card-copy">
+            <strong>Listening Stats</strong>
+            <p>
+              Dive deep into your habits with detailed insights on counted plays, peak hours, and the artists shaping your week.
+            </p>
+          </div>
+        </article>
+
+        <article class="service-card playing">
+          <div class="service-card-media">
+            <img src="/images/promo/lyrics.webp" alt="Now Playing preview" />
+          </div>
+          <div class="service-card-copy">
+            <strong>Now Playing</strong>
+            <p>
+              A modern fairytale view of playback with rendered lyrics, rich artwork, and a more immersive sense of presence.
+            </p>
+          </div>
+        </article>
+
+        <article class="service-card discovery">
+          <div class="service-card-media">
+            <img src="/images/promo/artists.webp" alt="Artist Discovery preview" />
+          </div>
+          <div class="service-card-copy">
+            <strong>Artist Discovery</strong>
+            <p>
+              Explore a curated universe of global icons and emerging obsessions without falling into an endless generic feed.
+            </p>
+          </div>
+        </article>
+
+        <article class="service-card releases">
+          <div class="service-card-media">
+            <img src="/images/promo/releases.webp" alt="Latest Drops preview" />
+          </div>
+          <div class="service-card-copy">
+            <strong>Latest Drops</strong>
+            <p>
+              Stay ahead of the curve with fresh tracks and albums from the artists you already care about, presented in high detail.
+            </p>
+          </div>
+        </article>
+      </section>
+
+      <footer class="footer">
+        <div class="footer-card">
+          <div class="footer-grid">
+            <div class="footer-group">
+              <strong>Knobb</strong>
+              <p>The new dimension of listening.</p>
+            </div>
+            <div class="footer-group">
+              <strong>Experience</strong>
+              <a href="/browse">Browse</a>
+              <a href="/browse">Library</a>
+              <a href="/settings">Settings</a>
+            </div>
+            <div class="footer-group">
+              <strong>Social</strong>
+              <a href="https://github.com/MunasibApurbo/knobb-desktop">GitHub</a>
+            </div>
+            <div class="footer-group">
+              <strong>Legal</strong>
+              <p>Knobb © 2026</p>
+              <p>support@knobb.io</p>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>

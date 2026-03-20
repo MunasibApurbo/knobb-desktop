@@ -35,7 +35,7 @@ export function AppDiagnosticsInbox() {
     subscribeToAppDiagnostics,
     getAppDiagnosticsSnapshot,
     getAppDiagnosticsSnapshot,
-  );
+  ).filter((diagnostic) => diagnostic.source !== "player");
 
   if (diagnostics.length === 0) return null;
 
@@ -68,7 +68,7 @@ export function AppDiagnosticsInbox() {
               <button
                 type="button"
                 onClick={() => dismissAppDiagnostic(diagnostic.id)}
-                className="inline-flex h-7 w-7 items-center justify-center text-white/55 transition-colors hover:text-white"
+                className="menu-sweep-hover inline-flex h-7 w-7 items-center justify-center rounded-full text-white/55 transition-colors hover:text-white"
                 aria-label="Dismiss notice"
               >
                 <X className="h-4 w-4" />
@@ -80,4 +80,3 @@ export function AppDiagnosticsInbox() {
     </div>
   );
 }
-

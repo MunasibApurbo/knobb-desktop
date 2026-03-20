@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 export function readReducedMotionPreference() {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -6,6 +6,14 @@ export function readReducedMotionPreference() {
   }
 
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+export function readHoverCapablePointer() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }
 
 function readDeviceSignals() {
@@ -45,6 +53,45 @@ function readLowEndDeviceState() {
   );
 }
 
+function readNetworkSignals() {
+  if (typeof navigator === "undefined") {
+    return {
+      saveData: false,
+      effectiveType: null as string | null,
+    };
+  }
+
+  const connection = (navigator as Navigator & {
+    connection?: {
+      saveData?: boolean;
+      effectiveType?: string;
+    };
+  }).connection;
+
+  return {
+    saveData: connection?.saveData === true,
+    effectiveType: connection?.effectiveType ?? null,
+  };
+}
+
+export function readStartupPerformanceBudget() {
+  const lowEndDevice = readLowEndDeviceState();
+  const { saveData, effectiveType } = readNetworkSignals();
+  const constrainedNetwork =
+    saveData ||
+    effectiveType === "slow-2g" ||
+    effectiveType === "2g" ||
+    effectiveType === "3g";
+
+  return {
+    lowEndDevice,
+    constrainedNetwork,
+    shouldDeferNonCriticalBootWork: lowEndDevice || constrainedNetwork,
+    canPreloadLikelyRoutes: !constrainedNetwork && !lowEndDevice,
+    canWarmPlaybackStackEagerly: !constrainedNetwork && !lowEndDevice,
+  };
+}
+
 function readStrongDesktopEffectsState() {
   const { deviceMemory, hardwareConcurrency, prefersReducedMotion } = readDeviceSignals();
 
@@ -56,55 +103,135 @@ function readStrongDesktopEffectsState() {
   return hasStrongMemory && hasStrongCpu;
 }
 
+export function readStrongDesktopEffectsPreference() {
+  return readStrongDesktopEffectsState();
+}
+
+type SnapshotListener = () => void;
+
+type SharedSnapshotStore<T> = {
+  getSnapshot: () => T;
+  getServerSnapshot: () => T;
+  subscribe: (listener: SnapshotListener) => () => void;
+};
+
+function createMediaQueryStore(
+  query: string,
+  readSnapshot: () => boolean,
+): SharedSnapshotStore<boolean> {
+  let mediaQuery: MediaQueryList | null = null;
+  let cleanup: (() => void) | null = null;
+  let currentSnapshot = readSnapshot();
+  const listeners = new Set<SnapshotListener>();
+
+  const notifyListeners = () => {
+    listeners.forEach((listener) => listener());
+  };
+
+  const handleChange = () => {
+    const nextSnapshot = readSnapshot();
+    if (Object.is(currentSnapshot, nextSnapshot)) return;
+    currentSnapshot = nextSnapshot;
+    notifyListeners();
+  };
+
+  const ensureSubscription = () => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function" || mediaQuery) {
+      return;
+    }
+
+    mediaQuery = window.matchMedia(query);
+    currentSnapshot = readSnapshot();
+    mediaQuery.addEventListener("change", handleChange);
+    cleanup = () => {
+      mediaQuery?.removeEventListener("change", handleChange);
+      mediaQuery = null;
+      cleanup = null;
+    };
+  };
+
+  return {
+    getSnapshot: () => {
+      currentSnapshot = readSnapshot();
+      return currentSnapshot;
+    },
+    getServerSnapshot: readSnapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      ensureSubscription();
+
+      return () => {
+        listeners.delete(listener);
+
+        if (listeners.size === 0) {
+          cleanup?.();
+        }
+      };
+    },
+  };
+}
+
+function createSharedStore<T>(
+  readSnapshot: () => T,
+  subscribeToChanges: (listener: SnapshotListener) => () => void,
+): SharedSnapshotStore<T> {
+  return {
+    getSnapshot: readSnapshot,
+    getServerSnapshot: readSnapshot,
+    subscribe: subscribeToChanges,
+  };
+}
+
+const reducedMotionStore = createMediaQueryStore(
+  "(prefers-reduced-motion: reduce)",
+  readReducedMotionPreference,
+);
+
+const hoverCapablePointerStore = createMediaQueryStore(
+  "(hover: hover) and (pointer: fine)",
+  readHoverCapablePointer,
+);
+
+const lowEndDeviceStore = createSharedStore(
+  readLowEndDeviceState,
+  reducedMotionStore.subscribe,
+);
+
+const strongDesktopEffectsStore = createSharedStore(
+  readStrongDesktopEffectsState,
+  reducedMotionStore.subscribe,
+);
+
 export function useLowEndDevice() {
-  const [lowEndDevice, setLowEndDevice] = useState(() => readLowEndDeviceState());
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setLowEndDevice(readLowEndDeviceState());
-
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, []);
-
-  return lowEndDevice;
+  return useSyncExternalStore(
+    lowEndDeviceStore.subscribe,
+    lowEndDeviceStore.getSnapshot,
+    lowEndDeviceStore.getServerSnapshot,
+  );
 }
 
 export function useStrongDesktopEffects() {
-  const [strongDesktopEffects, setStrongDesktopEffects] = useState(() => readStrongDesktopEffectsState());
+  return useSyncExternalStore(
+    strongDesktopEffectsStore.subscribe,
+    strongDesktopEffectsStore.getSnapshot,
+    strongDesktopEffectsStore.getServerSnapshot,
+  );
+}
 
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setStrongDesktopEffects(readStrongDesktopEffectsState());
-
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, []);
-
-  return strongDesktopEffects;
+export function useHoverCapablePointer() {
+  return useSyncExternalStore(
+    hoverCapablePointerStore.subscribe,
+    hoverCapablePointerStore.getSnapshot,
+    hoverCapablePointerStore.getServerSnapshot,
+  );
 }
 
 export function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => readReducedMotionPreference());
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setPrefersReducedMotion(readReducedMotionPreference());
-
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, []);
-
-  return prefersReducedMotion;
+  return useSyncExternalStore(
+    reducedMotionStore.subscribe,
+    reducedMotionStore.getSnapshot,
+    reducedMotionStore.getServerSnapshot,
+  );
 }
 
 export function scheduleBackgroundTask(task: () => void, timeout = 1200) {
@@ -120,4 +247,15 @@ export function scheduleBackgroundTask(task: () => void, timeout = 1200) {
 
   const timeoutId = window.setTimeout(task, Math.min(timeout, 800));
   return () => window.clearTimeout(timeoutId);
+}
+
+export function useDeferredMount(timeout = 1200) {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    if (enabled) return;
+    return scheduleBackgroundTask(() => setEnabled(true), timeout);
+  }, [enabled, timeout]);
+
+  return enabled;
 }

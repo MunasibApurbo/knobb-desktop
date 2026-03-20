@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Bell, CheckCheck, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PageTransition } from "@/components/PageTransition";
+import { UtilityPageLayout, UtilityPagePanel } from "@/components/UtilityPageLayout";
 import { toast } from "sonner";
 
 type NotificationItem = {
@@ -101,74 +103,94 @@ export default function NotificationsPage() {
 
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Bell className="w-12 h-12 text-muted-foreground mb-4" />
-        <p className="text-muted-foreground">Sign in to see your notifications.</p>
-      </div>
+      <PageTransition>
+        <UtilityPageLayout
+          eyebrow="Inbox"
+          title="Notifications"
+          description="Playlist activity, product updates, and library events land here."
+        >
+          <UtilityPagePanel className="px-4 py-16 text-center sm:px-6">
+            <Bell className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+            <p className="text-base text-muted-foreground">Sign in to see your notifications.</p>
+          </UtilityPagePanel>
+        </UtilityPageLayout>
+      </PageTransition>
     );
   }
 
   return (
-    <div className="py-6 pb-32 px-4">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void markAllAsRead()}
-          disabled={unreadCount === 0}
-          className="h-8 px-3 text-xs"
-        >
-          <CheckCheck className="w-3.5 h-3.5 mr-1" />
-          Mark all read
-        </Button>
-      </div>
-
-      <section className="mb-10">
+    <PageTransition>
+      <UtilityPageLayout
+        eyebrow="Inbox"
+        title="Notifications"
+        description={
+          unreadCount > 0
+            ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"} waiting.`
+            : "Playlist activity, product updates, and library events land here."
+        }
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => void markAllAsRead()}
+            disabled={unreadCount === 0}
+            className="h-11 w-full border-white/10 bg-white/[0.04] px-4 text-sm font-semibold sm:w-auto"
+          >
+            <CheckCheck className="mr-2 h-4 w-4" />
+            Mark all read
+          </Button>
+        }
+      >
         {loading ? (
-          <div className="bg-white/[0.02] border border-white/5 flex flex-col items-center justify-center py-16 text-center">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">Loading notifications...</p>
-          </div>
+          <UtilityPagePanel className="flex flex-col items-center justify-center px-4 py-20 text-center sm:px-6">
+            <Loader2 className="mb-4 h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="text-base font-medium text-foreground">Loading notifications</p>
+            <p className="mt-1 text-sm text-muted-foreground">Checking for playlist activity, updates, and library events.</p>
+          </UtilityPagePanel>
         ) : items.length === 0 ? (
-          <div className="bg-white/[0.02] border border-white/5 flex flex-col items-center justify-center py-20 text-center">
-            <Bell className="w-10 h-10 text-muted-foreground mb-4" />
-            <p className="text-foreground font-medium text-lg">You're all caught up!</p>
-            <p className="text-sm text-muted-foreground mt-1">No new notifications right now.</p>
-          </div>
+          <UtilityPagePanel className="flex flex-col items-center justify-center px-4 py-20 text-center sm:px-6">
+            <Bell className="mb-4 h-10 w-10 text-muted-foreground" />
+            <p className="text-lg font-medium text-foreground">You're all caught up!</p>
+            <p className="mt-1 text-sm text-muted-foreground">No new notifications right now.</p>
+          </UtilityPagePanel>
         ) : (
-          <div className="border border-white/10 divide-y divide-white/10">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                className={`w-full text-left px-4 py-3 transition-colors ${
-                  item.is_read ? "bg-transparent" : "bg-white/[0.03] hover:bg-white/[0.05]"
-                }`}
-                onClick={() => {
-                  if (!item.is_read) void markAsRead(item.id);
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className={`text-sm font-semibold ${item.is_read ? "text-foreground/80" : "text-foreground"}`}>
-                      {item.title}
-                    </p>
-                    {item.body && (
-                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{item.body}</p>
-                    )}
-                    <p className="text-[11px] text-muted-foreground mt-1.5">
-                      {new Date(item.created_at).toLocaleString()}
-                    </p>
+          <UtilityPagePanel className="overflow-hidden p-0">
+            <div className="divide-y divide-white/10">
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  className={`w-full px-4 py-4 text-left transition-colors sm:px-5 ${
+                    item.is_read ? "bg-transparent hover:bg-white/[0.03]" : "bg-white/[0.03] hover:bg-white/[0.05]"
+                  }`}
+                  onClick={() => {
+                    if (!item.is_read) void markAsRead(item.id);
+                  }}
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <p className={`text-sm font-semibold ${item.is_read ? "text-foreground/82" : "text-foreground"}`}>
+                        {item.title}
+                      </p>
+                      {item.body ? (
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.body}</p>
+                      ) : null}
+                      <p className="mt-2 text-[11px] text-muted-foreground/85">
+                        {new Date(item.created_at).toLocaleString()}
+                      </p>
+                    </div>
+
+                    {!item.is_read ? (
+                      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--dynamic-accent))]">
+                        <span className="inline-flex h-2 w-2 rounded-full bg-[hsl(var(--dynamic-accent))]" />
+                        New
+                      </div>
+                    ) : null}
                   </div>
-                  {!item.is_read && (
-                    <span className="inline-flex w-2 h-2 rounded-full bg-[hsl(var(--dynamic-accent))] mt-1 shrink-0" />
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
+                </button>
+              ))}
+            </div>
+          </UtilityPagePanel>
         )}
-      </section>
-    </div>
+      </UtilityPageLayout>
+    </PageTransition>
   );
 }

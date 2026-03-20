@@ -52,6 +52,29 @@ export async function searchTracks(
   }
 }
 
+export async function searchVideos(
+  { cache, requestJson }: SearchDeps,
+  query: string,
+  limit = 20,
+) {
+  const cacheKey = `${query}:${limit}`;
+  const cached = await cache.get<SearchResponse<SourceTrack>>("search_videos", cacheKey);
+  if (cached) return cached;
+
+  try {
+    const data = await requestJson(`/search/?v=${encodeURIComponent(query)}&limit=${limit}`);
+    const normalized = normalizeSearchResponse<SourceTrack>(data, "videos");
+    const result = {
+      ...normalized,
+      items: normalized.items.map((track) => prepareTrack(track)),
+    };
+    await cache.set("search_videos", cacheKey, result);
+    return result;
+  } catch {
+    return emptySearchResult<SourceTrack>();
+  }
+}
+
 export async function searchArtists(
   { cache, requestJson }: SearchDeps,
   query: string,

@@ -1,5 +1,9 @@
 export type MediaCardSize = "smaller" | "small" | "default" | "big" | "bigger";
 
+const DESKTOP_MEDIA_CARD_COLUMNS = 7;
+const DESKTOP_MEDIA_CARD_MIN_COLUMNS = 5;
+const DESKTOP_MEDIA_CARD_BREAKPOINT = 960;
+
 type MediaCardSizePreset = {
   minWidth: string;
   bodyPadInline: string;
@@ -154,12 +158,18 @@ export function getMediaCardGridCssVars(size: MediaCardSize) {
 export function getMediaCardColumnsForWidth(
   width: number,
   size: MediaCardSize,
-  mobileBreakpoint = 640,
-  mobileColumns = 2,
+  compactBreakpoint = 640,
+  compactColumns = 2,
 ) {
   if (!Number.isFinite(width) || width <= 0) return getMediaCardCollapsedCount(size);
-  if (width < mobileBreakpoint) return mobileColumns;
+  if (width < compactBreakpoint) return compactColumns;
 
   const { gap, idealWidth } = getMediaCardGridMetrics(size, width);
-  return Math.max(1, Math.floor((width + gap) / (idealWidth + gap)));
+  const responsiveColumns = Math.max(1, Math.floor((width + gap) / (idealWidth + gap)));
+
+  if (width >= DESKTOP_MEDIA_CARD_BREAKPOINT) {
+    return clampNumber(responsiveColumns, DESKTOP_MEDIA_CARD_MIN_COLUMNS, DESKTOP_MEDIA_CARD_COLUMNS);
+  }
+
+  return responsiveColumns;
 }

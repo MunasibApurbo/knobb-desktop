@@ -12,7 +12,7 @@ import {
 } from "@/hooks/usePlaylists";
 import { getUserPlaylistCoverUrl } from "@/components/user-playlist/userPlaylistUtils";
 import { copyPlainTextToClipboard } from "@/lib/mediaNavigation";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
+import { APP_HOME_PATH } from "@/lib/routes";
 
 export function useUserPlaylistPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +30,7 @@ export function useUserPlaylistPage() {
     regenerateShareToken,
     moveTrack,
     loadPlaylistTracks,
+    ensurePlaylistLoaded,
     getCollaborators,
     inviteCollaborator,
     updateCollaboratorRole,
@@ -38,7 +39,6 @@ export function useUserPlaylistPage() {
 
   const playlist = playlists.find((entry) => entry.id === id) || null;
   const isResolvingPlaylist = Boolean(id) && !playlist && (!initialized || loading);
-  const scrollY = useMainScrollY();
   const [metadataName, setMetadataName] = useState("");
   const [metadataDescription, setMetadataDescription] = useState("");
   const [metadataCover, setMetadataCover] = useState("");
@@ -47,6 +47,7 @@ export function useUserPlaylistPage() {
   );
   const [isSavingMetadata, setIsSavingMetadata] = useState(false);
   const [isLoadingTracks, setIsLoadingTracks] = useState(false);
+  const [isResolvingSummary, setIsResolvingSummary] = useState(false);
   const [collaborators, setCollaborators] = useState<PlaylistCollaborator[]>([]);
   const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -62,6 +63,26 @@ export function useUserPlaylistPage() {
     setMetadataCover(playlist.cover_url || "");
     setMetadataVisibility(playlist.visibility);
   }, [playlist]);
+
+  useEffect(() => {
+    if (!id || playlist) {
+      setIsResolvingSummary(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsResolvingSummary(true);
+
+    void ensurePlaylistLoaded(id).finally(() => {
+      if (!cancelled) {
+        setIsResolvingSummary(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensurePlaylistLoaded, id, playlist]);
 
   useEffect(() => {
     if (!playlist || playlist.tracks_loaded) {
@@ -165,7 +186,7 @@ export function useUserPlaylistPage() {
     if (!confirmed) return;
     await deletePlaylist(playlist.id);
     toast.success("Playlist deleted");
-    navigate("/");
+    navigate(APP_HOME_PATH);
   }, [deletePlaylist, navigate, playlist]);
 
   const handleSaveMetadata = useCallback(async () => {
@@ -312,9 +333,8 @@ export function useUserPlaylistPage() {
   );
 
   return {
-    loading: loading || isLoadingTracks || isResolvingPlaylist,
+    loading: loading || isLoadingTracks || isResolvingPlaylist || isResolvingSummary,
     playlist,
-    scrollY,
     coverUrl,
     currentTrack,
     isPlaying,

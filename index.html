@@ -19,28 +19,52 @@
     <meta name="color-scheme" content="dark" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="KNOBB" />
-    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="msapplication-TileColor" content="#1d0834" />
-    <meta name="msapplication-config" content="/browserconfig.xml" />
-    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
-    <link rel="shortcut icon" href="/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="/brand/logo-k-black-square-256.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/brand/logo-k-black-square-512.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
-    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    
+    <!-- Preload Critical Assets -->
+    <link rel="preload" href="/brand/logo-k-black-square-256.png" as="image" />
+    <script>
+      (() => {
+        try {
+          const fontQueries = {
+            Outfit: "family=Outfit:wght@400;500;600;700;800",
+            Inter: "family=Inter:wght@400;500;600;700;800",
+            Poppins: "family=Poppins:wght@400;500;600;700;800",
+            Nunito: "family=Nunito:wght@400;500;600;700;800",
+            "Space Grotesk": "family=Space+Grotesk:wght@400;500;600;700",
+            Roboto: "family=Roboto:wght@400;500;700",
+            "JetBrains Mono": "family=JetBrains+Mono:wght@400;500;700",
+          };
+          const systemStack = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+          const font = window.localStorage.getItem("app-font");
+          const fontQuery = font ? fontQueries[font] : null;
+
+          if (!font || font === "System Default" || !fontQuery) {
+            document.documentElement.style.setProperty("--font-sans", systemStack);
+            return;
+          }
+
+          document.documentElement.style.setProperty("--font-sans", `"${font}", sans-serif`);
+
+          const createLink = (id, rel, href, crossOrigin) => {
+            if (document.getElementById(id)) return;
+            const link = document.createElement("link");
+            link.id = id;
+            link.rel = rel;
+            link.href = href;
+            if (crossOrigin) link.crossOrigin = crossOrigin;
+            document.head.appendChild(link);
+          };
+
+          createLink("knobb-fonts-preconnect", "preconnect", "https://fonts.googleapis.com");
+          createLink("knobb-fonts-gstatic", "preconnect", "https://fonts.gstatic.com", "anonymous");
+          createLink("knobb-fonts-stylesheet", "stylesheet", `https://fonts.googleapis.com/css2?${fontQuery}&display=swap`);
+        } catch {}
+      })();
+    </script>
 
     <meta property="og:title" content="KNOBB" />
     <meta
@@ -70,6 +94,20 @@
       name="twitter:image:alt"
       content="KNOBB share card with a silver K mark and layered KNOBB wordmark in silver, yellow, and purple on black."
     />
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: linear-gradient(180deg, #090909 0%, #000 100%);
+        color: rgba(255, 255, 255, 0.96);
+        font-family: var(--font-sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+      }
+
+      #root {
+        min-height: 100vh;
+      }
+    </style>
   </head>
 
   <body>

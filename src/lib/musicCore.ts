@@ -36,12 +36,15 @@ import {
   searchArtists as loadArtistSearch,
   searchPlaylists as loadPlaylistSearch,
   searchTracks as loadTrackSearch,
+  searchVideos as loadVideoSearch,
 } from "@/lib/musicCoreSearch";
 import {
   getStreamUrl as resolveStreamUrl,
   getTrack as loadTrackLookup,
   getTrackMetadata as loadTrackMetadata,
   getTrackRecommendations as loadTrackRecommendations,
+  getVideo as loadVideo,
+  getVideoStreamUrl as resolveVideoStreamUrl,
 } from "@/lib/musicCoreTracks";
 
 export type {
@@ -59,11 +62,28 @@ export {
   STREAMING_INSTANCE_POOL,
 };
 
+const INSTANCE_REQUEST_TIMEOUT_MS: Record<InstanceType, number> = {
+  api: 2800,
+  streaming: 2400,
+};
+
+const INITIAL_INSTANCE_BATCH_SIZE: Record<InstanceType, number> = {
+  api: 3,
+  streaming: 4,
+};
+
+const FOLLOW_UP_INSTANCE_BATCH_SIZE: Record<InstanceType, number> = {
+  api: 1,
+  streaming: 2,
+};
+
 class MusicCoreClient {
   private readonly cache = new APICache({ maxSize: 240, ttl: 1000 * 60 * 30 });
   private readonly instanceStore = new InstanceStore();
   private readonly streamCache = new Map<string, string>();
   private readonly latencySamples = new Map<string, number[]>();
+  private readonly jsonResponseCache = new Map<string, { data: unknown; timestamp: number }>();
+  private readonly inFlightJsonRequests = new Map<string, Promise<unknown>>();
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -89,6 +109,8 @@ class MusicCoreClient {
 
   clearCaches() {
     this.streamCache.clear();
+    this.jsonResponseCache.clear();
+    this.inFlightJsonRequests.clear();
     void this.cache.clear();
     void this.instanceStore.clearCache();
   }
@@ -96,19 +118,79 @@ class MusicCoreClient {
   invalidateTrackStream(trackId: number) {
     const prefix = `${trackId}:`;
     for (const key of Array.from(this.streamCache.keys())) {
-      if (key.startsWith(prefix)) {
+      if (key.startsWith(prefix) || key === `video:${trackId}`) {
         this.streamCache.delete(key);
       }
     }
   }
 
   async requestJson(relativePath: string, options: FetchWithRetryOptions = {}) {
-    const response = await this.fetchWithRetry(relativePath, options);
-    return response.json();
+    const requestKey = JSON.stringify([
+      options.type || "api",
+      options.minVersion || null,
+      relativePath,
+    ]);
+    const now = Date.now();
+    const freshTtlMs = 1000 * 30;
+    const staleTtlMs = 1000 * 60 * 5;
+    const cached = this.jsonResponseCache.get(requestKey);
+    const clonePayload = <T,>(value: T): T => {
+      if (typeof structuredClone === "function") {
+        return structuredClone(value);
+      }
+      return JSON.parse(JSON.stringify(value)) as T;
+    };
+
+    if (cached && now - cached.timestamp < freshTtlMs) {
+      return clonePayload(cached.data);
+    }
+
+    const performRequest = async () => {
+      try {
+        const response = await this.fetchWithRetry(relativePath, options);
+        const data = await response.json();
+        this.jsonResponseCache.set(requestKey, { data, timestamp: Date.now() });
+        return data;
+      } catch (error) {
+        if (cached && now - cached.timestamp < staleTtlMs) {
+          return cached.data;
+        }
+        throw error;
+      } finally {
+        this.inFlightJsonRequests.delete(requestKey);
+      }
+    };
+
+    if (cached && now - cached.timestamp < staleTtlMs && !this.inFlightJsonRequests.has(requestKey)) {
+      const backgroundRefresh = performRequest().catch(() => undefined);
+      this.inFlightJsonRequests.set(requestKey, backgroundRefresh);
+      return clonePayload(cached.data);
+    }
+
+    const inFlight = this.inFlightJsonRequests.get(requestKey);
+    if (inFlight) {
+      return inFlight.then((value) => clonePayload(value));
+    }
+
+    const requestPromise = performRequest();
+
+    this.inFlightJsonRequests.set(requestKey, requestPromise);
+    return requestPromise.then((value) => clonePayload(value));
   }
 
   async searchTracks(query: string, limit = 25) {
     return loadTrackSearch(
+      {
+        cache: this.cache,
+        requestJson: (relativePath) => this.requestJson(relativePath),
+      },
+      query,
+      limit,
+    );
+  }
+
+  async searchVideos(query: string, limit = 20) {
+    return loadVideoSearch(
       {
         cache: this.cache,
         requestJson: (relativePath) => this.requestJson(relativePath),
@@ -157,6 +239,7 @@ class MusicCoreClient {
         cache: this.cache,
         requestJson: (relativePath, options) => this.requestJson(relativePath, options),
         searchAlbums: (query, limit) => this.searchAlbums(query, limit),
+        searchVideos: (query, limit) => this.searchVideos(query, limit),
         getArtist: (id, options) => this.getArtist(id, options),
         getArtistTopTracks: (id, limit) => this.getArtistTopTracks(id, limit),
       },
@@ -170,6 +253,7 @@ class MusicCoreClient {
         cache: this.cache,
         requestJson: (relativePath, options) => this.requestJson(relativePath, options),
         searchAlbums: (query, pageLimit) => this.searchAlbums(query, pageLimit),
+        searchVideos: (query, pageLimit) => this.searchVideos(query, pageLimit),
         getArtist: (id, options) => this.getArtist(id, options),
         getArtistTopTracks: (id, pageLimit) => this.getArtistTopTracks(id, pageLimit),
       },
@@ -185,6 +269,7 @@ class MusicCoreClient {
         requestJson: (relativePath, requestOptions) =>
           this.requestJson(relativePath, requestOptions),
         searchAlbums: (query, limit) => this.searchAlbums(query, limit),
+        searchVideos: (query, limit) => this.searchVideos(query, limit),
         getArtist: (id, artistOptions) => this.getArtist(id, artistOptions),
         getArtistTopTracks: (id, limit) => this.getArtistTopTracks(id, limit),
       },
@@ -219,6 +304,7 @@ class MusicCoreClient {
         cache: this.cache,
         requestJson: (relativePath, options) => this.requestJson(relativePath, options),
         searchAlbums: (query, limit) => this.searchAlbums(query, limit),
+        searchVideos: (query, limit) => this.searchVideos(query, limit),
         getArtist: (id, options) => this.getArtist(id, options),
         getArtistTopTracks: (id, limit) => this.getArtistTopTracks(id, limit),
       },
@@ -232,6 +318,7 @@ class MusicCoreClient {
         cache: this.cache,
         requestJson: (relativePath, options) => this.requestJson(relativePath, options),
         searchAlbums: (query, limit) => this.searchAlbums(query, limit),
+        searchVideos: (query, limit) => this.searchVideos(query, limit),
         getArtist: (id, options) => this.getArtist(id, options),
         getArtistTopTracks: (id, limit) => this.getArtistTopTracks(id, limit),
       },
@@ -299,6 +386,31 @@ class MusicCoreClient {
     );
   }
 
+  async getVideo(videoId: number) {
+    return loadVideo(
+      {
+        cache: this.cache,
+        requestJson: (relativePath, options) => this.requestJson(relativePath, options),
+        streamCache: this.streamCache,
+        getTrack: (id, quality) => this.getTrack(id, quality),
+      },
+      videoId,
+    );
+  }
+
+  async getVideoStreamUrl(videoId: number) {
+    return resolveVideoStreamUrl(
+      {
+        cache: this.cache,
+        requestJson: (relativePath, options) => this.requestJson(relativePath, options),
+        streamCache: this.streamCache,
+        getTrack: (id, quality) => this.getTrack(id, quality),
+        getVideo: (id) => this.getVideo(id),
+      },
+      videoId,
+    );
+  }
+
   private async attemptInstanceRequest(
     instance: InstanceDescriptor,
     relativePath: string,
@@ -307,7 +419,45 @@ class MusicCoreClient {
   ) {
     const targetUrl = buildInstanceUrl(instance.url, relativePath);
     const startedAt = performance.now();
-    const response = await fetch(targetUrl, { signal });
+    const timeoutMs = INSTANCE_REQUEST_TIMEOUT_MS[type];
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timedOut = false;
+    let detachAbortListener: (() => void) | null = null;
+
+    if (controller && signal) {
+      if (signal.aborted) {
+        controller.abort(signal.reason);
+      } else {
+        const abortFromParent = () => controller.abort(signal.reason);
+        signal.addEventListener("abort", abortFromParent, { once: true });
+        detachAbortListener = () => signal.removeEventListener("abort", abortFromParent);
+      }
+    }
+
+    const timeoutId = controller
+      ? globalThis.setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
+      : null;
+
+    let response: Response;
+
+    try {
+      response = await fetch(targetUrl, {
+        signal: controller?.signal ?? signal,
+      });
+    } catch (error) {
+      if (timedOut) {
+        throw new Error(`${instance.url} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+      detachAbortListener?.();
+    }
 
     if (response.status === 401) {
       const cloned = response.clone();
@@ -353,8 +503,9 @@ class MusicCoreClient {
     }
 
     const errors: string[] = [];
-    const topTier = instances.slice(0, Math.min(3, instances.length));
+    const topTier = instances.slice(0, Math.min(INITIAL_INSTANCE_BATCH_SIZE[type], instances.length));
     const remaining = instances.slice(topTier.length);
+    const followUpBatchSize = FOLLOW_UP_INSTANCE_BATCH_SIZE[type];
 
     const attempt = async (instance: InstanceDescriptor) => {
       try {
@@ -386,14 +537,21 @@ class MusicCoreClient {
       }
     }
 
-    for (const instance of remaining) {
+    for (let index = 0; index < remaining.length; index += followUpBatchSize) {
+      const batch = remaining.slice(index, index + followUpBatchSize);
       try {
-        return await attempt(instance);
+        if (batch.length === 1) {
+          return await attempt(batch[0]);
+        }
+
+        return await Promise.any(batch.map((instance) => attempt(instance)));
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           throw error;
         }
-        await delay(120);
+        if (index + followUpBatchSize < remaining.length) {
+          await delay(120);
+        }
       }
     }
 
@@ -409,6 +567,15 @@ class MusicCoreClient {
     const overflow = this.streamCache.size - 50;
     const keys = Array.from(this.streamCache.keys()).slice(0, overflow);
     keys.forEach((key) => this.streamCache.delete(key));
+
+    if (this.jsonResponseCache.size > 120) {
+      const oldestKeys = Array.from(this.jsonResponseCache.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp)
+        .slice(0, this.jsonResponseCache.size - 120)
+        .map(([key]) => key);
+
+      oldestKeys.forEach((key) => this.jsonResponseCache.delete(key));
+    }
   }
 
   private recordLatency(relativePath: string, durationMs: number) {

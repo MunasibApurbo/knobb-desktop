@@ -48,6 +48,17 @@ function buildDescription({ title, artist, album }) {
   return `Listen to ${title} by ${artist} on Knobb.`;
 }
 
+function buildEmbedUrl(siteOrigin, trackId, query) {
+  const embedQuery = new URLSearchParams();
+  ["title", "artist", "album", "cover", "theme", "size"].forEach((key) => {
+    const value = String(query[key] || "").trim();
+    if (value) embedQuery.set(key, value);
+  });
+
+  const queryString = embedQuery.toString();
+  return `${siteOrigin}/embed/track/${encodeURIComponent(trackId)}${queryString ? `?${queryString}` : ""}`;
+}
+
 function buildHtml({
   siteOrigin,
   shareUrl,
@@ -93,7 +104,7 @@ function buildHtml({
     <meta name="twitter:description" content="${safeDescription}" />
     <meta name="twitter:image" content="${safeImage}" />
     <meta name="twitter:player" content="${safeEmbedUrl}" />
-    <meta name="twitter:player:width" content="100%" />
+    <meta name="twitter:player:width" content="640" />
     <meta name="twitter:player:height" content="352" />
 
     <meta http-equiv="refresh" content="0;url=${safeRedirectUrl}" />
@@ -232,7 +243,7 @@ export async function handler(event) {
   if (redirectPath) publicQuery.set("redirect", redirectPath);
   const shareUrl = `${siteOrigin}/track/${encodeURIComponent(trackId)}${publicQuery.toString() ? `?${publicQuery.toString()}` : ""}`;
   const redirectUrl = toAbsoluteUrl(siteOrigin, redirectPath);
-  const embedUrl = `${siteOrigin}/embed/track/${encodeURIComponent(trackId)}`;
+  const embedUrl = buildEmbedUrl(siteOrigin, trackId, query);
   const imageUrl = toAbsoluteUrl(siteOrigin, cover || DEFAULT_IMAGE_PATH);
   const description = buildDescription({ title, artist, album });
 

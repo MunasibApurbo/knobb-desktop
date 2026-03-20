@@ -3,19 +3,25 @@ import { HardDrive, Pause, Play, Shuffle, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageTransition } from "@/components/PageTransition";
-import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail/DetailActionBar";
+import {
+  DetailActionBar,
+  DETAIL_ACTION_BUTTON_CLASS,
+  DETAIL_DESTRUCTIVE_ACTION_BUTTON_CLASS,
+} from "@/components/detail/DetailActionBar";
 import { DetailHero } from "@/components/detail/DetailHero";
 import { PlaylistDragAction } from "@/components/PlaylistDragAction";
+import { TrackContextMenu } from "@/components/TrackContextMenu";
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
 import { Button } from "@/components/ui/button";
+import { DESTRUCTIVE_ICON_BUTTON_CLASS } from "@/components/ui/surfaceStyles";
 import { useLocalFiles } from "@/contexts/LocalFilesContext";
 import { usePlayer } from "@/contexts/PlayerContext";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { isSameTrack } from "@/lib/trackIdentity";
 import { filterPlayableTracks, isTrackPlayable } from "@/lib/trackPlayback";
-import { formatDuration, getTotalDuration } from "@/lib/utils";
+import { formatDuration, getTotalDuration, cn } from "@/lib/utils";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 import type { Track } from "@/types/music";
 
 function formatBytes(bytes: number) {
@@ -27,7 +33,6 @@ function formatBytes(bytes: number) {
 
 export default function LocalFilesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const scrollY = useMainScrollY();
   const { localFiles, importFiles, removeLocalFile, clearLocalFiles, totalBytes, isLoading } = useLocalFiles();
   const { currentTrack, isPlaying, play, togglePlay } = usePlayer();
 
@@ -84,7 +89,7 @@ export default function LocalFilesPage() {
 
   return (
     <PageTransition>
-      <div className="mobile-page-shell">
+      <div className="page-shell">
         <input
           ref={fileInputRef}
           type="file"
@@ -100,7 +105,6 @@ export default function LocalFilesPage() {
           artworkUrl="/placeholder.svg"
           accentColor="195 74% 48%"
           label="Library"
-          scrollY={scrollY}
           title="Local Files"
           body={(
             <p className="max-w-2xl text-sm text-white/72">
@@ -159,7 +163,7 @@ export default function LocalFilesPage() {
           </Button>
           <Button
             variant="secondary"
-            className={DETAIL_ACTION_BUTTON_CLASS}
+            className={DETAIL_DESTRUCTIVE_ACTION_BUTTON_CLASS}
             onClick={() => {
               void handleClearAll();
             }}
@@ -179,7 +183,7 @@ export default function LocalFilesPage() {
         </DetailActionBar>
 
         {localFiles.length > 0 ? (
-          <section className="border border-white/10 bg-white/[0.02]">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <VirtualizedTrackList
               items={localFiles}
               getItemKey={(track) => track.id}
@@ -188,59 +192,61 @@ export default function LocalFilesPage() {
                 const isCurrent = isSameTrack(currentTrack, track);
 
                 return (
-                  <TrackListRow
-                    dragHandleLabel={`Drag ${track.title} to a playlist`}
-                    key={track.id}
-                    index={index}
-                    track={track}
-                    isCurrent={isCurrent}
-                    isPlaying={isCurrent && isPlaying}
-                    onDragHandleStart={(event) => {
-                      startPlaylistDrag(event.dataTransfer, {
-                        label: track.title,
-                        source: "track",
-                        tracks: [track],
-                      });
-                    }}
-                    onPlay={() => handlePlay(track)}
-                    title={(
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{track.title}</span>
-                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
-                          Local
-                        </span>
-                      </div>
-                    )}
-                    subtitle={<span className={isCurrent ? "text-black" : "text-white/62"}>{track.artist}</span>}
-                    middleContent={<span className={isCurrent ? "text-black/78" : "text-white/54"}>{track.album}</span>}
-                    desktopMeta={<span className={isCurrent ? "text-black/78" : "text-white/54"}>{formatBytes(track.localFileSize || 0)}</span>}
-                    actionSlot={(
-                      <button
-                        type="button"
-                        aria-label={`Remove ${track.title}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--control-radius)] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          if (!track.localFileId) return;
-                          void removeLocalFile(track.localFileId).then(() => {
-                            toast.success(`Removed "${track.title}" from local files.`);
-                          }).catch(() => {
-                            toast.error(`Failed to remove "${track.title}".`);
-                          });
-                        }}
-                      >
-                        <Trash2 className={isCurrent ? "text-black" : undefined} />
-                      </button>
-                    )}
-                    trailingContent={formatDuration(track.duration)}
-                  />
+                  <TrackContextMenu track={track} tracks={localFiles}>
+                    <TrackListRow
+                      dragHandleLabel={`Drag ${track.title} to a playlist`}
+                      key={track.id}
+                      index={index}
+                      track={track}
+                      isCurrent={isCurrent}
+                      isPlaying={isCurrent && isPlaying}
+                      onDragHandleStart={(event) => {
+                        startPlaylistDrag(event.dataTransfer, {
+                          label: track.title,
+                          source: "track",
+                          tracks: [track],
+                        });
+                      }}
+                      onPlay={() => handlePlay(track)}
+                      title={(
+                        <div className="flex items-center gap-2">
+                          <span className="truncate">{track.title}</span>
+                          <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                            Local
+                          </span>
+                        </div>
+                      )}
+                      subtitle={<span className={isCurrent ? "text-black" : "text-white/62"}>{track.artist}</span>}
+                      middleContent={<span className={isCurrent ? "text-black/78" : "text-white/54"}>{track.album}</span>}
+                      desktopMeta={<span className={isCurrent ? "text-black/78" : "text-white/54"}>{formatBytes(track.localFileSize || 0)}</span>}
+                      actionSlot={(
+                        <button
+                          type="button"
+                          aria-label={`Remove ${track.title}`}
+                          className={`${DESTRUCTIVE_ICON_BUTTON_CLASS} h-8 w-8`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (!track.localFileId) return;
+                            void removeLocalFile(track.localFileId).then(() => {
+                              toast.success(`Removed "${track.title}" from local files.`);
+                            }).catch(() => {
+                              toast.error(`Failed to remove "${track.title}".`);
+                            });
+                          }}
+                        >
+                          <Trash2 />
+                        </button>
+                      )}
+                      trailingContent={formatDuration(track.duration)}
+                    />
+                  </TrackContextMenu>
                 );
               }}
             />
           </section>
         ) : (
-          <section className="border border-white/10 bg-white/[0.02] px-6 py-12 text-center">
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
             <div className="mx-auto flex max-w-xl flex-col items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/[0.05]">
                 <HardDrive className="h-6 w-6 text-white/68" />

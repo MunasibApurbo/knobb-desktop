@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Disc3, Download, Heart, ListMusic, MoreHorizontal, Play, Radio, Share2, UserRound } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Cast, Disc3, Download, Heart, ListMusic, MoreHorizontal, Play, Radio, Share, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,12 +31,20 @@ type TrackOptionsMenuProps = {
   track: Track;
   tracks?: Track[];
   buttonClassName?: string;
+  triggerIcon?: ReactNode;
+  onShareTrack?: () => Promise<void> | void;
+  onConnectDevice?: () => void;
+  shareLabel?: string;
 };
 
 export function TrackOptionsMenu({
   track,
   tracks,
   buttonClassName = "h-11 w-11 rounded-full border border-white/10 bg-black/30 text-white/78 backdrop-blur-xl hover:bg-white/10 hover:text-white",
+  triggerIcon,
+  onShareTrack,
+  onConnectDevice,
+  shareLabel = "Share song link",
 }: TrackOptionsMenuProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -47,11 +55,20 @@ export function TrackOptionsMenu({
   const trackMixPath = buildTrackMixPath(track);
   const trackShareUrl = buildTrackShareUrl(track);
   const hasTrackMixPage = Boolean(getTrackMixId(track) && trackMixPath);
+  const mixActionLabel = track.isVideo
+    ? "Open Mix Options"
+    : hasTrackMixPage
+      ? "Open Mix"
+      : "Start Mix";
   const [isCreditsOpen, setIsCreditsOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showPlaylistDialog, setShowPlaylistDialog] = useState(false);
 
-  const handleCopyTrackLink = async () => {
+  const handleShareTrackLink = async () => {
+    if (onShareTrack) {
+      await onShareTrack();
+      return;
+    }
     if (!trackShareUrl) return;
     await copyPlainTextToClipboard(trackShareUrl);
     toast.success("Song link copied");
@@ -76,7 +93,7 @@ export function TrackOptionsMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" className={buttonClassName}>
-            <MoreHorizontal className="h-[18px] w-[18px]" absoluteStrokeWidth />
+            {triggerIcon ?? <MoreHorizontal className="h-[18px] w-[18px]" absoluteStrokeWidth />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -100,7 +117,7 @@ export function TrackOptionsMenu({
             }}
           >
             <Radio className="h-4 w-4" />
-            {hasTrackMixPage ? "Open Mix" : "Start Mix"}
+            {mixActionLabel}
           </DropdownMenuItem>
           <DropdownMenuItem
             className="gap-2"
@@ -136,7 +153,7 @@ export function TrackOptionsMenu({
               className="gap-2"
               onClick={() => navigate(buildArtistPath(track.artistId!, track.artist))}
             >
-              <UserRound className="h-4 w-4" />
+              <User className="h-4 w-4" />
               Go to Artist
             </DropdownMenuItem>
           ) : null}
@@ -148,12 +165,18 @@ export function TrackOptionsMenu({
           ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem className="gap-2" onClick={() => setIsCreditsOpen(true)}>
-            <UserRound className="h-4 w-4" />
+            <User className="h-4 w-4" />
             View credits
           </DropdownMenuItem>
-          <DropdownMenuItem className="gap-2" onClick={() => void handleCopyTrackLink()} disabled={!trackShareUrl}>
-            <Share2 className="h-4 w-4" />
-            Share
+          {onConnectDevice ? (
+            <DropdownMenuItem className="gap-2" onClick={onConnectDevice}>
+              <Cast className="h-4 w-4" />
+              Connect to a device
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem className="gap-2" onClick={() => void handleShareTrackLink()} disabled={!trackShareUrl && !onShareTrack}>
+            <Share className="h-4 w-4" />
+            {shareLabel}
           </DropdownMenuItem>
           <DropdownMenuItem
             className="gap-2"

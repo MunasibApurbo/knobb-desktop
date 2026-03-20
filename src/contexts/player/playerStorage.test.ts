@@ -1,6 +1,8 @@
 import { createInitialPlayerState } from "@/contexts/player/playerStorage";
+import { normalizeTrackIdentity } from "@/lib/trackIdentity";
 
 const PLAYER_STATE_KEY = "player-state-v1";
+const AUDIO_QUALITY_KEY = "audio-quality";
 
 const storedTrack = {
   id: "track-1",
@@ -12,6 +14,7 @@ const storedTrack = {
   coverUrl: "/cover.jpg",
   canvasColor: "21 80% 52%",
 };
+const normalizedStoredTrack = normalizeTrackIdentity(storedTrack);
 
 describe("createInitialPlayerState", () => {
   beforeEach(() => {
@@ -48,7 +51,7 @@ describe("createInitialPlayerState", () => {
 
     const state = createInitialPlayerState();
 
-    expect(state.currentTrack).toMatchObject(storedTrack);
+    expect(state.currentTrack).toMatchObject(normalizedStoredTrack);
     expect(state.hasPlaybackStarted).toBe(true);
     expect(state.showRightPanel).toBe(true);
   });
@@ -59,4 +62,14 @@ describe("createInitialPlayerState", () => {
     expect(state.currentTrack).toBeNull();
     expect(state.hasPlaybackStarted).toBe(false);
   });
+
+  it("derives auto-quality mode from the stored quality preference", () => {
+    window.localStorage.setItem(AUDIO_QUALITY_KEY, "AUTO");
+
+    const state = createInitialPlayerState();
+
+    expect(state.quality).toBe("AUTO");
+    expect(state.autoQualityEnabled).toBe(true);
+  });
+
 });

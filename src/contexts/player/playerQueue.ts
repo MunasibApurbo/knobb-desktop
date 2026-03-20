@@ -5,7 +5,13 @@ export function getQueueTrackIndex(queue: Track[], track: Track | null) {
   return queue.findIndex((item) => item.id === track.id);
 }
 
-export function getNextQueueIndex(queue: Track[], currentTrack: Track | null, shuffle: boolean) {
+export function getNextQueueIndex(
+  queue: Track[],
+  currentTrack: Track | null,
+  shuffle: boolean,
+  options: { wrap?: boolean } = {},
+) {
+  const { wrap = false } = options;
   if (queue.length === 0 || !currentTrack) return null;
   if (shuffle) {
     return Math.floor(Math.random() * queue.length);
@@ -13,13 +19,22 @@ export function getNextQueueIndex(queue: Track[], currentTrack: Track | null, sh
 
   const currentIndex = getQueueTrackIndex(queue, currentTrack);
   if (currentIndex < 0) return 0;
-  return (currentIndex + 1) % queue.length;
+  if (currentIndex >= queue.length - 1) {
+    return wrap ? 0 : null;
+  }
+  return currentIndex + 1;
 }
 
-export function getPreviousQueueIndex(queue: Track[], currentTrack: Track | null) {
+export function getPreviousQueueIndex(
+  queue: Track[],
+  currentTrack: Track | null,
+  options: { wrap?: boolean } = {},
+) {
+  const { wrap = false } = options;
   if (queue.length === 0 || !currentTrack) return null;
   const currentIndex = getQueueTrackIndex(queue, currentTrack);
-  if (currentIndex <= 0) return queue.length - 1;
+  if (currentIndex < 0) return wrap ? queue.length - 1 : null;
+  if (currentIndex === 0) return wrap ? queue.length - 1 : null;
   return currentIndex - 1;
 }
 

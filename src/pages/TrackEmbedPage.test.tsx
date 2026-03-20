@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { Track } from "@/types/music";
 import TrackEmbedPage from "@/pages/TrackEmbedPage";
@@ -85,5 +85,36 @@ describe("TrackEmbedPage", () => {
     });
 
     expect(trackEmbedMocks.getTrackInfo).not.toHaveBeenCalled();
+  });
+
+  it("replays the current embed track from the start instead of toggling playback", async () => {
+    trackEmbedMocks.getTrackInfo.mockResolvedValue({ id: 123 });
+    trackEmbedMocks.tidalTrackToAppTrack.mockReturnValue(appTrack);
+    trackEmbedMocks.player.currentTrack = appTrack;
+    trackEmbedMocks.player.isPlaying = true;
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Levitating" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /play from start/i }));
+
+    expect(trackEmbedMocks.player.play).toHaveBeenCalledWith(appTrack, [appTrack]);
+    expect(trackEmbedMocks.player.togglePlay).not.toHaveBeenCalled();
+  });
+
+  it("renders the compact embed layout for iframe-friendly previews", async () => {
+    trackEmbedMocks.getTrackInfo.mockResolvedValue({ id: 123 });
+    trackEmbedMocks.tidalTrackToAppTrack.mockReturnValue(appTrack);
+
+    renderPage("/embed/track/tidal-123?theme=graphite&size=compact");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Levitating" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /^open/i })).toBeInTheDocument();
   });
 });

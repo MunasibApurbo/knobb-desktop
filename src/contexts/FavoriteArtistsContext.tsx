@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, startTransition } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
 import { scheduleBackgroundTask } from "@/lib/performanceProfile";
 import { getSupabaseClient } from "@/lib/runtimeModules";
+import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
+import { showErrorToast } from "@/lib/toast";
 
 export interface FavoriteArtist {
     id: string;
@@ -57,16 +58,55 @@ const sortByCreatedAtDesc = (artists: FavoriteArtist[]) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
+const FAVORITE_ARTISTS_STORAGE_KEY_PREFIX = "knobb-favorite-artists:v1";
+
+function getFavoriteArtistsStorageKey(userId: string) {
+    return `${FAVORITE_ARTISTS_STORAGE_KEY_PREFIX}:${userId}`;
+}
+
+function readCachedFavoriteArtists(userId: string | null) {
+    if (!userId) return [];
+
+    const raw = safeStorageGetItem(getFavoriteArtistsStorageKey(userId));
+    if (!raw) return [];
+
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+
+        return sortByCreatedAtDesc(
+            parsed.map(normalizeFavoriteArtist).filter(Boolean) as FavoriteArtist[],
+        );
+    } catch {
+        return [];
+    }
+}
+
 export function FavoriteArtistsProvider({ children }: { children: React.ReactNode }) {
     const { user } = useAuth();
     const userId = user?.id ?? null;
-    const [favoriteArtists, setFavoriteArtists] = useState<FavoriteArtist[]>([]);
+    const [favoriteArtists, setFavoriteArtists] = useState<FavoriteArtist[]>(() => readCachedFavoriteArtists(userId));
     const [loading, setLoading] = useState(false);
     const favoritesRef = useRef<FavoriteArtist[]>([]);
+    const hydratedUserIdRef = useRef<string | null>(userId);
 
     useEffect(() => {
         favoritesRef.current = favoriteArtists;
     }, [favoriteArtists]);
+
+    useEffect(() => {
+        if (!userId) return;
+        safeStorageSetItem(getFavoriteArtistsStorageKey(userId), JSON.stringify(favoriteArtists));
+    }, [favoriteArtists, userId]);
+
+    useEffect(() => {
+        if (hydratedUserIdRef.current === userId) return;
+
+        hydratedUserIdRef.current = userId;
+        const cachedFavoriteArtists = readCachedFavoriteArtists(userId);
+        favoritesRef.current = cachedFavoriteArtists;
+        setFavoriteArtists(cachedFavoriteArtists);
+    }, [userId]);
 
     const refresh = useCallback(async () => {
         if (!user) {
@@ -91,7 +131,9 @@ export function FavoriteArtistsProvider({ children }: { children: React.ReactNod
 
             const normalized = sortByCreatedAtDesc(remoteFavorites);
             favoritesRef.current = normalized;
-            setFavoriteArtists(normalized);
+            startTransition(() => {
+                setFavoriteArtists(normalized);
+            });
         } catch (error) {
             console.error("Failed to fetch favorite artists", error);
         } finally {
@@ -100,15 +142,8 @@ export function FavoriteArtistsProvider({ children }: { children: React.ReactNod
     }, [user]);
 
     useEffect(() => {
-        if (!user) {
-            void refresh();
-            return;
-        }
-
-        return scheduleBackgroundTask(() => {
-            void refresh();
-        }, 900);
-    }, [refresh, user]);
+        void refresh();
+    }, [refresh]);
 
     useEffect(() => {
         if (!userId) return;
@@ -156,7 +191,7 @@ export function FavoriteArtistsProvider({ children }: { children: React.ReactNod
     const addFavorite = useCallback(
         async ({ artistId, artistName, artistImageUrl }: FavoriteArtistInput) => {
             if (!user) {
-                toast.error("Sign in to favorite artists");
+                showErrorToast("Sign in to favorite artists");
                 return false;
             }
 

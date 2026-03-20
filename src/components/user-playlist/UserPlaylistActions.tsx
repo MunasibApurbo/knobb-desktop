@@ -14,6 +14,7 @@ import { userPlaylistActionBtnClass } from "@/components/user-playlist/userPlayl
 interface UserPlaylistActionsProps {
   hasTracks: boolean;
   isCurrentPlaylist: boolean;
+  isOwnerPlaylist?: boolean;
   isPlaying: boolean;
   isSavedPlaylist: boolean;
   isDownloading: boolean;
@@ -28,6 +29,7 @@ interface UserPlaylistActionsProps {
 export function UserPlaylistActions({
   hasTracks,
   isCurrentPlaylist,
+  isOwnerPlaylist = false,
   isPlaying,
   isSavedPlaylist,
   isDownloading,
@@ -77,7 +79,11 @@ export function UserPlaylistActions({
         onClick={onToggleSaved}
       >
         <Heart className={`hero-action-icon w-4 h-4 mr-2 ${isSavedPlaylist ? "fill-current" : ""}`} />
-        <span className="hero-action-label relative z-10">{isSavedPlaylist ? "Saved" : "Add"}</span>
+        <span className="hero-action-label relative z-10">
+          {isOwnerPlaylist
+            ? (isSavedPlaylist ? "Liked" : "Like")
+            : (isSavedPlaylist ? "Saved" : "Add")}
+        </span>
       </Button>
       {dragControl}
       {shareControl}

@@ -65,4 +65,20 @@ describe("MetadataProvider", () => {
       expect(document.title).toBe("Midnight City - M83 • KNOBB");
     });
   });
+
+  it("restores the route title when a track is loaded but playback is paused", async () => {
+    metadataProviderMocks.player.currentTrack = {
+      title: "Midnight City",
+      artist: "M83",
+      artists: [{ name: "M83" }],
+    };
+    metadataProviderMocks.player.hasPlaybackStarted = true;
+    metadataProviderMocks.player.isPlaying = false;
+
+    renderProvider("/settings");
+
+    await waitFor(() => {
+      expect(document.title).toBe("Settings • KNOBB");
+    });
+  });
 });

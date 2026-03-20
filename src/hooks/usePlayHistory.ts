@@ -2,7 +2,10 @@ import { useCallback } from "react";
 import type { Json, Tables, TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSupabaseClient } from "@/lib/runtimeModules";
+import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
 import { Track } from "@/types/music";
+import { buildTrackKey } from "@/lib/librarySources";
+import { normalizeTrackRecord } from "@/lib/trackNormalization";
 
 export type PlayEventType = "start" | "progress" | "complete" | "skip" | "repeat";
 
@@ -51,13 +54,7 @@ function normalizeListenedSeconds(track: Track, rawSeconds: unknown, durationSec
 }
 
 function getTrackKey(track: Track) {
-  if (typeof track.tidalId === "number" && Number.isFinite(track.tidalId)) {
-    return `tidal:${track.tidalId}`;
-  }
-  if (track.id && String(track.id).trim()) {
-    return `id:${String(track.id).trim().toLowerCase()}`;
-  }
-  return `fallback:${track.title.trim().toLowerCase()}::${track.artist.trim().toLowerCase()}`;
+  return buildTrackKey(track);
 }
 
 function getCompletionThreshold(durationSeconds: number, scrobblePercent: number) {
@@ -92,10 +89,117 @@ export type GetHistoryOptions = {
   since?: string;
 };
 
+const PLAY_HISTORY_STORAGE_KEY_PREFIX = "knobb-play-history:v1";
+const PLAY_HISTORY_REQUEST_TIMEOUT_MS = 8000;
+
 type PlayHistoryRow = Pick<
   Tables<"play_history">,
   "track_data" | "played_at" | "listened_seconds" | "duration_seconds" | "event_type" | "track_key"
 >;
+
+function getPlayHistoryStorageKey(userId: string) {
+  return `${PLAY_HISTORY_STORAGE_KEY_PREFIX}:${userId}`;
+}
+
+function normalizeGetHistoryOptions(limitOrOptions: number | GetHistoryOptions): GetHistoryOptions {
+  return typeof limitOrOptions === "number"
+    ? { limit: limitOrOptions }
+    : limitOrOptions;
+}
+
+function applyHistoryOptions(entries: PlayHistoryEntry[], options: GetHistoryOptions) {
+  const filtered = options.since
+    ? entries.filter((entry) => entry.playedAt >= options.since!)
+    : entries;
+
+  if (typeof options.limit === "number") {
+    return filtered.slice(0, options.limit);
+  }
+
+  return filtered;
+}
+
+function getHistoryCacheEntryKey(entry: PlayHistoryEntry) {
+  return [
+    entry.trackKey,
+    entry.playedAt,
+    entry.eventType,
+    entry.listenedSeconds,
+    entry.durationSeconds,
+  ].join("::");
+}
+
+function mergeCachedHistoryEntries(current: PlayHistoryEntry[], incoming: PlayHistoryEntry[]) {
+  const merged = new Map<string, PlayHistoryEntry>();
+
+  for (const entry of current) {
+    merged.set(getHistoryCacheEntryKey(entry), entry);
+  }
+
+  for (const entry of incoming) {
+    merged.set(getHistoryCacheEntryKey(entry), entry);
+  }
+
+  return [...merged.values()].sort((left, right) => (
+    Date.parse(right.playedAt) - Date.parse(left.playedAt)
+  ));
+}
+
+function normalizeCachedHistoryEntry(value: unknown): PlayHistoryEntry | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Partial<PlayHistoryEntry>;
+  if (typeof row.playedAt !== "string" || !row.playedAt) return null;
+
+  const trackData = normalizeTrackRecord(row as unknown as Json, {
+    trackKey: typeof row.trackKey === "string" ? row.trackKey : undefined,
+  }) as Track & {
+    listenedSeconds?: number;
+    eventType?: PlayEventType;
+    duration?: number;
+  };
+
+  const durationSeconds = normalizeDurationSeconds(trackData, row.durationSeconds ?? trackData.duration);
+  const listenedSeconds = normalizeListenedSeconds(
+    trackData,
+    row.listenedSeconds ?? trackData.listenedSeconds,
+    durationSeconds,
+  );
+  const eventType =
+    normalizeEventType(row.eventType) ??
+    normalizeEventType(trackData.eventType) ??
+    inferEventType(listenedSeconds, durationSeconds);
+
+  return {
+    ...trackData,
+    playedAt: row.playedAt,
+    listenedSeconds,
+    durationSeconds,
+    eventType,
+    trackKey: typeof row.trackKey === "string" && row.trackKey.trim()
+      ? row.trackKey
+      : getTrackKey(trackData),
+  };
+}
+
+function readStoredHistory(userId: string | null) {
+  if (!userId) return [];
+
+  const raw = safeStorageGetItem(getPlayHistoryStorageKey(userId));
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((entry) => normalizeCachedHistoryEntry(entry))
+      .filter((entry): entry is PlayHistoryEntry => entry !== null)
+      .sort((left, right) => Date.parse(right.playedAt) - Date.parse(left.playedAt));
+  } catch {
+    return [];
+  }
+}
 
 export function usePlayHistory() {
   const { user } = useAuth();
@@ -152,15 +256,17 @@ export function usePlayHistory() {
     [user]
   );
 
+  const readCachedHistory = useCallback((limitOrOptions: number | GetHistoryOptions = 50) => {
+    const options = normalizeGetHistoryOptions(limitOrOptions);
+    return applyHistoryOptions(readStoredHistory(user?.id ?? null), options);
+  }, [user]);
+
   const getHistory = useCallback(async (limitOrOptions: number | GetHistoryOptions = 50) => {
     if (!user) return [];
 
     try {
       const supabase = await getSupabaseClient();
-      const options =
-        typeof limitOrOptions === "number"
-          ? { limit: limitOrOptions }
-          : limitOrOptions;
+      const options = normalizeGetHistoryOptions(limitOrOptions);
 
       let query = supabase
         .from("play_history")
@@ -175,14 +281,27 @@ export function usePlayHistory() {
         query = query.limit(options.limit);
       }
 
-      const { data, error } = await query;
+      const requestPromise = (async () => await query)();
+      void requestPromise.catch(() => undefined);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          reject(new Error(`Timed out reading play history after ${PLAY_HISTORY_REQUEST_TIMEOUT_MS}ms`));
+        }, PLAY_HISTORY_REQUEST_TIMEOUT_MS);
+
+        // Ensure the timer can be reclaimed once the query settles.
+        void requestPromise.finally(() => window.clearTimeout(timeoutId));
+      });
+
+      const { data, error } = await Promise.race([requestPromise, timeoutPromise]);
 
       if (error) throw error;
 
       const rows = (data || []) as PlayHistoryRow[];
 
-      return rows.map((row) => {
-        const trackData = (row.track_data || {}) as unknown as Track & {
+      const history = rows.map((row) => {
+        const trackData = normalizeTrackRecord(row.track_data, {
+          trackKey: row.track_key,
+        }) as Track & {
           listenedSeconds?: number;
           eventType?: PlayEventType;
           duration?: number;
@@ -209,17 +328,23 @@ export function usePlayHistory() {
             : getTrackKey(trackData),
         } satisfies PlayHistoryEntry;
       });
+
+      const mergedHistory = mergeCachedHistoryEntries(readStoredHistory(user.id), history);
+      safeStorageSetItem(getPlayHistoryStorageKey(user.id), JSON.stringify(mergedHistory));
+
+      return history;
     } catch (e) {
       console.error("Failed to read history", e);
-      return [];
+      return readCachedHistory(limitOrOptions);
     }
-  }, [user]);
+  }, [readCachedHistory, user]);
 
   const clearHistory = useCallback(async () => {
     if (!user) return;
     const supabase = await getSupabaseClient();
     await supabase.from("play_history").delete().eq("user_id", user.id);
+    safeStorageSetItem(getPlayHistoryStorageKey(user.id), JSON.stringify([]));
   }, [user]);
 
-  return { recordPlay, getHistory, clearHistory };
+  return { recordPlay, readCachedHistory, getHistory, clearHistory };
 }

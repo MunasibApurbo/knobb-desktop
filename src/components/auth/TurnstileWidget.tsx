@@ -25,6 +25,11 @@ const TURNSTILE_SCRIPT_ID = "cf-turnstile-script";
 const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 let turnstileScriptPromise: Promise<void> | null = null;
+const TURNSTILE_SCRIPT_STATUS_ATTR = "data-turnstile-status";
+
+function markTurnstileScriptStatus(script: HTMLScriptElement, status: "loading" | "loaded" | "error") {
+  script.setAttribute(TURNSTILE_SCRIPT_STATUS_ATTR, status);
+}
 
 function loadTurnstileScript() {
   if (typeof window === "undefined") {
@@ -36,20 +41,37 @@ function loadTurnstileScript() {
 
   turnstileScriptPromise = new Promise((resolve, reject) => {
     const existingScript = document.getElementById(TURNSTILE_SCRIPT_ID) as HTMLScriptElement | null;
-    if (existingScript) {
-      existingScript.addEventListener("load", () => resolve(), { once: true });
-      existingScript.addEventListener("error", () => reject(new Error("Failed to load Turnstile.")), { once: true });
+    if (existingScript?.getAttribute(TURNSTILE_SCRIPT_STATUS_ATTR) === "loaded") {
+      resolve();
       return;
     }
 
-    const script = document.createElement("script");
-    script.id = TURNSTILE_SCRIPT_ID;
-    script.src = TURNSTILE_SCRIPT_SRC;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Turnstile."));
-    document.head.appendChild(script);
+    const script = existingScript?.getAttribute(TURNSTILE_SCRIPT_STATUS_ATTR) === "error"
+      ? (() => {
+          existingScript.remove();
+          return null;
+        })()
+      : existingScript;
+
+    const activeScript = script ?? document.createElement("script");
+    if (!script) {
+      activeScript.id = TURNSTILE_SCRIPT_ID;
+      activeScript.src = TURNSTILE_SCRIPT_SRC;
+      activeScript.async = true;
+      activeScript.defer = true;
+      markTurnstileScriptStatus(activeScript, "loading");
+      document.head.appendChild(activeScript);
+    }
+
+    activeScript.addEventListener("load", () => {
+      markTurnstileScriptStatus(activeScript, "loaded");
+      resolve();
+    }, { once: true });
+    activeScript.addEventListener("error", () => {
+      markTurnstileScriptStatus(activeScript, "error");
+      turnstileScriptPromise = null;
+      reject(new Error("Failed to load Turnstile."));
+    }, { once: true });
   });
 
   return turnstileScriptPromise;

@@ -1,10 +1,16 @@
 import { Track } from "@/types/music";
 
-export type AudioQuality = "LOW" | "MEDIUM" | "HIGH" | "LOSSLESS" | "MAX";
+export type AudioQuality = "AUTO" | "LOW" | "MEDIUM" | "HIGH" | "LOSSLESS" | "MAX";
+export type PlaybackMode = "native" | "youtube-embed";
 export type RightPanelTab = "lyrics" | "queue";
 
 export interface PlayerState {
   currentTrack: Track | null;
+  resolvedAudioQuality: AudioQuality | null;
+  resolvedAvailableAudioQualityLabels: string[];
+  resolvedAudioQualityLabel: string | null;
+  resolvedVideoQuality: string | null;
+  playbackMode: PlaybackMode;
   hasPlaybackStarted: boolean;
   isPlaying: boolean;
   currentTime: number;
@@ -28,6 +34,7 @@ export interface PlayerState {
   playbackSpeed: number;
   preservePitch: boolean;
   sleepTimerEndsAt: number | null;
+  isFullScreen: boolean;
 }
 
 export type AlbumPlaybackTarget = {

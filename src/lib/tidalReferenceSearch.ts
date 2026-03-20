@@ -5,6 +5,7 @@ import {
   searchArtists,
   searchPlaylists,
   searchTracks,
+  searchVideos,
   tidalTrackToAppTrack,
 } from "@/lib/musicApi";
 import type { TidalArtist } from "@/lib/musicApiTypes";
@@ -101,12 +102,13 @@ function toImageUrl(value: string | null | undefined, size = "750x750") {
 export async function searchTidalReference(query: string) {
   const trimmed = normalizeQuery(query);
   if (!trimmed) {
-    return { tracks: [], artists: [], albums: [], playlists: [] };
+    return { tracks: [], videos: [], artists: [], albums: [], playlists: [] };
   }
   const normalizedQuery = normalizeSearchableText(trimmed);
 
-  const [tracks, artists, albums, playlists] = await Promise.all([
+  const [tracks, videos, artists, albums, playlists] = await Promise.all([
     searchTracks(trimmed, 30).catch(() => []),
+    searchVideos(trimmed, 20).catch(() => []),
     searchArtists(trimmed, 16).catch(() => []),
     searchAlbums(trimmed, 15).catch(() => []),
     searchPlaylists(trimmed, 15).catch(() => []),
@@ -138,6 +140,21 @@ export async function searchTidalReference(query: string) {
         return rightScore - leftScore;
       })
       .slice(0, 30),
+    videos: dedupe(videos, (track) => String(track.id))
+      .map((track) => tidalTrackToAppTrack(track))
+      .sort((left, right) => {
+        const leftScore =
+          scoreText(normalizedQuery, normalizeSearchableText(left.title)) * 1.8 +
+          scoreText(normalizedQuery, normalizeSearchableText(left.artist)) +
+          scoreText(normalizedQuery, normalizeSearchableText(left.album)) * 0.65;
+        const rightScore =
+          scoreText(normalizedQuery, normalizeSearchableText(right.title)) * 1.8 +
+          scoreText(normalizedQuery, normalizeSearchableText(right.artist)) +
+          scoreText(normalizedQuery, normalizeSearchableText(right.album)) * 0.65;
+
+        return rightScore - leftScore;
+      })
+      .slice(0, 20),
     artists: dedupe(artists, (artist) => String(artist.id))
       .filter((artist) => !shouldExcludeArtistFromProfiles(normalizedQuery, artist))
       .map((artist) => ({

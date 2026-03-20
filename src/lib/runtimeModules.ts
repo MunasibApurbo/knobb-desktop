@@ -2,6 +2,7 @@ type SupabaseModule = typeof import("@/integrations/supabase/client");
 type MusicApiModule = typeof import("@/lib/musicApi");
 type ObservabilityModule = typeof import("@/lib/observability");
 type AudioEngineModule = typeof import("@/lib/audioEngine");
+type YoutubeMusicApiModule = typeof import("@/lib/youtubeMusicApi");
 type PlaylistQueriesModule = typeof import("@/hooks/playlists/playlistQueries");
 type PlaylistMutationsModule = typeof import("@/hooks/playlists/playlistMutations");
 type PlaylistCollaboratorsModule = typeof import("@/hooks/playlists/playlistCollaborators");
@@ -10,13 +11,26 @@ let supabaseClientPromise: Promise<SupabaseModule["supabase"]> | null = null;
 let musicApiModulePromise: Promise<MusicApiModule> | null = null;
 let observabilityModulePromise: Promise<ObservabilityModule> | null = null;
 let audioEngineModulePromise: Promise<AudioEngineModule> | null = null;
+let youtubeMusicApiModulePromise: Promise<YoutubeMusicApiModule> | null = null;
 let playlistQueriesModulePromise: Promise<PlaylistQueriesModule> | null = null;
 let playlistMutationsModulePromise: Promise<PlaylistMutationsModule> | null = null;
 let playlistCollaboratorsModulePromise: Promise<PlaylistCollaboratorsModule> | null = null;
 
+function loadWithReset<T>(load: () => Promise<T>, reset: () => void) {
+  return load().catch((error) => {
+    reset();
+    throw error;
+  });
+}
+
 export function getSupabaseClient() {
   if (!supabaseClientPromise) {
-    supabaseClientPromise = import("@/integrations/supabase/client").then((module) => module.supabase);
+    supabaseClientPromise = loadWithReset(
+      () => import("@/integrations/supabase/client").then((module) => module.supabase),
+      () => {
+        supabaseClientPromise = null;
+      },
+    );
   }
 
   return supabaseClientPromise;
@@ -24,7 +38,12 @@ export function getSupabaseClient() {
 
 export function loadMusicApiModule() {
   if (!musicApiModulePromise) {
-    musicApiModulePromise = import("@/lib/musicApi");
+    musicApiModulePromise = loadWithReset(
+      () => import("@/lib/musicApi"),
+      () => {
+        musicApiModulePromise = null;
+      },
+    );
   }
 
   return musicApiModulePromise;
@@ -32,15 +51,38 @@ export function loadMusicApiModule() {
 
 export function loadAudioEngineModule() {
   if (!audioEngineModulePromise) {
-    audioEngineModulePromise = import("@/lib/audioEngine");
+    audioEngineModulePromise = loadWithReset(
+      () => import("@/lib/audioEngine"),
+      () => {
+        audioEngineModulePromise = null;
+      },
+    );
   }
 
   return audioEngineModulePromise;
 }
 
+export function loadYoutubeMusicApiModule() {
+  if (!youtubeMusicApiModulePromise) {
+    youtubeMusicApiModulePromise = loadWithReset(
+      () => import("@/lib/youtubeMusicApi"),
+      () => {
+        youtubeMusicApiModulePromise = null;
+      },
+    );
+  }
+
+  return youtubeMusicApiModulePromise;
+}
+
 export function loadPlaylistQueriesModule() {
   if (!playlistQueriesModulePromise) {
-    playlistQueriesModulePromise = import("@/hooks/playlists/playlistQueries");
+    playlistQueriesModulePromise = loadWithReset(
+      () => import("@/hooks/playlists/playlistQueries"),
+      () => {
+        playlistQueriesModulePromise = null;
+      },
+    );
   }
 
   return playlistQueriesModulePromise;
@@ -48,7 +90,12 @@ export function loadPlaylistQueriesModule() {
 
 export function loadPlaylistMutationsModule() {
   if (!playlistMutationsModulePromise) {
-    playlistMutationsModulePromise = import("@/hooks/playlists/playlistMutations");
+    playlistMutationsModulePromise = loadWithReset(
+      () => import("@/hooks/playlists/playlistMutations"),
+      () => {
+        playlistMutationsModulePromise = null;
+      },
+    );
   }
 
   return playlistMutationsModulePromise;
@@ -56,7 +103,12 @@ export function loadPlaylistMutationsModule() {
 
 export function loadPlaylistCollaboratorsModule() {
   if (!playlistCollaboratorsModulePromise) {
-    playlistCollaboratorsModulePromise = import("@/hooks/playlists/playlistCollaborators");
+    playlistCollaboratorsModulePromise = loadWithReset(
+      () => import("@/hooks/playlists/playlistCollaborators"),
+      () => {
+        playlistCollaboratorsModulePromise = null;
+      },
+    );
   }
 
   return playlistCollaboratorsModulePromise;
@@ -64,7 +116,12 @@ export function loadPlaylistCollaboratorsModule() {
 
 function loadObservabilityModule() {
   if (!observabilityModulePromise) {
-    observabilityModulePromise = import("@/lib/observability");
+    observabilityModulePromise = loadWithReset(
+      () => import("@/lib/observability"),
+      () => {
+        observabilityModulePromise = null;
+      },
+    );
   }
 
   return observabilityModulePromise;
@@ -78,6 +135,27 @@ export async function reportClientErrorLazy(
   try {
     const module = await loadObservabilityModule();
     await module.reportClientError(error, eventName, payload);
+  } catch {
+    // Diagnostics should never block the UI.
+  }
+}
+
+export async function reportClientEventLazy(
+  level: "info" | "warn" | "error",
+  eventName: string,
+  message = "",
+  payload: Record<string, unknown> = {},
+  source?: string,
+) {
+  try {
+    const module = await loadObservabilityModule();
+    await module.reportClientEvent({
+      level,
+      eventName,
+      message,
+      payload,
+      source,
+    });
   } catch {
     // Diagnostics should never block the UI.
   }

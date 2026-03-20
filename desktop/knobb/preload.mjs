@@ -35,12 +35,10 @@ contextBridge.exposeInMainWorld("knobbDesktop", {
   isDesktopApp: true,
   platform: process.platform,
   getLaunchTarget: () => ipcRenderer.invoke("desktop:get-launch-target"),
-  getConfigDirectory: () => ipcRenderer.invoke("desktop:get-config-directory"),
-  getConfigFilePath: () => ipcRenderer.invoke("desktop:get-config-file-path"),
-  getConfigExampleFilePath: () => ipcRenderer.invoke("desktop:get-config-example-file-path"),
   getUpdateStatus: () => ipcRenderer.invoke("desktop:get-update-status"),
   checkForUpdates: () => ipcRenderer.invoke("desktop:check-for-updates"),
   quitAndInstallUpdate: () => ipcRenderer.invoke("desktop:quit-and-install-update"),
+  beginAuthSession: () => ipcRenderer.invoke("desktop:begin-auth-session"),
   onUpdateStatus(listener) {
     const wrapped = (_event, status) => {
       listener(status);
@@ -52,8 +50,6 @@ contextBridge.exposeInMainWorld("knobbDesktop", {
     };
   },
   openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
-  openConfigDirectory: () => ipcRenderer.invoke("desktop:open-config-directory"),
-  revealConfigFile: () => ipcRenderer.invoke("desktop:reveal-config-file"),
   showWindow: () => ipcRenderer.invoke("desktop:show-window"),
   hideWindow: () => ipcRenderer.invoke("desktop:hide-window"),
   quit: () => ipcRenderer.invoke("desktop:quit"),

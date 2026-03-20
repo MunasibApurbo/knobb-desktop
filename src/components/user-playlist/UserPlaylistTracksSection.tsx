@@ -1,5 +1,7 @@
 import type { DragEvent, MouseEvent } from "react";
 import { useState } from "react";
+import { cn } from "@/lib/utils";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import { TrackContextMenu } from "@/components/TrackContextMenu";
@@ -25,6 +27,7 @@ interface UserPlaylistTracksSectionProps {
   onTrackClick: (event: MouseEvent<HTMLElement>, track: Track, index: number) => void;
   onToggleLike: (track: Track) => void;
   onMoveTrack: (fromIndex: number, toIndex: number) => void;
+  onRemoveTrack: (trackIndex: number) => void;
 }
 
 export function UserPlaylistTracksSection({
@@ -37,6 +40,7 @@ export function UserPlaylistTracksSection({
   onTrackClick,
   onToggleLike,
   onMoveTrack,
+  onRemoveTrack,
 }: UserPlaylistTracksSectionProps) {
   const { language } = useLanguage();
   const addedAtLocale = getTrackAddedAtLocale(language);
@@ -67,7 +71,7 @@ export function UserPlaylistTracksSection({
 
   if (playlist.tracks.length === 0) {
     return (
-      <section className="border border-t-0 border-white/10 bg-white/[0.02]">
+      <section className={cn("page-panel overflow-hidden border border-white/10 border-t-0", PANEL_SURFACE_CLASS)}>
         <p className="text-muted-foreground text-sm py-10 text-center">
           No tracks yet. Add songs from search or artist pages.
         </p>
@@ -76,7 +80,7 @@ export function UserPlaylistTracksSection({
   }
 
   return (
-    <section className="border border-t-0 border-white/10 bg-white/[0.02]">
+    <section className={cn("page-panel overflow-hidden border border-white/10 border-t-0", PANEL_SURFACE_CLASS)}>
       <VirtualizedTrackList
         items={playlist.tracks}
         getItemKey={(track, index) => `${track.id}-${index}`}
@@ -89,7 +93,12 @@ export function UserPlaylistTracksSection({
               ? playlist.tracks.filter((entry) => selectedTrackIds.includes(entry.id))
               : [track];
           return (
-            <TrackContextMenu key={`${track.id}-${index}`} track={track} tracks={playlist.tracks}>
+            <TrackContextMenu
+              key={`${track.id}-${index}`}
+              track={track}
+              tracks={playlist.tracks}
+              onRemoveFromPlaylist={canEdit ? () => onRemoveTrack(index) : undefined}
+            >
               <TrackListRow
                 className={!isCurrent && isSelected ? "bg-white/[0.08]" : undefined}
                 dragHandleLabel={
@@ -121,7 +130,7 @@ export function UserPlaylistTracksSection({
                     </span>
                   </>
                 }
-                mobileMeta={formatTrackAddedAt(track.addedAt, addedAtLocale) || "-"}
+                desktopMeta={formatTrackAddedAt(track.addedAt, addedAtLocale) || "-"}
                 onDragHandleEnd={() => {
                   clearReorderState();
                 }}

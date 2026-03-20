@@ -1,84 +1,137 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+
 import { getAudioEngine } from "@/lib/audioEngine";
-import { usePlayer } from "@/contexts/PlayerContext";
 
 type WaveformVisualizerProps = {
   className?: string;
-  currentTime?: number;
+  currentTime: number;
+  duration: number;
+  isPlaying: boolean;
+  playbackSpeed: number;
+  trackId: string;
 };
 
-export function WaveformVisualizer({ className = "", currentTime: currentTimeOverride }: WaveformVisualizerProps) {
+type CanvasMetrics = {
+  width: number;
+  height: number;
+  dpr: number;
+};
+
+const DEFAULT_WAVEFORM_COLOR = "0 0% 60%";
+
+export function WaveformVisualizer({
+  className = "",
+  currentTime,
+  duration,
+  isPlaying,
+  playbackSpeed,
+  trackId,
+}: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
   const barsRef = useRef<number[]>([]);
-  const currentTimeRef = useRef(0);
-  const isPlayingRef = useRef(false);
-  const currentTrackRef = useRef<ReturnType<typeof usePlayer>["currentTrack"]>(null);
+  const currentTimeRef = useRef(currentTime);
+  const durationRef = useRef(duration);
+  const isPlayingRef = useRef(isPlaying);
+  const playbackSpeedRef = useRef(playbackSpeed);
   const lastFrameTimeRef = useRef(0);
-  const { isPlaying, currentTime, currentTrack } = usePlayer();
-  const trackId = currentTrack?.id ?? null;
+  const waveformColorRef = useRef(DEFAULT_WAVEFORM_COLOR);
+  const canvasMetricsRef = useRef<CanvasMetrics>({ width: 0, height: 0, dpr: 1 });
+  const progressSyncTimestampRef = useRef(0);
 
-  // Generate static bar heights per track
   useEffect(() => {
     const bars: number[] = [];
     for (let i = 0; i < 120; i++) {
       bars.push(0.12 + Math.random() * 0.88);
     }
     barsRef.current = bars;
-  }, [currentTrack?.id]);
+  }, [trackId]);
 
   useEffect(() => {
-    currentTimeRef.current = currentTimeOverride ?? currentTime;
-  }, [currentTime, currentTimeOverride]);
+    currentTimeRef.current = currentTime;
+    progressSyncTimestampRef.current = typeof performance === "undefined" ? 0 : performance.now();
+  }, [currentTime, trackId]);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
+    if (typeof performance !== "undefined") {
+      progressSyncTimestampRef.current = performance.now();
+    }
   }, [isPlaying]);
 
   useEffect(() => {
-    currentTrackRef.current = currentTrack;
-  }, [currentTrack]);
+    playbackSpeedRef.current = Number.isFinite(playbackSpeed) && playbackSpeed > 0 ? playbackSpeed : 1;
+    if (typeof performance !== "undefined") {
+      progressSyncTimestampRef.current = performance.now();
+    }
+  }, [playbackSpeed]);
 
-  const drawFrame = useCallback(() => {
-    const canvas = canvasRef.current;
-    const track = currentTrackRef.current;
-    if (!canvas || !track) return;
+  const syncWaveformColor = useCallback(() => {
+    if (typeof document === "undefined") return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    waveformColorRef.current = getComputedStyle(document.documentElement)
+      .getPropertyValue("--player-waveform")
+      .trim() || DEFAULT_WAVEFORM_COLOR;
+  }, []);
 
+  const updateCanvasMetrics = useCallback((canvas: HTMLCanvasElement, width?: number, height?: number) => {
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const nextWidth = Math.max(1, Math.round(rect.width * dpr));
-    const nextHeight = Math.max(1, Math.round(rect.height * dpr));
+    const nextWidth = Math.max(1, Math.round((width ?? canvas.clientWidth) * dpr));
+    const nextHeight = Math.max(1, Math.round((height ?? canvas.clientHeight) * dpr));
+
     if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
       canvas.width = nextWidth;
       canvas.height = nextHeight;
     }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const w = rect.width;
-    const h = rect.height;
-    ctx.clearRect(0, 0, w, h);
+    canvasMetricsRef.current = {
+      width: nextWidth / dpr,
+      height: nextHeight / dpr,
+      dpr,
+    };
+  }, []);
+
+  const drawFrame = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !trackId) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    if (canvasMetricsRef.current.width <= 0 || canvasMetricsRef.current.height <= 0) {
+      updateCanvasMetrics(canvas);
+    }
+
+    const { width, height, dpr } = canvasMetricsRef.current;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
 
     const engine = getAudioEngine();
     const freqData = engine.getFrequencyData();
-    const accentHsl = getComputedStyle(document.documentElement)
-      .getPropertyValue("--player-waveform")
-      .trim();
-
-    const duration = engine.duration || track.duration;
-    const progress = duration > 0 ? currentTimeRef.current / duration : 0;
+    const accentHsl = waveformColorRef.current;
+    const playbackDuration = engine.duration || durationRef.current;
+    const now = typeof performance === "undefined" ? 0 : performance.now();
+    const elapsedSeconds = isPlayingRef.current
+      ? Math.max(0, (now - progressSyncTimestampRef.current) / 1000)
+      : 0;
+    const effectiveCurrentTime = Math.min(
+      playbackDuration || Number.POSITIVE_INFINITY,
+      currentTimeRef.current + elapsedSeconds * playbackSpeedRef.current,
+    );
+    const progress = playbackDuration > 0 ? effectiveCurrentTime / playbackDuration : 0;
 
     const bars = barsRef.current;
     const barCount = bars.length;
     const gap = 1;
-    const barWidth = (w - gap * (barCount - 1)) / barCount;
+    const barWidth = (width - gap * (barCount - 1)) / barCount;
 
     for (let i = 0; i < barCount; i++) {
       const x = i * (barWidth + gap);
-      
-      // Modulate bar height with frequency data when playing
+
       let barHeight = bars[i];
       if (isPlayingRef.current && freqData.length > 0) {
         const freqIdx = Math.floor((i / barCount) * freqData.length * 0.5);
@@ -86,38 +139,32 @@ export function WaveformVisualizer({ className = "", currentTime: currentTimeOve
         barHeight = bars[i] * 0.5 + freqInfluence * 0.5;
       }
 
-      const barH = barHeight * h * 0.9;
-      const y = (h - barH) / 2;
+      const barH = barHeight * height * 0.9;
+      const y = (height - barH) / 2;
       const played = i / barCount <= progress;
 
-      if (played) {
-        ctx.fillStyle = `hsl(${accentHsl})`;
-      } else {
-        ctx.fillStyle = `hsl(${accentHsl} / 0.18)`;
-      }
-
-      // Sharp rectangles — no rounding
+      ctx.fillStyle = played
+        ? `hsl(${accentHsl})`
+        : `hsl(${accentHsl} / 0.18)`;
       ctx.fillRect(x, y, barWidth, barH);
     }
 
-    // Playhead line
     if (progress > 0 && progress < 1) {
-      const px = progress * w;
+      const px = progress * width;
       ctx.fillStyle = `hsl(${accentHsl})`;
-      ctx.fillRect(px - 1, 0, 2, h);
+      ctx.fillRect(px - 1, 0, 2, height);
 
-      // Playhead glow
       ctx.shadowColor = `hsl(${accentHsl})`;
       ctx.shadowBlur = 8;
-      ctx.fillRect(px - 1, 0, 2, h);
+      ctx.fillRect(px - 1, 0, 2, height);
       ctx.shadowBlur = 0;
     }
-  }, []);
+  }, [trackId, updateCanvasMetrics]);
 
   useEffect(() => {
-    if (!trackId) return;
+    syncWaveformColor();
     drawFrame();
-  }, [drawFrame, trackId]);
+  }, [drawFrame, syncWaveformColor, trackId]);
 
   useEffect(() => {
     if (!trackId || isPlaying) return;
@@ -125,10 +172,42 @@ export function WaveformVisualizer({ className = "", currentTime: currentTimeOve
   }, [currentTime, drawFrame, isPlaying, trackId]);
 
   useEffect(() => {
+    if (typeof document === "undefined" || typeof MutationObserver === "undefined") return;
+
+    const observer = new MutationObserver(() => {
+      syncWaveformColor();
+      drawFrame();
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+
+    return () => observer.disconnect();
+  }, [drawFrame, syncWaveformColor]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    updateCanvasMetrics(canvas);
+    drawFrame();
+
+    const handleWindowResize = () => {
+      updateCanvasMetrics(canvas);
+      drawFrame();
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+    return () => window.removeEventListener("resize", handleWindowResize);
+  }, [drawFrame, updateCanvasMetrics]);
+
+  useEffect(() => {
     if (!trackId || !isPlaying) return;
 
     const draw = (timestamp: number) => {
-      if (timestamp - lastFrameTimeRef.current >= 33) {
+      if (timestamp - lastFrameTimeRef.current >= 50) {
         lastFrameTimeRef.current = timestamp;
         drawFrame();
       }
@@ -147,15 +226,22 @@ export function WaveformVisualizer({ className = "", currentTime: currentTimeOve
     const canvas = canvasRef.current;
     if (!canvas || typeof ResizeObserver === "undefined") return;
 
-    const observer = new ResizeObserver(() => drawFrame());
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        updateCanvasMetrics(canvas, entry.contentRect.width, entry.contentRect.height);
+      }
+      drawFrame();
+    });
+
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [drawFrame]);
+  }, [drawFrame, updateCanvasMetrics]);
 
   return (
     <canvas
       ref={canvasRef}
-      className={`w-full h-full seekbar-hover transition-transform duration-200 ${className}`}
+      className={`pointer-events-none w-full h-full seekbar-hover transition-transform duration-200 ${className}`}
       style={{ display: "block" }}
     />
   );

@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import { Code2, Copy, Heart, ListMusic, Play, Share2, Trash2 } from "lucide-react";
+import { Heart, ListMusic, Play, Share, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { PlaylistEmbedDialog } from "@/components/PlaylistEmbedDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useFavoritePlaylists } from "@/hooks/useFavoritePlaylists";
@@ -12,22 +11,16 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { DESTRUCTIVE_MENU_ITEM_CLASS } from "@/components/ui/surfaceStyles";
 import { filterAudioTracks, getPlaylistWithTracks, tidalTrackToAppTrack } from "@/lib/musicApi";
 import {
   buildPlaylistPath,
   copyPlainTextToClipboard,
   type PlaylistRouteKind,
 } from "@/lib/mediaNavigation";
-import {
-  buildPlaylistEmbedUrl,
-  buildPlaylistShareUrl,
-  canEmbedPlaylist,
-} from "@/lib/playlistSharing";
+import { buildPlaylistShareUrl } from "@/lib/playlistSharing";
 import type { Track } from "@/types/music";
 
 interface PlaylistContextMenuProps {
@@ -59,18 +52,12 @@ export function PlaylistContextMenu({
   const { isFavoritePlaylist, toggleFavoritePlaylist } = useFavoritePlaylists();
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
 
   const routePath = buildPlaylistPath({ kind, playlistId, shareToken });
   const playlistShareUrl = useMemo(
     () => buildPlaylistShareUrl({ kind, playlistId, shareToken, visibility }),
     [kind, playlistId, shareToken, visibility],
   );
-  const embedUrl = useMemo(
-    () => buildPlaylistEmbedUrl({ kind, playlistId, shareToken, visibility }),
-    [kind, playlistId, shareToken, visibility],
-  );
-  const embedState = useMemo(() => canEmbedPlaylist({ kind, visibility }), [kind, visibility]);
   const favoriteSource = useMemo(() => {
     if (kind === "user" || kind === "shared") return "local";
     if (kind === "tidal") return "tidal";
@@ -88,17 +75,19 @@ export function PlaylistContextMenu({
       return;
     }
 
-    if (kind !== "tidal" || playlistId === undefined) {
+    if (playlistId === undefined) {
       if (routePath) navigate(routePath);
       return;
     }
 
     setIsLoadingPlaylist(true);
     try {
-      const cleanPlaylistId = String(playlistId).replace(/^tidal-/, "");
-      const { tracks: tidalTracks } = await getPlaylistWithTracks(cleanPlaylistId);
+      if (kind !== "tidal") {
+        throw new Error("Playlist playback is only available for TIDAL and local playlists");
+      }
+
       const appTracks = filterAudioTracks(
-        tidalTracks.map((track, index) => ({
+        (await getPlaylistWithTracks(String(playlistId).replace(/^tidal-/, ""))).tracks.map((track, index) => ({
           ...tidalTrackToAppTrack(track),
           id: `tidal-${track.id}-${index}`,
         })),
@@ -149,7 +138,7 @@ export function PlaylistContextMenu({
     );
   };
 
-  const handleCopyLink = async () => {
+  const handleShareLink = async () => {
     if (!playlistShareUrl) return;
     await copyPlainTextToClipboard(playlistShareUrl);
     toast.success("Playlist link copied");
@@ -170,26 +159,10 @@ export function PlaylistContextMenu({
             </ContextMenuItem>
           ) : null}
           <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger className="gap-2">
-              <Share2 className="w-4 h-4" />
-              Share
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-64">
-              <ContextMenuItem className="gap-2" onClick={() => void handleCopyLink()} disabled={!playlistShareUrl}>
-                <Copy className="w-4 h-4" />
-                Copy playlist link
-              </ContextMenuItem>
-              <ContextMenuItem
-                className="gap-2"
-                onClick={() => setIsEmbedDialogOpen(true)}
-                disabled={!embedState.allowed || !embedUrl}
-              >
-                <Code2 className="w-4 h-4" />
-                Embed playlist
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          <ContextMenuItem className="gap-2" onClick={() => void handleShareLink()} disabled={!playlistShareUrl}>
+            <Share className="w-4 h-4" />
+            Share playlist link
+          </ContextMenuItem>
           {routePath ? (
             <ContextMenuItem className="gap-2" onClick={() => navigate(routePath)}>
               <ListMusic className="w-4 h-4" />
@@ -199,22 +172,13 @@ export function PlaylistContextMenu({
           {onDelete ? (
             <>
               <ContextMenuSeparator />
-              <ContextMenuItem className="gap-2 text-red-400 focus:text-red-300" onClick={onDelete}>
+              <ContextMenuItem className={`gap-2 ${DESTRUCTIVE_MENU_ITEM_CLASS}`} onClick={onDelete}>
                 <Trash2 className="w-4 h-4" /> Delete Playlist
               </ContextMenuItem>
             </>
           ) : null}
         </ContextMenuContent>
       </ContextMenu>
-
-      <PlaylistEmbedDialog
-        open={isEmbedDialogOpen}
-        onOpenChange={setIsEmbedDialogOpen}
-        title={title}
-        embedUrl={embedUrl}
-        canEmbed={embedState.allowed}
-        disabledReason={embedState.reason}
-      />
     </>
   );
 }

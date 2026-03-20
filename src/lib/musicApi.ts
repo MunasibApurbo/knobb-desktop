@@ -9,10 +9,13 @@ import {
 } from "@/lib/musicCore";
 import {
   buildInstanceUrl,
+  deriveTrackQuality,
   fetchJsonWithTimeout,
   normalizeOrigin,
+  resolveProtocol,
   UPTIME_URLS,
 } from "@/lib/musicCoreShared";
+import type { AudioQuality } from "@/contexts/player/playerTypes";
 import type {
   AlbumResult,
   ArtistCredit,
@@ -43,7 +46,14 @@ import {
   qualityAttempts,
   tidalTrackToAppTrack,
 } from "@/lib/musicApiTransforms";
-import { getLyricsFallbackCandidateIds } from "@/lib/musicLyricsVariants";
+import { getLyricsFallbackCandidateIds, getCleanLyricsSearchQuery } from "@/lib/musicLyricsVariants";
+import {
+  fetchOfficialTidalAlbum,
+  fetchOfficialTidalArtist,
+  fetchOfficialTidalPlaylist,
+  fetchOfficialTidalTrack,
+  fetchOfficialTidalVideo,
+} from "@/lib/tidalDirectApi";
 
 export { API_INSTANCE_POOL, STREAMING_INSTANCE_POOL };
 export type { EndpointLatencySnapshot };
@@ -71,6 +81,32 @@ export {
   tidalTrackToAppTrack,
 };
 
+export async function getVideoPlaybackSource(trackId: number): Promise<PlaybackSource | null> {
+  const cacheKey = `video:${trackId}`;
+  const cached = playbackSourceCache.get(cacheKey);
+  if (cached) return cached;
+
+  let lastError: unknown = null;
+  try {
+    const source = await musicCore.getVideo(trackId);
+    const playbackSource: PlaybackSource | null = source.originalTrackUrl
+      ? { url: source.originalTrackUrl, type: resolveProtocol(source.originalTrackUrl, source.info.manifestMimeType) }
+      : decodePlaybackSource(source.info.manifest, source.info.manifestMimeType) || { url: "", type: "direct" };
+
+    if (playbackSource && playbackSource.url) {
+      playbackSourceCache.set(cacheKey, playbackSource);
+      return playbackSource;
+    }
+  } catch (error) {
+    lastError = error;
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+  return null;
+}
+
 export function getApiLatencySnapshot(): EndpointLatencySnapshot[] {
   return musicCore.getLatencySnapshot();
 }
@@ -91,7 +127,7 @@ export function invalidateTrackStreamCache(trackId: number) {
   musicCore.invalidateTrackStream(trackId);
   const prefix = `${trackId}:`;
   for (const [key, source] of Array.from(playbackSourceCache.entries())) {
-    if (!key.startsWith(prefix)) continue;
+    if (!key.startsWith(prefix) && key !== `video:${trackId}`) continue;
     if (source.type === "dash") {
       URL.revokeObjectURL(source.url);
     }
@@ -104,15 +140,32 @@ const artistImageCache = new Map<string, string>();
 const artistImageResolvers = new Map<string, Promise<string>>();
 const lyricsCache = new Map<number, LyricsResult>();
 const playbackSourceCache = new Map<string, PlaybackSource>();
+const ARTIST_IMAGE_STORAGE_PREFIX = "knobb-artist-image";
 const LYRICS_INSTANCE_CACHE_TTL_MS = 1000 * 60 * 15;
 let cachedLyricsInstanceUrls: { urls: string[]; timestamp: number } | null = null;
 
 export type PlaybackSource = {
   url: string;
-  type: "direct" | "dash";
+  type: "direct" | "dash" | "hls";
 };
 
-function decodePlaybackSource(manifest: string): PlaybackSource | null {
+export type PlaybackSourceResolution = {
+  quality: AudioQuality | null;
+  capability: AudioQuality | null;
+  source: PlaybackSource;
+};
+
+function normalizeResolvedAudioQuality(value: unknown): AudioQuality | null {
+  const token = String(value || "").trim().toUpperCase();
+  if (token === "HI_RES_LOSSLESS" || token === "MAX" || token === "MASTER") return "MAX";
+  if (token === "LOSSLESS") return "LOSSLESS";
+  if (token === "HIGH") return "HIGH";
+  if (token === "MEDIUM") return "MEDIUM";
+  if (token === "LOW") return "LOW";
+  return null;
+}
+
+function decodePlaybackSource(manifest: string, manifestMimeType?: string): PlaybackSource | null {
   try {
     const decoded = atob(manifest);
 
@@ -126,10 +179,21 @@ function decodePlaybackSource(manifest: string): PlaybackSource | null {
 
     try {
       const parsed = JSON.parse(decoded);
-      if (Array.isArray(parsed?.urls) && parsed.urls.length > 0 && typeof parsed.urls[0] === "string") {
+      const url = typeof parsed?.url === "string"
+        ? parsed.url
+        : Array.isArray(parsed?.urls) && parsed.urls.length > 0 && typeof parsed.urls[0] === "string"
+          ? parsed.urls[0]
+          : null;
+      const mimeType = typeof parsed?.mimeType === "string"
+        ? parsed.mimeType
+        : typeof parsed?.manifestMimeType === "string"
+          ? parsed.manifestMimeType
+          : manifestMimeType;
+
+      if (url) {
         return {
-          url: parsed.urls[0],
-          type: "direct",
+          url,
+          type: resolveProtocol(url, mimeType),
         };
       }
     } catch {
@@ -137,7 +201,7 @@ function decodePlaybackSource(manifest: string): PlaybackSource | null {
       if (match) {
         return {
           url: match[0],
-          type: "direct",
+          type: resolveProtocol(match[0], manifestMimeType),
         };
       }
     }
@@ -165,8 +229,69 @@ function normalizeArtistImageCacheKey(artistId: number, artistName?: string | nu
   return null;
 }
 
+function getArtistImageStorageKey(cacheKey: string) {
+  return `${ARTIST_IMAGE_STORAGE_PREFIX}:${cacheKey}`;
+}
+
+function readPersistedArtistImageUrl(cacheKey: string) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem(getArtistImageStorageKey(cacheKey));
+    return isUsableArtistImageUrl(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistArtistImageUrl(cacheKey: string, imageUrl: string) {
+  if (typeof window === "undefined" || !isUsableArtistImageUrl(imageUrl)) return;
+
+  try {
+    window.localStorage.setItem(getArtistImageStorageKey(cacheKey), imageUrl);
+  } catch {
+    // Ignore storage quota failures and continue with memory cache only.
+  }
+}
+
+export function getCachedArtistImageUrl(
+  artistId: number,
+  preferredImageUrl?: string | null,
+  artistName?: string | null,
+) {
+  if (isUsableArtistImageUrl(preferredImageUrl)) {
+    return preferredImageUrl as string;
+  }
+
+  const cacheKey = normalizeArtistImageCacheKey(artistId, artistName);
+  if (!cacheKey) {
+    return preferredImageUrl || "/placeholder.svg";
+  }
+
+  const inMemoryImage = artistImageCache.get(cacheKey);
+  if (inMemoryImage) {
+    return inMemoryImage;
+  }
+
+  const persistedImage = readPersistedArtistImageUrl(cacheKey);
+  if (persistedImage) {
+    artistImageCache.set(cacheKey, persistedImage);
+    return persistedImage;
+  }
+
+  return preferredImageUrl || "/placeholder.svg";
+}
+
 export async function searchTracks(query: string, limit = 25): Promise<TidalTrack[]> {
   const result = await musicCore.searchTracks(query, limit);
+  return result.items
+    .map((track) => mapTrack(track))
+    .filter((track): track is TidalTrack => Boolean(track))
+    .slice(0, limit);
+}
+
+export async function searchVideos(query: string, limit = 25): Promise<TidalTrack[]> {
+  const result = await musicCore.searchVideos(query, limit);
   return result.items
     .map((track) => mapTrack(track))
     .filter((track): track is TidalTrack => Boolean(track))
@@ -182,6 +307,13 @@ export async function searchArtists(query: string, limit = 20): Promise<TidalArt
 }
 
 export async function getArtistById(artistId: number): Promise<TidalArtist | null> {
+  const officialArtist = await fetchOfficialTidalArtist(artistId)
+    .then((artist) => mapArtist(artist as SourceArtist))
+    .catch(() => null);
+  if (officialArtist) {
+    return officialArtist;
+  }
+
   try {
     const artist = await musicCore.getArtistMetadata(artistId);
     return mapArtist(artist);
@@ -332,8 +464,13 @@ export async function resolveArtistImageUrl(
     return preferredImageUrl || "/placeholder.svg";
   }
 
-  const cached = artistImageCache.get(cacheKey);
-  if (cached) return cached;
+  const cached =
+    artistImageCache.get(cacheKey) ||
+    readPersistedArtistImageUrl(cacheKey);
+  if (cached) {
+    artistImageCache.set(cacheKey, cached);
+    return cached;
+  }
 
   const pending = artistImageResolvers.get(cacheKey);
   if (pending) return pending;
@@ -384,6 +521,7 @@ export async function resolveArtistImageUrl(
   })()
     .then((resolvedImageUrl) => {
       artistImageCache.set(cacheKey, resolvedImageUrl);
+      persistArtistImageUrl(cacheKey, resolvedImageUrl);
       return resolvedImageUrl;
     })
     .finally(() => {
@@ -441,28 +579,42 @@ export async function getAlbumTracks(albumId: number): Promise<TidalTrack[]> {
 }
 
 export async function getAlbumWithTracks(albumId: number): Promise<AlbumResult> {
+  const officialAlbumPromise = fetchOfficialTidalAlbum(albumId)
+    .then((album) => mapAlbum(album as SourceAlbum))
+    .catch(() => null);
+
   try {
-    const result = await musicCore.getAlbum(albumId);
+    const [result, officialAlbum] = await Promise.all([
+      musicCore.getAlbum(albumId),
+      officialAlbumPromise,
+    ]);
     return {
-      album: mapAlbum(result.album),
+      album: officialAlbum || mapAlbum(result.album),
       tracks: result.tracks
         .map((track) => mapTrack(track))
         .filter((track): track is TidalTrack => Boolean(track)),
     };
   } catch {
-    return { album: null, tracks: [] };
+    return { album: await officialAlbumPromise, tracks: [] };
   }
 }
 
 export async function getPlaylistWithTracks(playlistId: string): Promise<PlaylistResult> {
+  const officialPlaylistPromise = fetchOfficialTidalPlaylist(playlistId)
+    .then((playlist) => mapPlaylist(playlist as SourcePlaylist))
+    .catch(() => null);
+
   try {
-    const result = await musicCore.getPlaylist(playlistId);
+    const [result, officialPlaylist] = await Promise.all([
+      musicCore.getPlaylist(playlistId),
+      officialPlaylistPromise,
+    ]);
     return {
-      playlist: mapPlaylist(result.playlist),
+      playlist: officialPlaylist || mapPlaylist(result.playlist),
       tracks: parsePlaylistTracks(result.tracks),
     };
   } catch {
-    return { playlist: null, tracks: [] };
+    return { playlist: await officialPlaylistPromise, tracks: [] };
   }
 }
 
@@ -541,23 +693,23 @@ export async function getMix(mixId: string): Promise<MixResult> {
 
     const mix: TidalMix | null = mixData && typeof mixData === "object"
       ? {
-          id: String((mixData as { id?: string | number }).id ?? mixId),
-          title: String((mixData as { title?: string }).title ?? "Mix"),
-          subTitle: typeof (mixData as { subTitle?: string }).subTitle === "string"
-            ? (mixData as { subTitle?: string }).subTitle ?? null
-            : null,
-          description: typeof (mixData as { description?: string }).description === "string"
-            ? (mixData as { description?: string }).description ?? null
-            : null,
-          mixType: typeof (mixData as { mixType?: string }).mixType === "string"
-            ? (mixData as { mixType?: string }).mixType ?? null
-            : null,
-          image:
-            (mixData as { images?: { LARGE?: { url?: string }; MEDIUM?: { url?: string }; SMALL?: { url?: string } } }).images?.LARGE?.url ||
-            (mixData as { images?: { LARGE?: { url?: string }; MEDIUM?: { url?: string }; SMALL?: { url?: string } } }).images?.MEDIUM?.url ||
-            (mixData as { images?: { LARGE?: { url?: string }; MEDIUM?: { url?: string }; SMALL?: { url?: string } } }).images?.SMALL?.url ||
-            null,
-        }
+        id: String((mixData as { id?: string | number }).id ?? mixId),
+        title: String((mixData as { title?: string }).title ?? "Mix"),
+        subTitle: typeof (mixData as { subTitle?: string }).subTitle === "string"
+          ? (mixData as { subTitle?: string }).subTitle ?? null
+          : null,
+        description: typeof (mixData as { description?: string }).description === "string"
+          ? (mixData as { description?: string }).description ?? null
+          : null,
+        mixType: typeof (mixData as { mixType?: string }).mixType === "string"
+          ? (mixData as { mixType?: string }).mixType ?? null
+          : null,
+        image:
+          (mixData as { images?: { LARGE?: { url?: string }; MEDIUM?: { url?: string }; SMALL?: { url?: string } } }).images?.LARGE?.url ||
+          (mixData as { images?: { LARGE?: { url?: string }; MEDIUM?: { url?: string }; SMALL?: { url?: string } } }).images?.MEDIUM?.url ||
+          (mixData as { images?: { LARGE?: { url?: string }; MEDIUM?: { url?: string }; SMALL?: { url?: string } } }).images?.SMALL?.url ||
+          null,
+      }
       : null;
 
     return { mix, tracks };
@@ -635,9 +787,32 @@ export async function getHifiApiInfo() {
 }
 
 export async function getTrackInfo(trackId: number): Promise<TidalTrack | null> {
+  const officialTrack = await fetchOfficialTidalTrack(trackId)
+    .then((track) => mapTrack(track as SourceTrack))
+    .catch(() => null);
+  if (officialTrack) {
+    return officialTrack;
+  }
+
   try {
     const track = await musicCore.getTrackMetadata(trackId);
     return mapTrack(track);
+  } catch {
+    return getVideoInfo(trackId);
+  }
+}
+
+export async function getVideoInfo(videoId: number): Promise<TidalTrack | null> {
+  const officialVideo = await fetchOfficialTidalVideo(videoId)
+    .then((video) => mapTrack(video as SourceTrack))
+    .catch(() => null);
+  if (officialVideo) {
+    return officialVideo;
+  }
+
+  try {
+    const video = await musicCore.getVideo(videoId);
+    return mapTrack(video.track);
   } catch {
     return null;
   }
@@ -657,24 +832,46 @@ export async function getStreamUrl(trackId: number, quality = "HIGH"): Promise<s
 }
 
 export async function getPlaybackSource(trackId: number, quality = "HIGH"): Promise<PlaybackSource | null> {
+  const resolution = await getPlaybackSourceWithQuality(trackId, quality);
+  return resolution?.source || null;
+}
+
+export async function getPlaybackSourceWithQuality(trackId: number, quality = "HIGH"): Promise<PlaybackSourceResolution | null> {
+  let lastError: unknown = null;
   for (const attempt of qualityAttempts(quality)) {
     const cacheKey = `${trackId}:${attempt}`;
     const cached = playbackSourceCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      return {
+        quality: normalizeResolvedAudioQuality(attempt),
+        capability: null,
+        source: cached,
+      };
+    }
 
     try {
       const lookup = await musicCore.getTrack(trackId, attempt);
+      const capability = normalizeResolvedAudioQuality(deriveTrackQuality(lookup.track) || lookup.track?.audioQuality);
       const source = lookup.originalTrackUrl
         ? { url: lookup.originalTrackUrl, type: "direct" as const }
-        : decodePlaybackSource(lookup.info.manifest);
+        : decodePlaybackSource(lookup.info.manifest, lookup.info.manifestMimeType);
 
       if (!source) continue;
 
       playbackSourceCache.set(cacheKey, source);
-      return source;
-    } catch {
+      return {
+        quality: normalizeResolvedAudioQuality(attempt),
+        capability,
+        source,
+      };
+    } catch (error) {
+      lastError = error;
       continue;
     }
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 
   return null;
@@ -692,26 +889,26 @@ async function requestLyrics(trackId: number): Promise<LyricsResult> {
   if (cached) return cached;
 
   const instanceUrls = await getLyricsInstanceUrls();
-  for (const instanceUrl of instanceUrls) {
-    try {
-      const response = await fetchJsonWithTimeout(
-        buildInstanceUrl(instanceUrl, `/lyrics/?id=${trackId}`),
-        3500,
-      );
-      if (!response.ok) continue;
+  const fetchFromInstance = async (instanceUrl: string): Promise<LyricsResult> => {
+    const response = await fetchJsonWithTimeout(
+      buildInstanceUrl(instanceUrl, `/lyrics/?id=${trackId}`),
+      3000,
+    );
+    if (!response.ok) throw new Error("Not found");
 
-      const payload = await response.json().catch(() => null);
-      const parsed = parseLyricsPayload(payload, instanceUrl);
-      if (parsed.lines.length > 0) {
-        lyricsCache.set(trackId, parsed);
-        return parsed;
-      }
-    } catch {
-      continue;
-    }
+    const payload = await response.json().catch(() => null);
+    const parsed = parseLyricsPayload(payload, instanceUrl);
+    if (parsed.lines.length > 0) return parsed;
+    throw new Error("No lines");
+  };
+
+  try {
+    const result = await Promise.any(instanceUrls.map(fetchFromInstance));
+    lyricsCache.set(trackId, result);
+    return result;
+  } catch {
+    return createEmptyLyricsResult();
   }
-
-  return createEmptyLyricsResult();
 }
 
 function mergeInstanceUrls(primary: string[], secondary: readonly string[]) {
@@ -820,7 +1017,6 @@ function parseLyricsPayload(payload: unknown, instanceUrl: string): LyricsResult
     data?: {
       lyrics?: { subtitles?: unknown; lyrics?: unknown; lyricsProvider?: unknown; isRightToLeft?: unknown };
       subtitles?: unknown;
-      lyrics?: unknown;
     };
     subtitles?: unknown;
   };
@@ -879,8 +1075,7 @@ function parseLyricsPayload(payload: unknown, instanceUrl: string): LyricsResult
 }
 
 async function findLyricsFallbackTracks(track: TidalTrack) {
-  const artistName = track.artist?.name || track.artists?.[0]?.name || "";
-  const query = [artistName, track.title].filter(Boolean).join(" ").trim();
+  const query = getCleanLyricsSearchQuery(track);
   if (!query) return [];
 
   try {
@@ -895,28 +1090,28 @@ export async function getLyrics(trackId: number): Promise<LyricsResult> {
   const attemptedIds = new Set<number>();
 
   const tryTrack = async (candidateId: number) => {
-    if (!candidateId || attemptedIds.has(candidateId)) return createEmptyLyricsResult();
+    if (!candidateId || attemptedIds.has(candidateId)) throw new Error("Invalid or tried");
     attemptedIds.add(candidateId);
-    return requestLyrics(candidateId);
+    const result = await requestLyrics(candidateId);
+    if (result.lines.length > 0) return result;
+    throw new Error("No lines");
   };
 
-  const directLyrics = await tryTrack(trackId);
-  if (directLyrics.lines.length > 0) {
-    return directLyrics;
-  }
+  try {
+    // Try direct track first
+    return await tryTrack(trackId);
+  } catch {
+    // If direct fails, try all fallbacks in parallel
+    try {
+      const track = await getTrackInfo(trackId);
+      if (!track) return createEmptyLyricsResult();
 
-  const track = await getTrackInfo(trackId);
-  if (!track) {
-    return createEmptyLyricsResult();
-  }
+      const fallbackIds = await findLyricsFallbackTracks(track);
+      if (fallbackIds.length === 0) return createEmptyLyricsResult();
 
-  const fallbackIds = await findLyricsFallbackTracks(track);
-  for (const fallbackId of fallbackIds) {
-    const fallbackLyrics = await tryTrack(fallbackId);
-    if (fallbackLyrics.lines.length > 0) {
-      return fallbackLyrics;
+      return await Promise.any(fallbackIds.map(id => tryTrack(id)));
+    } catch {
+      return createEmptyLyricsResult();
     }
   }
-
-  return createEmptyLyricsResult();
 }

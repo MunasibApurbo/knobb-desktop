@@ -9,8 +9,8 @@ import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail
 import { DetailHero } from "@/components/detail/DetailHero";
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import { PageTransition } from "@/components/PageTransition";
-import { LoadingSkeleton, TrackListSkeleton } from "@/components/LoadingSkeleton";
 import { Play, Pause, Shuffle, Heart, Share, AlertCircle } from "lucide-react";
+import { ArtistContextMenu } from "@/components/ArtistContextMenu";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -32,7 +32,7 @@ export default function ArtistMixPage() {
   const { isLiked, toggleLike } = useLikedSongs();
   const { user } = useAuth();
   const { isFavorite, toggleFavorite } = useFavoriteArtists();
-  const { artist, loading, radioLoading, radioTracks, scrollY, topTracks } = useArtistPageData({
+  const { artist, loading, radioLoading, radioTracks, topTracks } = useArtistPageData({
     artistName,
     id,
     includeRadio: true,
@@ -71,14 +71,27 @@ export default function ArtistMixPage() {
     },
   } : null);
 
-  if (loading && !artist) return <LoadingSkeleton variant="detail" />;
-
-  if (!artist) {
+  if (!artist && !loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <AlertCircle className="w-12 h-12 text-muted-foreground" />
         <p className="text-muted-foreground text-lg font-medium">Artist mix not found</p>
       </div>
+    );
+  }
+
+  if (!artist) {
+    return (
+      <PageTransition>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="page-shell">
+          <DetailHero
+            artworkUrl={topTracks[0]?.coverUrl || "/placeholder.svg"}
+            label="Mix"
+            title={artistName ? `${artistName} Mix` : "Artist Mix"}
+            body={<p>Opening the artist mix.</p>}
+          />
+        </motion.div>
+      </PageTransition>
     );
   }
 
@@ -142,11 +155,19 @@ export default function ArtistMixPage() {
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="page-shell">
         <DetailHero
           artworkUrl={artistImageUrl || radioTracks[0]?.coverUrl || topTracks[0]?.coverUrl || "/placeholder.svg"}
+          artworkWrapper={(artwork) => (
+            <ArtistContextMenu
+              artistId={artist.id}
+              artistName={artist.name}
+              artistImageUrl={artistImageUrl || radioTracks[0]?.coverUrl || topTracks[0]?.coverUrl || "/placeholder.svg"}
+            >
+              {artwork}
+            </ArtistContextMenu>
+          )}
           label={pageLabel}
-          scrollY={scrollY}
           title={pageTitle}
           body={
             <>
@@ -204,11 +225,7 @@ export default function ArtistMixPage() {
           </Button>
         </DetailActionBar>
 
-        {radioLoading && radioTracks.length === 0 ? (
-          <section className="border border-white/10 bg-white/[0.02]">
-            <TrackListSkeleton count={8} />
-          </section>
-        ) : radioTracks.length > 0 ? (
+        {radioTracks.length > 0 ? (
           <section className="border border-white/10 bg-white/[0.02]">
             <div>
               {radioTracks.map((track, i) => {
@@ -240,7 +257,7 @@ export default function ArtistMixPage() {
           </section>
         ) : (
           <p className="text-center text-muted-foreground text-sm py-10">
-            No tracks found for this {hasArtistMix ? "mix" : "radio"}.
+            {radioLoading ? `Opening ${hasArtistMix ? "mix" : "radio"} tracks...` : `No tracks found for this ${hasArtistMix ? "mix" : "radio"}.`}
           </p>
         )}
       </motion.div>

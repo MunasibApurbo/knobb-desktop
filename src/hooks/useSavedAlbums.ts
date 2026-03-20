@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { scheduleBackgroundTask } from "@/lib/performanceProfile";
 import { getSupabaseClient } from "@/lib/runtimeModules";
+import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
 
 export interface SavedAlbum {
   id: string;
@@ -15,7 +15,7 @@ export interface SavedAlbum {
 }
 
 interface SavedAlbumInput {
-  albumId: number;
+  albumId: number | string;
   albumTitle: string;
   albumArtist: string;
   albumCoverUrl?: string | null;
@@ -53,16 +53,55 @@ const sortByCreatedAtDesc = (albums: SavedAlbum[]) =>
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
-export function useSavedAlbums() {
+const SAVED_ALBUMS_STORAGE_KEY_PREFIX = "knobb-saved-albums:v1";
+
+function getSavedAlbumsStorageKey(userId: string) {
+  return `${SAVED_ALBUMS_STORAGE_KEY_PREFIX}:${userId}`;
+}
+
+function readCachedSavedAlbums(userId: string | null) {
+  if (!userId) return [];
+
+  const raw = safeStorageGetItem(getSavedAlbumsStorageKey(userId));
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return sortByCreatedAtDesc(
+      parsed.map(normalizeSavedAlbum).filter(Boolean) as SavedAlbum[],
+    );
+  } catch {
+    return [];
+  }
+}
+
+function useSavedAlbumsState() {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>([]);
+  const [savedAlbums, setSavedAlbums] = useState<SavedAlbum[]>(() => readCachedSavedAlbums(userId));
   const [loading, setLoading] = useState(false);
   const savedAlbumsRef = useRef<SavedAlbum[]>([]);
+  const hydratedUserIdRef = useRef<string | null>(userId);
 
   useEffect(() => {
     savedAlbumsRef.current = savedAlbums;
   }, [savedAlbums]);
+
+  useEffect(() => {
+    if (!userId) return;
+    safeStorageSetItem(getSavedAlbumsStorageKey(userId), JSON.stringify(savedAlbums));
+  }, [savedAlbums, userId]);
+
+  useEffect(() => {
+    if (hydratedUserIdRef.current === userId) return;
+
+    hydratedUserIdRef.current = userId;
+    const cachedSavedAlbums = readCachedSavedAlbums(userId);
+    savedAlbumsRef.current = cachedSavedAlbums;
+    setSavedAlbums(cachedSavedAlbums);
+  }, [userId]);
 
   const refresh = useCallback(async () => {
     if (!user) {
@@ -96,14 +135,7 @@ export function useSavedAlbums() {
   }, [user]);
 
   useEffect(() => {
-    if (!user) {
-      void refresh();
-      return;
-    }
-
-    return scheduleBackgroundTask(() => {
-      void refresh();
-    }, 900);
+    void refresh();
   }, [refresh, user]);
 
   useEffect(() => {
@@ -111,32 +143,30 @@ export function useSavedAlbums() {
 
     let active = true;
     let channel: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabaseClient>>["channel"]>> | null = null;
-    const cancel = scheduleBackgroundTask(() => {
-      void (async () => {
-        const supabase = await getSupabaseClient();
-        if (!active) return;
 
-        channel = supabase
-          .channel(`saved-albums:${userId}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "saved_albums",
-              filter: `user_id=eq.${userId}`,
-            },
-            () => {
-              void refresh();
-            }
-          )
-          .subscribe();
-      })();
-    }, 1400);
+    void (async () => {
+      const supabase = await getSupabaseClient();
+      if (!active) return;
+
+      channel = supabase
+        .channel(`saved-albums:${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "saved_albums",
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            void refresh();
+          }
+        )
+        .subscribe();
+    })();
 
     return () => {
       active = false;
-      cancel();
       if (channel) {
         void getSupabaseClient().then((supabase) => supabase.removeChannel(channel!));
       }
@@ -144,7 +174,7 @@ export function useSavedAlbums() {
   }, [refresh, userId]);
 
   const isSaved = useCallback(
-    (albumId: number) => savedAlbums.some((album) => album.album_id === albumId),
+    (albumId: number | string) => typeof albumId === "number" && savedAlbums.some((album) => album.album_id === albumId),
     [savedAlbums]
   );
 
@@ -158,6 +188,11 @@ export function useSavedAlbums() {
     }: SavedAlbumInput) => {
       if (!user) {
         toast.error("Sign in to save albums");
+        return false;
+      }
+
+      if (typeof albumId !== "number") {
+        toast.error("Saving albums is currently available for TIDAL albums only");
         return false;
       }
 
@@ -213,8 +248,9 @@ export function useSavedAlbums() {
   );
 
   const removeSavedAlbum = useCallback(
-    async (albumId: number) => {
+    async (albumId: number | string) => {
       if (!user) return false;
+      if (typeof albumId !== "number") return false;
 
       const nextSavedAlbums = savedAlbumsRef.current.filter(
         (album) => album.album_id !== albumId
@@ -265,4 +301,22 @@ export function useSavedAlbums() {
     }),
     [addSavedAlbum, isSaved, loading, refresh, removeSavedAlbum, savedAlbums, toggleSavedAlbum],
   );
+}
+
+type SavedAlbumsContextValue = ReturnType<typeof useSavedAlbumsState>;
+
+const SavedAlbumsContext = createContext<SavedAlbumsContextValue | null>(null);
+
+export function SavedAlbumsProvider({ children }: { children: ReactNode }) {
+  const value = useSavedAlbumsState();
+  return createElement(SavedAlbumsContext.Provider, { value }, children);
+}
+
+export function useSavedAlbums() {
+  const context = useContext(SavedAlbumsContext);
+  if (!context) {
+    throw new Error("useSavedAlbums must be used within SavedAlbumsProvider");
+  }
+
+  return context;
 }

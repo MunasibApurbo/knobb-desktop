@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knobb Mobile Contact Reference</title>
+    <style>
+      :root {
+        --bg: #050505;
+        --surface: #111111;
+        --surface-soft: rgba(255, 255, 255, 0.04);
+        --text: #f6f6f6;
+        --muted: #b7b7b7;
+        --line: rgba(255, 255, 255, 0.12);
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 15% 12%, rgba(255, 255, 255, 0.08), transparent 26%),
+          radial-gradient(circle at 88% 88%, rgba(255, 255, 255, 0.06), transparent 24%),
+          linear-gradient(180deg, #080808 0%, #000 100%);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .page-shell {
+        min-height: 100vh;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem;
+        backdrop-filter: blur(20px);
+        background: rgba(5, 5, 5, 0.72);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.65rem;
+        font-size: 0.95rem;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background:
+          radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.15) 28%, transparent 30%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04));
+      }
+
+      .topbar-cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.75rem;
+        padding: 0 1rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface-soft);
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .section {
+        padding: 1rem;
+      }
+
+      .intro-card,
+      .form-card {
+        border: 1px solid var(--line);
+        border-radius: 1.6rem;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+        box-shadow: var(--shadow);
+      }
+
+      .intro-card {
+        padding: 1.2rem;
+        margin-top: 1rem;
+      }
+
+      .label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0 0.75rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface-soft);
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        line-height: 0.92;
+        letter-spacing: -0.05em;
+        text-transform: uppercase;
+        font-style: italic;
+      }
+
+      h1 {
+        margin-top: 1rem;
+        font-size: clamp(2.6rem, 13vw, 4rem);
+      }
+
+      h2 {
+        font-size: 1.7rem;
+      }
+
+      .intro-copy,
+      .field-note {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .intro-copy {
+        margin-top: 0.95rem;
+      }
+
+      .contact-points {
+        display: grid;
+        gap: 0.85rem;
+        margin-top: 1.2rem;
+      }
+
+      .contact-point {
+        padding: 0.95rem 1rem;
+        border-radius: 1.15rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .contact-point strong {
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.74rem;
+        color: var(--muted);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .contact-point span {
+        display: block;
+        font-size: 1rem;
+      }
+
+      .form-card {
+        padding: 1.2rem;
+        margin-top: 1rem;
+      }
+
+      .form-copy {
+        margin: 0.65rem 0 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .form-grid {
+        display: grid;
+        gap: 0.9rem;
+        margin-top: 1.15rem;
+      }
+
+      .field {
+        display: grid;
+        gap: 0.45rem;
+      }
+
+      .field label {
+        font-size: 0.76rem;
+        font-weight: 700;
+        color: var(--muted);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .field input,
+      .field select,
+      .field textarea {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        background: #161616;
+        color: var(--text);
+        padding: 0.95rem 1rem;
+        font: inherit;
+      }
+
+      .field textarea {
+        min-height: 9rem;
+        resize: vertical;
+      }
+
+      .submit {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 3rem;
+        padding: 0 1.15rem;
+        border-radius: 999px;
+        border: 1px solid #fff;
+        background: #fff;
+        color: #000;
+        font-size: 0.9rem;
+        font-weight: 700;
+      }
+
+      .submit-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      @media (min-width: 720px) {
+        .page-shell {
+          max-width: 430px;
+          margin: 0 auto;
+          border-left: 1px solid rgba(255, 255, 255, 0.06);
+          border-right: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(0, 0, 0, 0.8);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Extracted from src/pages/landing/LandingContactPage.tsx for mobile redesign work -->
+    <main class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>Knobb</span>
+        </a>
+        <a class="topbar-cta" href="/auth">Unlock Library</a>
+      </header>
+
+      <section class="section">
+        <article class="intro-card">
+          <span class="label">Let&apos;s Connect</span>
+          <h1>Start A Project With Knobb</h1>
+          <p class="intro-copy">
+            The current contact page is positioned like a premium project inquiry surface: direct, design-forward, and focused on turning interest into a conversation.
+          </p>
+
+          <div class="contact-points">
+            <div class="contact-point">
+              <strong>Project Inquiries</strong>
+              <span>hello@knobb.app</span>
+            </div>
+            <div class="contact-point">
+              <strong>Social</strong>
+              <span>@knobb_music</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="form-card">
+          <h2>Tell Us About Your Vision</h2>
+          <p class="form-copy">
+            This mirrors the current mobile contact form content and field order while stripping away the heavier animation layer for easier redesign in Stitch.
+          </p>
+
+          <form class="form-grid">
+            <div class="field">
+              <label for="firstName">First Name</label>
+              <input id="firstName" name="firstName" placeholder="Your first name" />
+            </div>
+
+            <div class="field">
+              <label for="lastName">Last Name</label>
+              <input id="lastName" name="lastName" placeholder="Your last name" />
+            </div>
+
+            <div class="field">
+              <label for="email">Email Address</label>
+              <input id="email" name="email" placeholder="your@email.com" />
+            </div>
+
+            <div class="field">
+              <label for="phone">Phone Number</label>
+              <input id="phone" name="phone" placeholder="+1 (555) 123-4567" />
+            </div>
+
+            <div class="field">
+              <label for="projectType">Project Type</label>
+              <select id="projectType" name="projectType">
+                <option>Website Development</option>
+                <option>Web Application</option>
+                <option>Mobile Application</option>
+                <option>E-commerce Platform</option>
+                <option>Website Redesign</option>
+                <option>Consultation</option>
+                <option>Other</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="message">Project Details</label>
+              <textarea
+                id="message"
+                name="message"
+                placeholder="Tell me about your project, goals, timeline, and budget..."
+              ></textarea>
+            </div>
+
+            <div class="submit-row">
+              <button class="submit" type="button">Send Message</button>
+              <span class="field-note">Current contact page promises a reply within 24 hours.</span>
+            </div>
+          </form>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

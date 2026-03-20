@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS public.playback_sessions (
   device_name TEXT NOT NULL,
   current_track_data JSONB,
   queue_data JSONB NOT NULL DEFAULT '[]'::jsonb,
-  current_time DOUBLE PRECISION NOT NULL DEFAULT 0,
+  position_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
   duration DOUBLE PRECISION NOT NULL DEFAULT 0,
   quality TEXT NOT NULL DEFAULT 'HIGH',
   is_playing BOOLEAN NOT NULL DEFAULT false,

@@ -30,6 +30,15 @@ let latestBridgeStatus: BridgeStatusResponse = {
 };
 let probeBridgeStatus: (() => Promise<void>) | null = null;
 
+function normalizeBridgeStatus(status: Partial<BridgeStatusResponse> | null | undefined): BridgeStatusResponse {
+  return {
+    ok: Boolean(status?.ok),
+    configured: Boolean(status?.configured),
+    discordConnected: Boolean(status?.discordConnected),
+    ...(status?.bridgeVersion ? { bridgeVersion: status.bridgeVersion } : {}),
+  };
+}
+
 function dispatchBridgeStatus(status: BridgeStatusResponse) {
   latestBridgeStatus = status;
   window.dispatchEvent(new CustomEvent<BridgeStatusResponse>(BRIDGE_STATUS_EVENT, {
@@ -75,7 +84,7 @@ export function installLocalDiscordPresenceBridge() {
     let stopped = false;
     const syncExistingBridgeStatus = async () => {
       try {
-        const nextStatus = await existingBridge.getStatus?.();
+        const nextStatus = normalizeBridgeStatus(await existingBridge.getStatus?.());
         if (!stopped && nextStatus) {
           dispatchBridgeStatus(nextStatus);
         }
@@ -87,7 +96,7 @@ export function installLocalDiscordPresenceBridge() {
     };
 
     const unsubscribe = existingBridge.onStatus?.((nextStatus) => {
-      dispatchBridgeStatus(nextStatus);
+      dispatchBridgeStatus(normalizeBridgeStatus(nextStatus));
     });
 
     void syncExistingBridgeStatus();
@@ -95,6 +104,80 @@ export function installLocalDiscordPresenceBridge() {
       stopped = true;
       if (typeof unsubscribe === "function") {
         unsubscribe();
+      }
+    };
+  }
+
+  const desktopBridge = window.knobbDesktop;
+  if (
+    desktopBridge?.isDesktopApp
+    && typeof desktopBridge.getDiscordPresenceStatus === "function"
+    && typeof desktopBridge.setDiscordPresenceActivity === "function"
+    && typeof desktopBridge.clearDiscordPresenceActivity === "function"
+  ) {
+    let stopped = false;
+    let latestStatus = latestBridgeStatus;
+
+    const updateStatus = (nextStatus: BridgeStatusResponse) => {
+      const changed = latestStatus.ok !== nextStatus.ok
+        || latestStatus.configured !== nextStatus.configured
+        || latestStatus.discordConnected !== nextStatus.discordConnected
+        || latestStatus.bridgeVersion !== nextStatus.bridgeVersion;
+
+      latestStatus = nextStatus;
+      if (changed) {
+        dispatchBridgeStatus(nextStatus);
+      }
+    };
+
+    const probeStatus = async () => {
+      try {
+        const nextStatus = normalizeBridgeStatus(await desktopBridge.getDiscordPresenceStatus());
+        if (!stopped) {
+          updateStatus(nextStatus);
+        }
+      } catch {
+        if (!stopped) {
+          updateStatus(getOfflineStatus());
+        }
+      }
+    };
+    probeBridgeStatus = probeStatus;
+
+    const bridge: DiscordPresenceBridge = {
+      isAvailable: () => latestStatus.ok && latestStatus.configured,
+      getStatus: async () => latestStatus,
+      setActivity: async (activity) => {
+        await desktopBridge.setDiscordPresenceActivity?.(activity);
+        await probeStatus();
+      },
+      clearActivity: async () => {
+        await desktopBridge.clearDiscordPresenceActivity?.();
+        await probeStatus();
+      },
+      onStatus: (listener) => desktopBridge.onDiscordPresenceStatus?.((status) => {
+        const nextStatus = normalizeBridgeStatus(status);
+        updateStatus(nextStatus);
+        listener(nextStatus);
+      }),
+    };
+
+    window.__KNOBB_DISCORD_RPC__ = bridge;
+    const unsubscribe = desktopBridge.onDiscordPresenceStatus?.((status) => {
+      updateStatus(normalizeBridgeStatus(status));
+    });
+    void probeStatus();
+
+    return () => {
+      stopped = true;
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
+      if (window.__KNOBB_DISCORD_RPC__ === bridge) {
+        delete window.__KNOBB_DISCORD_RPC__;
+      }
+      if (probeBridgeStatus === probeStatus) {
+        probeBridgeStatus = null;
       }
     };
   }

@@ -3,8 +3,6 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { compareReleaseVersions, readJson } from "./mac-update-feed.mjs";
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 const packageJsonPath = path.join(projectRoot, "package.json");
@@ -54,6 +52,20 @@ function formatSemver({ major, minor, patch }) {
   return `${major}.${minor}.${patch}`;
 }
 
+function compareSemver(left, right) {
+  const leftVersion = parseSemver(left);
+  const rightVersion = parseSemver(right);
+
+  if (leftVersion.major !== rightVersion.major) {
+    return Math.sign(leftVersion.major - rightVersion.major);
+  }
+  if (leftVersion.minor !== rightVersion.minor) {
+    return Math.sign(leftVersion.minor - rightVersion.minor);
+  }
+
+  return Math.sign(leftVersion.patch - rightVersion.patch);
+}
+
 function bumpVersion(currentVersion, bump) {
   const parsed = parseSemver(currentVersion);
 
@@ -72,6 +84,11 @@ function bumpVersion(currentVersion, bump) {
   fail(`Unsupported bump target: ${bump}`);
 }
 
+async function readJson(filePath) {
+  const source = await fs.readFile(filePath, "utf8");
+  return JSON.parse(source);
+}
+
 async function writeJson(filePath, value) {
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -88,14 +105,14 @@ async function main() {
     ? formatSemver(parseSemver(options.version))
     : bumpVersion(currentVersion, String(options.bump || "patch").trim());
 
-  if (compareReleaseVersions(nextVersion, currentVersion) <= 0) {
+  if (compareSemver(nextVersion, currentVersion) <= 0) {
     fail(`Next version (${nextVersion}) must be newer than the current package.json version (${currentVersion}).`);
   }
 
   packageJson.version = nextVersion;
   await writeJson(packageJsonPath, packageJson);
 
-  const packageLock = await readJson(packageLockPath, null);
+  const packageLock = await readJson(packageLockPath).catch(() => null);
   if (packageLock) {
     packageLock.version = nextVersion;
     if (packageLock.packages?.[""]) {
@@ -108,8 +125,8 @@ async function main() {
   console.log("Next steps:");
   console.log("1. Commit package.json and package-lock.json");
   console.log(`2. Push a matching git tag like v${nextVersion}`);
-  console.log("3. GitHub Actions publishes the signed Knobb Desktop installers");
-  console.log("4. GitHub Actions uploads the Discord Companion installers to the same release");
+  console.log("3. GitHub Actions publishes the macOS and Windows installers");
+  console.log("4. Windows desktop clients auto-update from the tagged release");
 }
 
 void main().catch((error) => {

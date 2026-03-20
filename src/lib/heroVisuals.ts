@@ -97,9 +97,12 @@ radial-gradient(circle at 26% 88%, hsl(${formatHeroColorSource(base)} / 0.18), t
 }
 
 export function getHeroScrollStyles(scrollY: number) {
+  const normalizedScrollY = Number.isFinite(scrollY) ? Math.max(0, scrollY) : 0;
+  const boundedProgress = Math.min(normalizedScrollY / 320, 1);
+
   return {
-    scrollScale: 1 + scrollY * 0.001,
-    scrollBlur: Math.min(scrollY * 0.05, 12),
-    scrollOpacity: Math.max(1 - scrollY * 0.002, 0.4),
+    scrollScale: 1 + boundedProgress * 0.12,
+    scrollBlur: boundedProgress * 16,
+    scrollOpacity: Math.max(1 - normalizedScrollY * 0.0007, 0.84),
   };
 }

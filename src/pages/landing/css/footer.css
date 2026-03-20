@@ -1,0 +1,158 @@
+/* footer */
+.landing-wrapper footer {
+    position: relative;
+    width: 100vw;
+    min-height: var(--landing-screen-height);
+    height: var(--landing-screen-height);
+    background-color: #000;
+    color: #fff;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 100;
+  }
+  
+  .landing-wrapper footer .footer-container {
+    position: relative;
+    width: 100%;
+    max-width: min(100%, calc(var(--landing-content-max-width, 1600px) + (max(1rem, var(--landing-section-gutter, 2rem)) * 2)));
+    height: 100%;
+    margin: 0 auto;
+    padding: 15vh max(1rem, var(--landing-section-gutter, 2rem)) 4em;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  /* Entrance animations for footer content */
+  .landing-wrapper footer .footer-top,
+  .landing-wrapper footer .footer-separator,
+  .landing-wrapper footer .footer-bottom {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .landing-wrapper footer.is-visible .footer-top,
+  .landing-wrapper footer.is-visible .footer-separator,
+  .landing-wrapper footer.is-visible .footer-bottom {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  
+  .landing-wrapper footer .footer-top {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 4em; /* Increased spacing */
+    position: relative;
+    z-index: 10;
+    gap: clamp(2rem, 5vw, 6rem); /* Added robust gap */
+  }
+  
+  .landing-wrapper footer .footer-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8em; /* Relaxed gap */
+    font-size: 0.75rem; /* Slightly smaller for cleaner look */
+    letter-spacing: 0.15em; /* Increased readability */
+    text-transform: uppercase;
+  }
+  
+  .landing-wrapper footer .footer-label {
+    opacity: 0.4;
+    margin-bottom: 1em;
+    font-weight: 600;
+  }
+  
+  .landing-wrapper footer .footer-col a {
+    color: #fff;
+    text-decoration: none;
+    transition: opacity 0.3s;
+  }
+  
+  .landing-wrapper footer .footer-col a:hover {
+    opacity: 0.6;
+  }
+  
+  .landing-wrapper footer .footer-separator {
+    width: 100%;
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.1);
+    margin: 2em 0;
+    position: relative;
+    z-index: 10;
+  }
+  
+  .landing-wrapper footer .footer-header {
+    position: absolute;
+    bottom: 0px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    overflow: visible;
+    z-index: 0;
+    pointer-events: none;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+  }
+  
+  .landing-wrapper footer .footer-header h1 {
+    font-size: 28vw;
+    font-weight: 900;
+    font-style: normal;
+    line-height: 0.75;
+    margin: 0;
+    padding: 0;
+    letter-spacing: -0.1em;
+    text-transform: uppercase;
+    color: #fff;
+    will-change: transform;
+    transform-origin: bottom center;
+    white-space: nowrap;
+  }
+
+  .landing-wrapper[data-landing-viewport="tablet"] footer,
+  .landing-wrapper[data-landing-height="short"] footer {
+    min-height: clamp(30rem, 78svh, 42rem);
+    height: auto;
+  }
+
+  .landing-wrapper[data-landing-viewport="tablet"] footer .footer-container,
+  .landing-wrapper[data-landing-height="short"] footer .footer-container {
+    min-height: inherit;
+    padding-top: clamp(5rem, 12vh, 7rem);
+    padding-bottom: 2rem;
+  }
+
+  .landing-wrapper[data-landing-viewport="tablet"] footer .footer-top,
+  .landing-wrapper[data-landing-height="short"] footer .footer-top {
+    flex-wrap: wrap;
+    gap: 1.5rem 2rem;
+    margin-bottom: 2rem;
+  }
+
+  .landing-wrapper[data-landing-viewport="tablet"] footer .footer-col,
+  .landing-wrapper[data-landing-height="short"] footer .footer-col {
+    min-width: min(100%, 14rem);
+  }
+
+  .landing-wrapper[data-landing-viewport="tablet"] footer .footer-header h1,
+  .landing-wrapper[data-landing-height="short"] footer .footer-header h1 {
+    font-size: clamp(7rem, 24vw, 15rem);
+  }
+  
+  @media (max-width: 1000px) {
+    .landing-wrapper footer .footer-top {
+      flex-direction: column;
+      gap: 2em;
+    }
+    
+    .landing-wrapper footer .footer-header h1 {
+        font-size: 35vw;
+    }
+  }
+  

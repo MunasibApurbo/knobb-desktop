@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Heart, Music, Play, Share2, UserRound } from "lucide-react";
+import { Heart, Music, Play, Share, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useFavoriteArtists } from "@/contexts/FavoriteArtistsContext";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayerCommands } from "@/contexts/PlayerContext";
 import { getTidalImageUrl, searchArtists } from "@/lib/musicApi";
 import {
   ContextMenu,
@@ -22,9 +22,10 @@ import {
 } from "@/lib/mediaNavigation";
 
 interface ArtistContextMenuProps {
-  artistId?: number;
+  artistId?: number | string;
   artistName: string;
   artistImageUrl?: string | null;
+  source?: "tidal" | "youtube-music";
   children: React.ReactNode;
 }
 
@@ -32,22 +33,27 @@ export function ArtistContextMenu({
   artistId,
   artistName,
   artistImageUrl,
+  source = "tidal",
   children,
 }: ArtistContextMenuProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { playArtist } = usePlayer();
+  const { playArtist } = usePlayerCommands();
   const { isFavorite, toggleFavorite } = useFavoriteArtists();
   const [isSaving, setIsSaving] = useState(false);
-  const [resolvedArtistId, setResolvedArtistId] = useState<number | null>(artistId ?? null);
+  const [resolvedArtistId, setResolvedArtistId] = useState<number | string | null>(artistId ?? null);
+  const [resolvedArtistSource, setResolvedArtistSource] = useState<"tidal" | "youtube-music">(source);
   const [resolvedArtistImageUrl, setResolvedArtistImageUrl] = useState<string | null>(artistImageUrl ?? null);
 
-  const favorite = resolvedArtistId ? isFavorite(resolvedArtistId) : false;
+  const favorite = typeof resolvedArtistId === "number" && resolvedArtistSource === "tidal"
+    ? isFavorite(resolvedArtistId)
+    : false;
 
   const resolveArtistReference = async () => {
     if (resolvedArtistId) {
       return {
         id: resolvedArtistId,
+        source: resolvedArtistSource,
         imageUrl: resolvedArtistImageUrl || undefined,
       };
     }
@@ -66,10 +72,12 @@ export function ArtistContextMenu({
 
     const nextImageUrl = match.picture ? getTidalImageUrl(match.picture, "1080x720") : resolvedArtistImageUrl || undefined;
     setResolvedArtistId(match.id);
+    setResolvedArtistSource("tidal");
     setResolvedArtistImageUrl(nextImageUrl || null);
 
     return {
       id: match.id,
+      source: "tidal",
       imageUrl: nextImageUrl,
     };
   };
@@ -81,7 +89,7 @@ export function ArtistContextMenu({
       return;
     }
 
-    navigate(buildArtistPath(resolved.id, artistName));
+    navigate(buildArtistPath(resolved.id, artistName, resolved.source as "tidal" | "youtube-music" | "local"));
   };
 
   const handleOpenArtistMix = async () => {
@@ -92,7 +100,7 @@ export function ArtistContextMenu({
       return;
     }
 
-    navigate(buildArtistMixPath(resolved.id, artistName));
+    navigate(buildArtistMixPath(resolved.id, artistName, resolved.source as "tidal" | "youtube-music" | "local"));
   };
 
   const handlePlay = async () => {
@@ -108,6 +116,11 @@ export function ArtistContextMenu({
 
   const handleToggleFavorite = async () => {
     if (isSaving) return;
+
+    if (resolvedArtistSource !== "tidal") {
+      toast.error("Saving favorite artists is currently available for TIDAL artists only");
+      return;
+    }
 
     if (!user) {
       navigate("/auth", { state: { from: `${window.location.pathname}${window.location.search}` } });
@@ -141,7 +154,9 @@ export function ArtistContextMenu({
   };
 
   const handleShare = async () => {
-    const sharePath = resolvedArtistId ? buildArtistPath(resolvedArtistId, artistName) : buildArtistSearchPath(artistName);
+    const sharePath = resolvedArtistId
+      ? buildArtistPath(resolvedArtistId, artistName, resolvedArtistSource)
+      : buildArtistSearchPath(artistName);
 
     await shareOrCopy({
       title: artistName,
@@ -164,13 +179,13 @@ export function ArtistContextMenu({
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem className="gap-2" onClick={() => void handleShare()}>
-          <Share2 className="w-4 h-4" /> Share
+          <Share className="w-4 h-4" /> Share
         </ContextMenuItem>
         <ContextMenuItem className="gap-2" onClick={() => void handleOpenArtistMix()}>
           <Music className="w-4 h-4" /> Open Artist Mix
         </ContextMenuItem>
         <ContextMenuItem className="gap-2" onClick={() => void handleOpenArtist()}>
-          <UserRound className="w-4 h-4" /> Open Artist
+          <User className="w-4 h-4" /> Open Artist
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

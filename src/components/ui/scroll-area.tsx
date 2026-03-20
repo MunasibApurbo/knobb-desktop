@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
 
 type ScrollAreaProps = React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
   forceVisibleScrollbar?: boolean;
-  viewportProps?: React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Viewport>;
+  viewportProps?: React.HTMLAttributes<HTMLDivElement> & {
+    "data-main-scroll-viewport"?: string;
+  };
 };
 
 const ScrollArea = React.forwardRef<
@@ -23,7 +25,7 @@ const ScrollArea = React.forwardRef<
     <div
       ref={ref}
       className={cn(
-        "scroll-area-native overflow-auto overscroll-y-contain",
+        "scroll-area-native min-h-0 min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:auto] [-webkit-overflow-scrolling:touch]",
         hideScrollbarChrome && "scrollbar-hide",
         className,
         viewportClassName,

@@ -17,12 +17,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DESTRUCTIVE_MENU_ITEM_CLASS } from "@/components/ui/surfaceStyles";
 import { PlaylistAccessRole, PlaylistCollaborator, PlaylistVisibility } from "@/hooks/usePlaylists";
 
 const MANAGE_DIALOG_CONTENT_CLASS =
-  "w-[min(960px,calc(100vw-32px))] max-w-[960px] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.12),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[88vh]";
+  "w-[min(960px,calc(100vw-32px))] max-w-[960px] gap-0 overflow-hidden border border-white/10 bg-black/95 p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[88vh]";
 const MANAGE_DIALOG_HEADER_CLASS =
-  "border-b border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.015))] px-6 py-5 text-left";
+  "border-b border-white/10 bg-black/30 px-6 py-5 text-left";
 const MANAGE_DIALOG_KICKER_CLASS =
   "mb-1.5 flex items-center gap-2 text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-white/42";
 
@@ -101,7 +102,7 @@ export function UserPlaylistManageMenu({
           <button
             type="button"
             aria-label="Open playlist options"
-            className="flex h-10 w-10 items-center justify-center border border-white/12 bg-black/20 text-white backdrop-blur-md transition-colors hover:bg-black/35"
+            className="menu-sweep-hover flex h-10 w-10 items-center justify-center border border-white/12 bg-black/20 text-white backdrop-blur-md transition-colors hover:bg-black/35"
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
@@ -121,7 +122,7 @@ export function UserPlaylistManageMenu({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="text-red-400 focus:text-red-300"
+                className={DESTRUCTIVE_MENU_ITEM_CLASS}
                 onSelect={onDeletePlaylist}
               >
                 Delete playlist
@@ -168,8 +169,8 @@ export function UserPlaylistManageMenu({
       </Dialog>
 
       <Dialog open={isCollaboratorsOpen} onOpenChange={setIsCollaboratorsOpen}>
-        <DialogContent className="w-[min(1200px,calc(100vw-32px))] max-w-[1200px] gap-0 overflow-hidden border border-white/10 bg-[radial-gradient(circle_at_top_left,_hsl(var(--player-waveform)/0.12),transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.05),_rgba(255,255,255,0.02)),rgba(0,0,0,0.96)] p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[90vh]">
-          <DialogHeader className="border-b border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.015))] px-6 py-7 text-left sm:px-8">
+        <DialogContent className="w-[min(1200px,calc(100vw-32px))] max-w-[1200px] gap-0 overflow-hidden border border-white/10 bg-black/95 p-0 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)] backdrop-blur-2xl sm:max-h-[90vh]">
+          <DialogHeader className="border-b border-white/10 bg-black/30 px-6 py-7 text-left sm:px-8">
             <div className={MANAGE_DIALOG_KICKER_CLASS}>
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(var(--player-waveform))" }} />
               Playlist management

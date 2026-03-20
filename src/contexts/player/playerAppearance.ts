@@ -2,8 +2,36 @@ import { extractDominantColor } from "@/lib/colorExtractor";
 import { loadMusicApiModule } from "@/lib/runtimeModules";
 import { Track } from "@/types/music";
 import { getResolvableTidalId } from "@/lib/trackIdentity";
+import { getArtworkColorSampleUrl, getTrackArtworkUrl } from "@/lib/trackArtwork";
 
 const DEFAULT_DYNAMIC_ACCENT = "220 70% 55%";
+const DEFAULT_PENDING_DYNAMIC_ACCENT = "0 0% 14%";
+const DEFAULT_PLAYER_WAVEFORM = "0 0% 74%";
+
+// Persistent cache for performance
+const colorCache = new Map<string, string>();
+const SESSION_CACHE_KEY = "knobb-color-cache-v2";
+
+// Try to load cache from session storage
+try {
+  const saved = window.sessionStorage.getItem(SESSION_CACHE_KEY);
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    Object.entries(parsed).forEach(([k, v]) => colorCache.set(k, v as string));
+  }
+} catch {
+  // Ignore
+}
+
+function saveToCache(key: string, value: string) {
+  colorCache.set(key, value);
+  try {
+    const obj = Object.fromEntries(colorCache.entries());
+    window.sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(obj));
+  } catch {
+    // Ignore
+  }
+}
 
 function isHslToken(value: string) {
   return /^-?\d+(?:\.\d+)?\s+\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%$/i.test(value.trim());
@@ -67,23 +95,61 @@ function isPlaceholderAccent(value: string | null | undefined) {
   return normalizeAccentColor(value) === DEFAULT_DYNAMIC_ACCENT;
 }
 
-export function dimWaveformColor(hsl: string, lightnessDrop = 10): string {
+function clampChannel(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeHue(hue: number) {
+  return ((hue % 360) + 360) % 360;
+}
+
+export function dimWaveformColor(hsl: string): string {
   const match = hsl.trim().match(/^(-?\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
   if (!match) return hsl;
 
-  const hue = Number(match[1]);
+  const hue = normalizeHue(Number(match[1]));
   const sat = Number(match[2]);
   const light = Number(match[3]);
-  const nextLight = Math.max(0, Math.min(100, light - lightnessDrop));
+  const isCoolBlue = hue >= 190 && hue <= 255;
+  const isPurple = hue > 255 && hue <= 320;
+  const isWarmGold = hue >= 35 && hue <= 85;
 
-  return `${hue} ${sat}% ${nextLight}%`;
+  if (sat < 16) {
+    return `${Math.round(hue)} ${Math.round(clampChannel(sat * 0.9, 8, 18))}% ${Math.round(clampChannel(light + 12, 60, 76))}%`;
+  }
+
+  const nextSat = clampChannel(
+    sat * (isCoolBlue ? 0.58 : isPurple ? 0.68 : 0.78),
+    isCoolBlue ? 24 : 28,
+    isCoolBlue ? 58 : 72,
+  );
+  const nextLight = clampChannel(
+    light + (light < 50 ? 8 : light > 66 ? -6 : 1) + (isWarmGold ? 3 : 0),
+    isWarmGold ? 48 : 44,
+    isWarmGold ? 66 : 62,
+  );
+
+  return `${Math.round(hue)} ${Math.round(nextSat)}% ${Math.round(nextLight)}%`;
 }
 
-function applyAccentVariables(hsl: string) {
-  const normalized = normalizeAccentColor(hsl) || DEFAULT_DYNAMIC_ACCENT;
+function applyAccentVariables(
+  hsl: string,
+  overrides?: {
+    accentOverride?: string | null;
+    waveformOverride?: string | null;
+  },
+) {
+  const normalized = normalizeAccentColor(overrides?.accentOverride) || normalizeAccentColor(hsl) || DEFAULT_DYNAMIC_ACCENT;
   const root = document.documentElement;
   root.style.setProperty("--dynamic-accent", normalized);
-  root.style.setProperty("--player-waveform", dimWaveformColor(normalized));
+  root.style.setProperty(
+    "--player-waveform",
+    overrides?.waveformOverride
+      ? overrides.waveformOverride
+      : isPlaceholderAccent(normalized)
+        ? DEFAULT_PLAYER_WAVEFORM
+        : dimWaveformColor(normalized),
+  );
   root.style.setProperty("--dynamic-accent-glow", `${normalized} / 0.3`);
 }
 
@@ -101,21 +167,37 @@ export function applyTrackAccent(track: Track | null) {
   if (!track) return () => undefined;
   if (getAccentSourcePreference() === "theme") return () => undefined;
 
-  const baseAccent = normalizeAccentColor(track.canvasColor) || DEFAULT_DYNAMIC_ACCENT;
-  let accentPriority = isPlaceholderAccent(baseAccent) ? 0 : 1;
+  const artworkUrl = getTrackArtworkUrl(track);
+  const artworkColorSampleUrl = getArtworkColorSampleUrl(artworkUrl);
+  const cachedColor = colorCache.get(artworkUrl);
+  const baseAccent = normalizeAccentColor(cachedColor || track.canvasColor) || DEFAULT_DYNAMIC_ACCENT;
+  const pendingPlaceholderAccent = !cachedColor && isPlaceholderAccent(baseAccent);
+  const pendingVideoThumbnailAccent = track.isVideo === true && !cachedColor;
+  const keepPlayerChromeNeutral = pendingVideoThumbnailAccent || pendingPlaceholderAccent;
+  let accentPriority = (cachedColor || !isPlaceholderAccent(baseAccent)) ? 1 : 0;
+
   const applyAccentCandidate = (nextAccent: string | null | undefined, priority: number) => {
     const normalized = normalizeAccentColor(nextAccent);
     if (!normalized || priority < accentPriority) return;
+
+    // If it's a high priority match (extracted or metadata), cache it
+    if (priority >= 1 && artworkUrl) {
+      saveToCache(artworkUrl, normalized);
+    }
+
     accentPriority = priority;
     applyAccentVariables(normalized);
   };
 
-  applyAccentVariables(baseAccent);
+  applyAccentVariables(baseAccent, {
+    accentOverride: keepPlayerChromeNeutral ? DEFAULT_PENDING_DYNAMIC_ACCENT : null,
+    waveformOverride: keepPlayerChromeNeutral ? DEFAULT_PLAYER_WAVEFORM : null,
+  });
 
   let cancelled = false;
   const resolvableTrackId = getResolvableTidalId(track);
 
-  if (resolvableTrackId && accentPriority < 2) {
+  if (track.isVideo !== true && resolvableTrackId && accentPriority < 2) {
     void loadMusicApiModule()
       .then((module) => module.getTrackInfo(resolvableTrackId))
       .then((trackInfo) => {
@@ -126,13 +208,13 @@ export function applyTrackAccent(track: Track | null) {
       .catch(() => undefined);
   }
 
-  // Canvas color extraction varies across browser engines, especially in Firefox.
-  // Keep it as a fallback so the player stays visually consistent with the curated
-  // track/album accent instead of letting sampled cover art override it.
-  void extractDominantColor(track.coverUrl).then((hsl) => {
-    if (cancelled) return;
-    applyAccentCandidate(hsl, 0);
-  });
+  // Re-sample video thumbnails so stale cached accents do not stick across browser sessions.
+  if (!cachedColor || track.isVideo === true) {
+    void extractDominantColor(artworkColorSampleUrl).then((hsl) => {
+      if (cancelled) return;
+      applyAccentCandidate(hsl, track.isVideo ? 3 : 0);
+    });
+  }
 
   return () => {
     cancelled = true;

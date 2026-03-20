@@ -22,7 +22,9 @@ Use this checklist when pushing Knobb live on Netlify for an early public releas
 - deploy required Supabase functions
 - set Supabase Auth site URL to the production Netlify domain
 - add the production `/auth` callback URL to Supabase redirect URLs
-- if Google sign-in is enabled, add the same production domain and callback settings in Google Cloud OAuth
+- if Google or Discord sign-in is enabled, add the same production domain and callback settings in each provider's OAuth app
+  - Supabase provider callback format: `https://<project-ref>.supabase.co/auth/v1/callback`
+  - current project callback: `https://nqggizilkxudjdyxdsnl.supabase.co/auth/v1/callback`
 
 ## Local Release Gates
 
@@ -48,6 +50,7 @@ Run this on the deployed site before broader promotion.
    - sign out
    - password reset
    - Google sign in, if enabled
+   - Discord sign in, if enabled
    - auth callback returns to the app cleanly
 3. Core music flows
    - search returns results

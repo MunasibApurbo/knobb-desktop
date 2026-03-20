@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Disc3, Heart, Play, Share2, UserRound } from "lucide-react";
+import { Disc3, Heart, Play, Share, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlayerCommands } from "@/contexts/PlayerContext";
 import { useSavedAlbums } from "@/hooks/useSavedAlbums";
 import {
   ContextMenu,
@@ -23,7 +23,7 @@ interface AlbumContextMenuProps {
   albumId: number | string;
   title: string;
   artist: string;
-  artistId?: number;
+  artistId?: number | string;
   coverUrl?: string | null;
   year?: number | null;
   children: React.ReactNode;
@@ -40,7 +40,7 @@ export function AlbumContextMenu({
 }: AlbumContextMenuProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { playAlbum } = usePlayer();
+  const { playAlbum } = usePlayerCommands();
   const { isSaved, toggleSavedAlbum } = useSavedAlbums();
   const [isSaving, setIsSaving] = useState(false);
 
@@ -118,7 +118,7 @@ export function AlbumContextMenu({
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem className="gap-2" onClick={() => void handleShare()}>
-          <Share2 className="w-4 h-4" /> Share
+          <Share className="w-4 h-4" /> Share
         </ContextMenuItem>
         <ContextMenuItem className="gap-2" onClick={() => navigate(albumPath)}>
           <Disc3 className="w-4 h-4" /> Open Album
@@ -126,9 +126,9 @@ export function AlbumContextMenu({
         {artistId ? (
           <ContextMenuItem
             className="gap-2"
-            onClick={() => navigate(buildArtistPath(artistId, artist))}
+            onClick={() => navigate(buildArtistPath(artistId, artist, typeof artistId === "string" ? "youtube-music" : "tidal"))}
           >
-            <UserRound className="w-4 h-4" /> Open Artist
+            <User className="w-4 h-4" /> Open Artist
           </ContextMenuItem>
         ) : null}
       </ContextMenuContent>

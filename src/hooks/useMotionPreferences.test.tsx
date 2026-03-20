@@ -5,11 +5,11 @@ import { useMotionPreferences } from "@/hooks/useMotionPreferences";
 const motionPreferenceMocks = vi.hoisted(() => ({
   animationsEnabled: true,
   blurEffects: true,
-  websiteMode: "edgy" as "edgy" | "roundish",
+  websiteMode: "roundish" as const,
   animationMode: "full" as "full" | "off" | "reduced",
-  isMobile: false,
   prefersReducedMotion: false,
   lowEndDevice: false,
+  hasHoverCapablePointer: true,
   strongDesktopEffects: false,
 }));
 
@@ -22,13 +22,10 @@ vi.mock("@/contexts/SettingsContext", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => motionPreferenceMocks.isMobile,
-}));
-
 vi.mock("@/lib/performanceProfile", () => ({
   usePrefersReducedMotion: () => motionPreferenceMocks.prefersReducedMotion,
   useLowEndDevice: () => motionPreferenceMocks.lowEndDevice,
+  useHoverCapablePointer: () => motionPreferenceMocks.hasHoverCapablePointer,
   useStrongDesktopEffects: () => motionPreferenceMocks.strongDesktopEffects,
 }));
 
@@ -36,40 +33,64 @@ describe("useMotionPreferences", () => {
   beforeEach(() => {
     motionPreferenceMocks.animationsEnabled = true;
     motionPreferenceMocks.blurEffects = true;
-    motionPreferenceMocks.websiteMode = "edgy";
+    motionPreferenceMocks.websiteMode = "roundish";
     motionPreferenceMocks.animationMode = "full";
-    motionPreferenceMocks.isMobile = false;
     motionPreferenceMocks.prefersReducedMotion = false;
     motionPreferenceMocks.lowEndDevice = false;
+    motionPreferenceMocks.hasHoverCapablePointer = true;
     motionPreferenceMocks.strongDesktopEffects = false;
   });
 
-  it("keeps the saved website mode on desktop", () => {
-    const { result } = renderHook(() => useMotionPreferences());
-
-    expect(result.current.websiteMode).toBe("edgy");
-    expect(result.current.isRoundish).toBe(false);
-    expect(result.current.motionEnabled).toBe(true);
-  });
-
-  it("forces roundish motion preferences on mobile", () => {
-    motionPreferenceMocks.isMobile = true;
-
+  it("keeps roundish motion preferences on desktop", () => {
     const { result } = renderHook(() => useMotionPreferences());
 
     expect(result.current.websiteMode).toBe("roundish");
     expect(result.current.isRoundish).toBe(true);
-    expect(result.current.allowAmbientMotion).toBe(true);
-    expect(result.current.allowShellAmbientMotion).toBe(true);
+    expect(result.current.motionEnabled).toBe(true);
+    expect(result.current.cardHoverProfile).toBe("balanced");
+    expect(result.current.allowDepthMotion).toBe(false);
+    expect(result.current.allowShellDepthMotion).toBe(false);
+    expect(result.current.preferLightweightMotion).toBe(true);
+    expect(result.current.allowHeavyBlur).toBe(false);
   });
 
-  it("uses strong desktop effects only for shell depth on desktop", () => {
+  it("keeps shell ambient motion disabled on desktop", () => {
     motionPreferenceMocks.strongDesktopEffects = true;
 
     const { result } = renderHook(() => useMotionPreferences());
 
     expect(result.current.motionEnabled).toBe(true);
-    expect(result.current.allowAmbientMotion).toBe(true);
-    expect(result.current.allowShellAmbientMotion).toBe(true);
+    expect(result.current.allowAmbientMotion).toBe(false);
+    expect(result.current.allowShellAmbientMotion).toBe(false);
+    expect(result.current.allowShellDepthMotion).toBe(true);
+    expect(result.current.allowDepthMotion).toBe(true);
+    expect(result.current.allowHeavyBlur).toBe(true);
+    expect(result.current.preferLightweightMotion).toBe(false);
+    expect(result.current.allowRealtimeEffects).toBe(true);
+    expect(result.current.cardHoverProfile).toBe("premium");
+  });
+
+  it("keeps card hover light on low-end devices while disabling depth motion", () => {
+    motionPreferenceMocks.lowEndDevice = true;
+    motionPreferenceMocks.strongDesktopEffects = true;
+
+    const { result } = renderHook(() => useMotionPreferences());
+
+    expect(result.current.motionEnabled).toBe(true);
+    expect(result.current.allowDepthMotion).toBe(false);
+    expect(result.current.preferLightweightMotion).toBe(true);
+    expect(result.current.allowHeavyBlur).toBe(false);
+    expect(result.current.cardHoverProfile).toBe("lite");
+  });
+
+  it("disables hover-heavy card motion on touch-style pointers", () => {
+    motionPreferenceMocks.hasHoverCapablePointer = false;
+    motionPreferenceMocks.strongDesktopEffects = true;
+
+    const { result } = renderHook(() => useMotionPreferences());
+
+    expect(result.current.allowDepthMotion).toBe(false);
+    expect(result.current.allowShellDepthMotion).toBe(false);
+    expect(result.current.cardHoverProfile).toBe("static");
   });
 });

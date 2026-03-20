@@ -9,7 +9,6 @@ import { DetailActionBar, DETAIL_ACTION_BUTTON_CLASS } from "@/components/detail
 import { DetailHero } from "@/components/detail/DetailHero";
 import { TrackListRow } from "@/components/detail/TrackListRow";
 import { PageTransition } from "@/components/PageTransition";
-import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { motion } from "framer-motion";
 import { filterAudioTracks, getMix, tidalTrackToAppTrack } from "@/lib/musicApi";
 import type { TidalMix } from "@/lib/musicApi";
@@ -17,7 +16,6 @@ import type { Track } from "@/types/music";
 import { toast } from "sonner";
 import { TrackContextMenu } from "@/components/TrackContextMenu";
 import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { copyPlainTextToClipboard } from "@/lib/mediaNavigation";
@@ -33,7 +31,6 @@ export default function TrackMixPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [sharePending, setSharePending] = useState(false);
-  const scrollY = useMainScrollY();
   const fetchedRef = useRef<string>("");
 
   const fallbackTitle = searchParams.get("title") || "Track Mix";
@@ -97,9 +94,7 @@ export default function TrackMixPage() {
     void loadMix();
   }, [loadMix, mixId]);
 
-  if (loading) return <LoadingSkeleton variant="detail" />;
-
-  if (error || (!mix && tracks.length === 0)) {
+  if (error || (!loading && !mix && tracks.length === 0)) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-4">
         <AlertCircle className="h-12 w-12 text-muted-foreground" />
@@ -110,6 +105,10 @@ export default function TrackMixPage() {
       </div>
     );
   }
+
+  const resolvedTitle = pageTitle || "Track Mix";
+  const resolvedSubtitle = pageSubtitle;
+  const resolvedDescription = pageDescription;
 
   const isCurrentMix = currentTrack && tracks.some((track) => track.id === currentTrack.id);
 
@@ -127,16 +126,15 @@ export default function TrackMixPage() {
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="page-shell">
         <DetailHero
           artworkUrl={coverUrl}
           label="Mix"
-          scrollY={scrollY}
-          title={pageTitle}
+          title={resolvedTitle}
           body={
             <>
-              {pageSubtitle ? <p>{pageSubtitle}</p> : null}
-              {pageDescription ? <p className="mt-2">{pageDescription}</p> : null}
+              {resolvedSubtitle ? <p>{resolvedSubtitle}</p> : null}
+              {resolvedDescription ? <p className="mt-2">{resolvedDescription}</p> : null}
             </>
           }
           meta={

@@ -4,7 +4,29 @@ import { MemoryRouter } from "react-router-dom";
 
 import { Layout, useSidebarCollapsed } from "@/components/Layout";
 
+const layoutScrollMocks = vi.hoisted(() => ({
+  useSmoothScroll: vi.fn(),
+  useDesktopWheelSmoothing: vi.fn(),
+}));
+
 const desktopLayoutMocks = vi.hoisted(() => {
+  type DesktopLayoutState = {
+    currentTrack: {
+      id: string;
+      title: string;
+      artist: string;
+      album: string;
+      duration: number;
+      year: number;
+      coverUrl: string;
+      canvasColor: string;
+    };
+    hasPlaybackStarted: boolean;
+    isFullScreen: boolean;
+    showRightPanel: boolean;
+    rightPanelTab: "lyrics" | "queue";
+  };
+
   const baseState = {
     currentTrack: {
       id: "track-1",
@@ -17,11 +39,12 @@ const desktopLayoutMocks = vi.hoisted(() => {
       canvasColor: "210 80% 56%",
     },
     hasPlaybackStarted: true,
+    isFullScreen: false,
     showRightPanel: true,
     rightPanelTab: "lyrics" as const,
   };
 
-  let state = { ...baseState };
+  let state: DesktopLayoutState = { ...baseState };
   const listeners = new Set<() => void>();
 
   const emit = () => {
@@ -65,12 +88,18 @@ const desktopLayoutMocks = vi.hoisted(() => {
       state = { ...state, rightPanelTab: tab };
       emit();
     }),
+    setFullScreen: vi.fn((isFullScreen: boolean) => {
+      if (state.isFullScreen === isFullScreen) return;
+      state = { ...state, isFullScreen };
+      emit();
+    }),
     reset() {
       state = { ...baseState };
       listeners.clear();
       this.setRightPanelOpen.mockClear();
       this.openRightPanel.mockClear();
       this.setRightPanelTab.mockClear();
+      this.setFullScreen.mockClear();
     },
   };
 });
@@ -108,6 +137,7 @@ vi.mock("@/contexts/PlayerContext", async () => {
         setPreampDb: vi.fn(),
         setPreservePitch: vi.fn(),
         setQuality: vi.fn(),
+        setFullScreen: desktopLayoutMocks.setFullScreen,
         setRightPanelOpen: desktopLayoutMocks.setRightPanelOpen,
         setRightPanelTab: desktopLayoutMocks.setRightPanelTab,
         setSleepTimer: vi.fn(),
@@ -125,23 +155,34 @@ vi.mock("@/contexts/PlayerContext", async () => {
 });
 
 vi.mock("@/contexts/SettingsContext", () => ({
-  useSettings: () => ({ showSidebar: true }),
+  useSettings: () => ({
+    showSidebar: true,
+    libraryOpenState: "expanded" as const,
+    animationMode: "full" as const,
+  }),
 }));
 
 vi.mock("@/hooks/useEmbedMode", () => ({
   useEmbedMode: () => false,
 }));
 
-vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => false,
-}));
-
 vi.mock("@/hooks/useMotionPreferences", () => ({
   useMotionPreferences: () => ({
+    motionEnabled: true,
     allowShellAmbientMotion: false,
     allowShellDepthMotion: false,
+    hasHoverCapablePointer: true,
     lowEndDevice: false,
+    strongDesktopEffects: true,
   }),
+}));
+
+vi.mock("@/hooks/useSmoothScroll", () => ({
+  useSmoothScroll: layoutScrollMocks.useSmoothScroll,
+}));
+
+vi.mock("@/hooks/useDesktopWheelSmoothing", () => ({
+  useDesktopWheelSmoothing: layoutScrollMocks.useDesktopWheelSmoothing,
 }));
 
 vi.mock("@/hooks/useKeyboardShortcuts", () => ({
@@ -164,6 +205,10 @@ vi.mock("@/components/AppSidebar", () => ({
   AppSidebar: () => <div data-testid="app-sidebar">Sidebar</div>,
 }));
 
+vi.mock("@/components/library/LibraryCollection", () => ({
+  LibraryCollection: () => <div data-testid="library-collection">Library Collection</div>,
+}));
+
 vi.mock("@/components/RightPanel", () => ({
   RightPanel: () => <aside data-testid="right-panel">Right Panel</aside>,
 }));
@@ -175,6 +220,31 @@ vi.mock("@/components/BottomPlayer", () => ({
     </button>
   ),
 }));
+
+vi.mock("@/components/FullScreenPlayer", async () => {
+  const React = await import("react");
+
+  return {
+    FullScreenPlayer: ({ onExitComplete }: { onExitComplete?: () => void }) => {
+      const snapshot = React.useSyncExternalStore(
+        desktopLayoutMocks.subscribe,
+        desktopLayoutMocks.getSnapshot,
+        desktopLayoutMocks.getSnapshot,
+      );
+
+      return (
+        <div data-testid="fullscreen-player">
+          <span>{snapshot.isFullScreen ? "open" : "closing"}</span>
+          {!snapshot.isFullScreen ? (
+            <button type="button" onClick={onExitComplete}>
+              Finish fullscreen exit
+            </button>
+          ) : null}
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock("@/components/ui/scroll-area", async () => {
   const React = await import("react");
@@ -355,6 +425,8 @@ function renderLayout() {
 describe("Layout desktop shell", () => {
   beforeEach(() => {
     desktopLayoutMocks.reset();
+    layoutScrollMocks.useSmoothScroll.mockClear();
+    layoutScrollMocks.useDesktopWheelSmoothing.mockClear();
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -369,10 +441,24 @@ describe("Layout desktop shell", () => {
       },
     });
     window.innerWidth = 1600;
+    window.innerHeight = 1000;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 1600,
+        width: 1600,
+        availHeight: 1000,
+        height: 1000,
+      },
+    });
   });
 
   it("keeps the left sidebar state unchanged when the right panel collapses and reopens", async () => {
     renderLayout();
+
+    expect(screen.getByTestId("bottom-player-dock")).toHaveClass("fixed", "inset-x-0", "bottom-0");
+    expect(document.querySelector("main")).toHaveClass("page-main-content");
+    expect(screen.getByTestId("app-shell-main")).toBeInTheDocument();
 
     await screen.findByTestId("right-panel");
     expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
@@ -432,6 +518,30 @@ describe("Layout desktop shell", () => {
     });
   });
 
+  it("keeps the fullscreen player mounted until its close animation finishes", async () => {
+    renderLayout();
+
+    act(() => {
+      desktopLayoutMocks.setFullScreen(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fullscreen-player")).toHaveTextContent("open");
+    });
+
+    act(() => {
+      desktopLayoutMocks.setFullScreen(false);
+    });
+
+    expect(screen.getByTestId("fullscreen-player")).toHaveTextContent("closing");
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish fullscreen exit" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("fullscreen-player")).not.toBeInTheDocument();
+    });
+  });
+
   it("switches to the compact rail when the left panel is resized down to the collapsed width", async () => {
     renderLayout();
 
@@ -459,5 +569,299 @@ describe("Layout desktop shell", () => {
     await waitFor(() => {
       expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
     });
+  });
+
+  it("keeps the left sidebar expandable on a 720p display", async () => {
+    window.innerWidth = 1280;
+    window.innerHeight = 720;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 1280,
+        width: 1280,
+        availHeight: 720,
+        height: 720,
+      },
+    });
+
+    const { container } = renderLayout();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
+    });
+
+    const shell = container.querySelector("[data-shell-density]");
+    expect(shell).toHaveAttribute("data-shell-density", "comfortable");
+    expect(shell).toHaveAttribute("data-shell-height", "tall");
+    expect(Number(shell?.getAttribute("style")?.match(/--app-ui-scale:\s*([0-9.]+)/)?.[1] ?? 0)).toBeGreaterThanOrEqual(0.76);
+
+    fireEvent.click(screen.getByTestId("app-shell-sidebar-resize-collapsed-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("collapsed");
+    });
+
+    fireEvent.click(screen.getByTestId("app-shell-sidebar-resize-expanded-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
+    });
+  });
+
+  it("preserves the user's sidebar choice when a desktop window drops to 720p", async () => {
+    renderLayout();
+
+    fireEvent.click(screen.getByTestId("app-shell-sidebar-collapse-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("collapsed");
+    });
+
+    act(() => {
+      window.innerWidth = 1280;
+      window.innerHeight = 720;
+      Object.defineProperty(window, "screen", {
+        configurable: true,
+        value: {
+          availWidth: 1280,
+          width: 1280,
+          availHeight: 720,
+          height: 720,
+        },
+      });
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("collapsed");
+    });
+
+    fireEvent.click(screen.getByTestId("app-shell-sidebar-expand-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
+    });
+  });
+
+  it("keeps the left sidebar expanded after leaving compact desktop mode", async () => {
+    window.innerWidth = 1400;
+    renderLayout();
+
+    fireEvent.click(screen.getByTestId("app-shell-sidebar-resize-collapsed-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("collapsed");
+    });
+
+    fireEvent.click(screen.getByTestId("app-shell-sidebar-resize-expanded-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
+    });
+
+    act(() => {
+      window.innerWidth = 1600;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
+    });
+  });
+
+  it("does not force the shell into compact height mode on a 720p display with browser chrome", async () => {
+    window.innerWidth = 1280;
+    window.innerHeight = 640;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 1280,
+        width: 1280,
+        availHeight: 680,
+        height: 720,
+      },
+    });
+
+    const { container } = renderLayout();
+
+    await screen.findByTestId("right-panel");
+
+    const shell = container.querySelector("[data-shell-density]");
+    expect(shell).toHaveAttribute("data-shell-density", "compact");
+    expect(shell).toHaveAttribute("data-shell-height", "medium");
+    expect(Number(shell?.getAttribute("style")?.match(/--app-ui-scale:\s*([0-9.]+)/)?.[1] ?? 0)).toBeGreaterThanOrEqual(0.68);
+  });
+
+  it("treats taller-display browser chrome as a medium-height desktop shell", async () => {
+    window.innerWidth = 1280;
+    window.innerHeight = 654;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 1512,
+        width: 1512,
+        availHeight: 874,
+        height: 982,
+      },
+    });
+
+    const { container } = renderLayout();
+
+    await screen.findByTestId("right-panel");
+
+    const shell = container.querySelector("[data-shell-density]");
+    expect(shell).toHaveAttribute("data-shell-density", "compact");
+    expect(shell).toHaveAttribute("data-shell-height", "medium");
+  });
+
+  it("undocks the right panel in narrow windows and restores it after expanding again", async () => {
+    renderLayout();
+
+    await screen.findByTestId("right-panel");
+
+    act(() => {
+      window.innerWidth = 560;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("right-panel")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("desktop-shell-workspace")).not.toBeInTheDocument();
+    expect(desktopLayoutMocks.getSnapshot().showRightPanel).toBe(true);
+
+    act(() => {
+      window.innerWidth = 1600;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("right-panel")).toBeInTheDocument();
+    });
+    expect(desktopLayoutMocks.getSnapshot().showRightPanel).toBe(true);
+  });
+
+  it("keeps the desktop shell active on narrow viewports", async () => {
+    window.innerWidth = 720;
+    window.innerHeight = 1280;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 720,
+        width: 720,
+        availHeight: 1280,
+        height: 1280,
+      },
+    });
+
+    const { container } = renderLayout();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-sidebar")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("desktop-shell-workspace")).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Now playing panel" })).not.toBeInTheDocument();
+
+    const shell = container.querySelector("[data-shell-width]");
+    expect(shell).toHaveAttribute("data-shell-width", "full");
+    expect(screen.getByTestId("sidebar-state")).toHaveTextContent("expanded");
+  });
+
+  it("keeps smooth scrolling enabled on narrow viewports", async () => {
+    window.innerWidth = 720;
+    window.innerHeight = 1280;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 720,
+        width: 720,
+        availHeight: 1280,
+        height: 1280,
+      },
+    });
+
+    renderLayout();
+
+    expect(layoutScrollMocks.useSmoothScroll).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      lerp: 0.18,
+      startDelay: 0,
+      wheelMultiplier: 0.84,
+      wrapperRef: expect.any(Object),
+      contentRef: expect.any(Object),
+    }));
+    expect(layoutScrollMocks.useDesktopWheelSmoothing).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: false,
+      viewportRef: expect.any(Object),
+    }));
+  });
+
+  it("enables smooth scrolling for the desktop shell", async () => {
+    window.innerWidth = 1600;
+    window.innerHeight = 980;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 2560,
+        width: 2560,
+        availHeight: 1440,
+        height: 1440,
+      },
+    });
+
+    renderLayout();
+
+    expect(layoutScrollMocks.useSmoothScroll).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      lerp: 0.18,
+      startDelay: 0,
+      wheelMultiplier: 0.84,
+      wrapperRef: expect.any(Object),
+      contentRef: expect.any(Object),
+    }));
+    expect(layoutScrollMocks.useDesktopWheelSmoothing).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: false,
+      viewportRef: expect.any(Object),
+    }));
+  });
+
+  it("keeps a 1080p-class viewport in the full desktop shell on a larger display", async () => {
+    window.innerWidth = 1920;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 3840,
+        width: 3840,
+      },
+    });
+
+    const { container } = renderLayout();
+
+    await screen.findByTestId("right-panel");
+
+    const shell = container.querySelector("[data-shell-width]");
+    expect(shell).toHaveAttribute("data-shell-width", "full");
+    expect(shell).toHaveAttribute("data-shell-density", "comfortable");
+  });
+
+  it("still treats a truly narrower snapped window on a large display as a half-width shell", async () => {
+    window.innerWidth = 1440;
+    Object.defineProperty(window, "screen", {
+      configurable: true,
+      value: {
+        availWidth: 3840,
+        width: 3840,
+      },
+    });
+
+    const { container } = renderLayout();
+
+    await screen.findByTestId("right-panel");
+
+    const shell = container.querySelector("[data-shell-width]");
+    expect(shell).toHaveAttribute("data-shell-width", "half");
+    expect(shell).toHaveAttribute("data-shell-density", "dense");
   });
 });

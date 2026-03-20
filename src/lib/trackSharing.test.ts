@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildTrackEmbedCode, buildTrackEmbedUrl, canEmbedTrack } from "@/lib/trackSharing";
 import type { Track } from "@/types/music";
+import {
+  TRACK_EMBED_SIZES,
+  buildTrackEmbedCode,
+  buildTrackEmbedPath,
+  buildTrackEmbedUrl,
+  canEmbedTrack,
+} from "@/lib/trackSharing";
 
 const makeTrack = (overrides: Partial<Track> = {}): Track => ({
-  id: "tidal-123",
+  id: "tidal-123-0",
   tidalId: 123,
   albumId: 456,
   title: "Track",
@@ -17,26 +23,35 @@ const makeTrack = (overrides: Partial<Track> = {}): Track => ({
 });
 
 describe("trackSharing", () => {
-  it("builds an embed url for resolvable streaming tracks", () => {
-    expect(buildTrackEmbedUrl(makeTrack())).toBe(
-      "https://knobb.netlify.app/embed/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg",
+  it("allows embeds for tracks with a stable TIDAL-backed public id", () => {
+    expect(canEmbedTrack(makeTrack())).toEqual({ allowed: true, reason: null });
+  });
+
+  it("blocks embeds for local-only tracks", () => {
+    expect(canEmbedTrack(makeTrack({ id: "local-1", tidalId: undefined, localFileId: "local-file-9" }))).toEqual({
+      allowed: false,
+      reason: "Embedding is currently available for tracks with a TIDAL source ID.",
+    });
+  });
+
+  it("builds track embed paths with theme and size controls", () => {
+    expect(buildTrackEmbedPath(makeTrack(), { theme: "graphite", size: "compact" })).toBe(
+      "/embed/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg&theme=graphite&size=compact",
     );
   });
 
-  it("builds iframe code for track embeds", () => {
-    expect(buildTrackEmbedCode("https://knobb.test/embed/track/tidal-123", { title: "Track - Knobb", height: 420 })).toBe(
-      '<iframe style="border-radius:12px" src="https://knobb.test/embed/track/tidal-123" title="Track - Knobb" width="100%" height="420" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>',
+  it("builds absolute track embed URLs", () => {
+    expect(buildTrackEmbedUrl(makeTrack(), { theme: "graphite", size: "compact" })).toBe(
+      "https://knobb.netlify.app/embed/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg&theme=graphite&size=compact",
     );
   });
 
-  it("rejects local and unresolvable tracks", () => {
-    expect(canEmbedTrack(makeTrack({ id: "local-9", tidalId: undefined, localFileId: "local-9" }))).toEqual({
-      allowed: false,
-      reason: "Local files cannot be embedded outside Knobb.",
-    });
-    expect(canEmbedTrack(makeTrack({ id: "app-track-9", tidalId: undefined }))).toEqual({
-      allowed: false,
-      reason: "Only streaming tracks with a resolvable Knobb ID can be embedded.",
-    });
+  it("builds iframe code using the selected embed size", () => {
+    expect(
+      buildTrackEmbedCode("https://knobb.netlify.app/embed/track/tidal-123?title=Track&artist=Artist&album=Album&cover=%2Fcover.jpg&theme=graphite&size=compact", {
+        title: "Track - Artist • Knobb",
+        height: TRACK_EMBED_SIZES.compact.height,
+      }),
+    ).toContain(`height="${TRACK_EMBED_SIZES.compact.height}"`);
   });
 });

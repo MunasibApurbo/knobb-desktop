@@ -10,13 +10,14 @@ import {
     getMediaCardSizePreset,
     type MediaCardSize,
 } from "@/lib/mediaCardSizing";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { ensureGoogleFontLoaded } from "@/lib/fontLoader";
+import { DEFAULT_LIBRARY_SOURCE, isLibrarySource, type LibrarySource } from "@/lib/librarySources";
 import { loadProfilePreferences, persistProfilePreferences } from "@/lib/profilePreferences";
 
 export type Theme = "default" | "midnight" | "forest" | "crimson" | "ocean" | "amber" | "noir" | "amoled";
 type Font = "System Default" | "Inter" | "Roboto" | "Outfit" | "JetBrains Mono" | "Poppins" | "Nunito" | "Space Grotesk";
 export type LibraryItemStyle = "cover" | "list";
-export type WebsiteMode = "edgy" | "roundish";
+export type WebsiteMode = "roundish";
 export type RightPanelStyle = "classic" | "artwork";
 export type BottomPlayerStyle = "current" | "black";
 export type SidebarStyle = "classic" | "artwork";
@@ -33,6 +34,10 @@ export type RightPanelAutoOpen = "always" | "while-playing" | "never";
 export type ExplicitBadgeVisibility = "show" | "hide";
 export type LyricsSyncMode = "follow" | "static";
 const LEGACY_NOIR_THEME = ["mono", "chrome"].join("");
+const RIGHT_PANEL_AUTO_OPEN_STORAGE_KEY = "right-panel-auto-open";
+const RIGHT_PANEL_AUTO_OPEN_EXPLICIT_STORAGE_KEY = "right-panel-auto-open-explicit";
+const DEFAULT_FULLSCREEN_BACKGROUND_BLUR = 100;
+const DEFAULT_FULLSCREEN_BACKGROUND_DARKNESS = 58;
 
 function normalizeDownloadFormat(format: string | null): DownloadFormat {
     switch (format) {
@@ -50,15 +55,11 @@ function normalizeDownloadFormat(format: string | null): DownloadFormat {
     }
 }
 
-function getEffectiveMobileCardSize(size: MediaCardSize): MediaCardSize {
-    if (size === "smaller" || size === "small") return "smaller";
-    return "small";
-}
-
 interface SettingsState {
     theme: Theme;
     accentColor: string;
     font: Font;
+    librarySource: LibrarySource;
     compactMode: boolean;
     showLocalFiles: boolean;
     dynamicCardsEnabled: boolean;
@@ -81,6 +82,9 @@ interface SettingsState {
     rightPanelAutoOpen: RightPanelAutoOpen;
     explicitBadgeVisibility: ExplicitBadgeVisibility;
     lyricsSyncMode: LyricsSyncMode;
+    showFullScreenLyrics: boolean;
+    fullScreenBackgroundBlur: number;
+    fullScreenBackgroundDarkness: number;
     showSidebar: boolean;
     showScrollbar: boolean;
     animationsEnabled: boolean;
@@ -93,6 +97,7 @@ interface SettingsContextType extends SettingsState {
     setTheme: (theme: Theme) => void;
     setAccentColor: (color: string) => void;
     setFont: (font: Font) => void;
+    setLibrarySource: (source: LibrarySource) => void;
     setCompactMode: (enabled: boolean) => void;
     setShowLocalFiles: (enabled: boolean) => void;
     setDynamicCardsEnabled: (enabled: boolean) => void;
@@ -115,6 +120,9 @@ interface SettingsContextType extends SettingsState {
     setRightPanelAutoOpen: (mode: RightPanelAutoOpen) => void;
     setExplicitBadgeVisibility: (visibility: ExplicitBadgeVisibility) => void;
     setLyricsSyncMode: (mode: LyricsSyncMode) => void;
+    setShowFullScreenLyrics: (enabled: boolean) => void;
+    setFullScreenBackgroundBlur: (value: number) => void;
+    setFullScreenBackgroundDarkness: (value: number) => void;
     setShowSidebar: (enabled: boolean) => void;
     setShowScrollbar: (enabled: boolean) => void;
     setAnimationsEnabled: (enabled: boolean) => void;
@@ -130,6 +138,7 @@ type SyncedUiPreferences = Pick<
     SettingsState,
     | "theme"
     | "font"
+    | "librarySource"
     | "compactMode"
     | "showLocalFiles"
     | "dynamicCardsEnabled"
@@ -152,6 +161,9 @@ type SyncedUiPreferences = Pick<
     | "rightPanelAutoOpen"
     | "explicitBadgeVisibility"
     | "lyricsSyncMode"
+    | "showFullScreenLyrics"
+    | "fullScreenBackgroundBlur"
+    | "fullScreenBackgroundDarkness"
     | "showSidebar"
     | "showScrollbar"
     | "blurEffects"
@@ -161,8 +173,9 @@ type SyncedUiPreferences = Pick<
 
 const VALID_THEMES: Theme[] = ["default", "midnight", "forest", "crimson", "ocean", "amber", "noir", "amoled"];
 const VALID_FONTS: Font[] = ["System Default", "Inter", "Roboto", "Outfit", "JetBrains Mono", "Poppins", "Nunito", "Space Grotesk"];
+const VALID_LIBRARY_SOURCES: LibrarySource[] = ["tidal", "youtube-music"];
 const VALID_LIBRARY_ITEM_STYLES: LibraryItemStyle[] = ["cover", "list"];
-const VALID_WEBSITE_MODES: WebsiteMode[] = ["edgy", "roundish"];
+const VALID_WEBSITE_MODES: WebsiteMode[] = ["roundish"];
 const VALID_RIGHT_PANEL_STYLES: RightPanelStyle[] = ["classic", "artwork"];
 const VALID_BOTTOM_PLAYER_STYLES: BottomPlayerStyle[] = ["current", "black"];
 const VALID_SIDEBAR_STYLES: SidebarStyle[] = ["classic", "artwork"];
@@ -196,11 +209,50 @@ function readStringValue(value: unknown) {
     return typeof value === "string" ? value : undefined;
 }
 
+function readNumberValue(value: unknown) {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function clampPercentage(value: number) {
+    return Math.min(Math.max(Math.round(value), 0), 100);
+}
+
+function normalizeStoredPercentage(value: string | null, fallback: number) {
+    if (value === null) return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? clampPercentage(parsed) : fallback;
+}
+
+function hasExplicitRightPanelAutoOpenPreference() {
+    return safeStorageGetItem(RIGHT_PANEL_AUTO_OPEN_EXPLICIT_STORAGE_KEY) === "true";
+}
+
+function resolveRightPanelAutoOpenPreference(
+    value: unknown,
+    hasExplicitPreference = hasExplicitRightPanelAutoOpenPreference(),
+): RightPanelAutoOpen {
+    if (value === "while-playing" || value === "never") {
+        return value;
+    }
+
+    if (value === "always") {
+        return hasExplicitPreference ? "always" : "never";
+    }
+
+    return "never";
+}
+
+function persistRightPanelAutoOpenPreference(mode: RightPanelAutoOpen, explicit: boolean) {
+    safeStorageSetItem(RIGHT_PANEL_AUTO_OPEN_STORAGE_KEY, mode);
+    safeStorageSetItem(RIGHT_PANEL_AUTO_OPEN_EXPLICIT_STORAGE_KEY, String(explicit));
+}
+
 function parseSyncedUiPreferences(value: unknown): Partial<SyncedUiPreferences> {
     if (!isRecord(value)) return {};
 
     const theme = readEnumValue(value.theme, VALID_THEMES);
     const font = readEnumValue(value.font, VALID_FONTS);
+    const librarySource = readEnumValue(value.librarySource, VALID_LIBRARY_SOURCES);
     const compactMode = readBooleanValue(value.compactMode);
     const showLocalFiles = readBooleanValue(value.showLocalFiles);
     const dynamicCardsEnabled = readBooleanValue(value.dynamicCardsEnabled);
@@ -223,6 +275,9 @@ function parseSyncedUiPreferences(value: unknown): Partial<SyncedUiPreferences> 
     const rightPanelAutoOpen = readEnumValue(value.rightPanelAutoOpen, VALID_RIGHT_PANEL_AUTO_OPEN);
     const explicitBadgeVisibility = readEnumValue(value.explicitBadgeVisibility, VALID_EXPLICIT_BADGE_VISIBILITY);
     const lyricsSyncMode = readEnumValue(value.lyricsSyncMode, VALID_LYRICS_SYNC_MODES);
+    const showFullScreenLyrics = readBooleanValue(value.showFullScreenLyrics);
+    const fullScreenBackgroundBlur = readNumberValue(value.fullScreenBackgroundBlur);
+    const fullScreenBackgroundDarkness = readNumberValue(value.fullScreenBackgroundDarkness);
     const showSidebar = readBooleanValue(value.showSidebar);
     const showScrollbar = readBooleanValue(value.showScrollbar);
     const blurEffects = readBooleanValue(value.blurEffects);
@@ -234,6 +289,7 @@ function parseSyncedUiPreferences(value: unknown): Partial<SyncedUiPreferences> 
     return {
         ...(theme ? { theme } : {}),
         ...(font ? { font } : {}),
+        ...(librarySource ? { librarySource } : {}),
         ...(compactMode !== undefined ? { compactMode } : {}),
         ...(showLocalFiles !== undefined ? { showLocalFiles } : {}),
         ...(dynamicCardsEnabled !== undefined ? { dynamicCardsEnabled } : {}),
@@ -256,6 +312,9 @@ function parseSyncedUiPreferences(value: unknown): Partial<SyncedUiPreferences> 
         ...(rightPanelAutoOpen ? { rightPanelAutoOpen } : {}),
         ...(explicitBadgeVisibility ? { explicitBadgeVisibility } : {}),
         ...(lyricsSyncMode ? { lyricsSyncMode } : {}),
+        ...(showFullScreenLyrics !== undefined ? { showFullScreenLyrics } : {}),
+        ...(fullScreenBackgroundBlur !== undefined ? { fullScreenBackgroundBlur: clampPercentage(fullScreenBackgroundBlur) } : {}),
+        ...(fullScreenBackgroundDarkness !== undefined ? { fullScreenBackgroundDarkness: clampPercentage(fullScreenBackgroundDarkness) } : {}),
         ...(showSidebar !== undefined ? { showSidebar } : {}),
         ...(showScrollbar !== undefined ? { showScrollbar } : {}),
         ...(blurEffects !== undefined ? { blurEffects } : {}),
@@ -271,7 +330,6 @@ function hasSyncedUiPreferences(value: Partial<SyncedUiPreferences>) {
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const auth = useOptionalAuth();
     const user = auth?.user ?? null;
-    const isMobileViewport = useIsMobile();
     const [theme, setThemeState] = useState<Theme>(() => {
         const storedTheme = safeStorageGetItem("app-theme");
         if (storedTheme === LEGACY_NOIR_THEME) return "noir";
@@ -280,6 +338,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
     const [accentColor, setAccentColorState] = useState(() => safeStorageGetItem("accent-color") || "dynamic");
     const [font, setFontState] = useState<Font>(() => (safeStorageGetItem("app-font") as Font) || "System Default");
+    const [librarySource, setLibrarySourceState] = useState<LibrarySource>(() => {
+        const storedLibrarySource = safeStorageGetItem("library-source");
+        return isLibrarySource(storedLibrarySource) ? storedLibrarySource : DEFAULT_LIBRARY_SOURCE;
+    });
     const [compactMode, setCompactModeState] = useState(() => safeStorageGetItem("compact-mode") === "true");
     const [showLocalFiles, setShowLocalFilesState] = useState(() => safeStorageGetItem("show-local-files") !== "false");
     const [dynamicCardsEnabled, setDynamicCardsEnabledState] = useState(() => safeStorageGetItem("dynamic-cards") === "true");
@@ -292,10 +354,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const storedCardSize = safeStorageGetItem("card-size") as MediaCardSize | null;
         return storedCardSize || "small";
     });
-    const [websiteMode, setWebsiteModeState] = useState<WebsiteMode>(() => {
-        const storedWebsiteMode = safeStorageGetItem("website-mode");
-        return storedWebsiteMode === "edgy" ? "edgy" : "roundish";
-    });
+    const [websiteMode, setWebsiteModeState] = useState<WebsiteMode>("roundish");
     const [rightPanelStyle, setRightPanelStyleState] = useState<RightPanelStyle>(() => {
         const storedRightPanelStyle = safeStorageGetItem("right-panel-style");
         return storedRightPanelStyle === "classic" ? "classic" : "artwork";
@@ -345,10 +404,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         return storedTitleLineMode === "double" ? "double" : "single";
     });
     const [rightPanelAutoOpen, setRightPanelAutoOpenState] = useState<RightPanelAutoOpen>(() => {
-        const storedRightPanelAutoOpen = safeStorageGetItem("right-panel-auto-open");
-        return storedRightPanelAutoOpen === "while-playing" || storedRightPanelAutoOpen === "never"
-            ? storedRightPanelAutoOpen
-            : "always";
+        const storedRightPanelAutoOpen = safeStorageGetItem(RIGHT_PANEL_AUTO_OPEN_STORAGE_KEY);
+        const resolvedRightPanelAutoOpen = resolveRightPanelAutoOpenPreference(storedRightPanelAutoOpen);
+
+        if (storedRightPanelAutoOpen !== null && storedRightPanelAutoOpen !== resolvedRightPanelAutoOpen) {
+            persistRightPanelAutoOpenPreference(resolvedRightPanelAutoOpen, hasExplicitRightPanelAutoOpenPreference());
+        }
+
+        return resolvedRightPanelAutoOpen;
     });
     const [explicitBadgeVisibility, setExplicitBadgeVisibilityState] = useState<ExplicitBadgeVisibility>(() => {
         const storedExplicitBadgeVisibility = safeStorageGetItem("explicit-badge-visibility");
@@ -358,6 +421,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const storedLyricsSyncMode = safeStorageGetItem("lyrics-sync-mode");
         return storedLyricsSyncMode === "static" ? "static" : "follow";
     });
+    const [showFullScreenLyrics, setShowFullScreenLyricsState] = useState(() => safeStorageGetItem("show-fullscreen-lyrics") !== "false");
+    const [fullScreenBackgroundBlur, setFullScreenBackgroundBlurState] = useState(() => normalizeStoredPercentage(
+        safeStorageGetItem("fullscreen-background-blur"),
+        DEFAULT_FULLSCREEN_BACKGROUND_BLUR,
+    ));
+    const [fullScreenBackgroundDarkness, setFullScreenBackgroundDarknessState] = useState(() => normalizeStoredPercentage(
+        safeStorageGetItem("fullscreen-background-darkness"),
+        DEFAULT_FULLSCREEN_BACKGROUND_DARKNESS,
+    ));
     const [showSidebar, setShowSidebarState] = useState(() => safeStorageGetItem("show-sidebar") !== "false");
     const [showScrollbar, setShowScrollbarState] = useState(() => safeStorageGetItem("show-scrollbar") !== "false");
     const [animationsEnabled, setAnimationsEnabledState] = useState(() => safeStorageGetItem("animations") !== "false");
@@ -368,10 +440,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const lastSyncedUiPreferencesRef = useRef<string | null>(null);
     const pendingUiSyncTimeoutRef = useRef<number | null>(null);
     const effectiveWebsiteMode: WebsiteMode = websiteMode;
-    const effectiveCardSize: MediaCardSize = isMobileViewport ? getEffectiveMobileCardSize(cardSize) : cardSize;
+    const effectiveCardSize: MediaCardSize = cardSize;
     const syncedUiPreferences = useMemo<SyncedUiPreferences>(() => ({
         theme,
         font,
+        librarySource,
         compactMode,
         showLocalFiles,
         dynamicCardsEnabled,
@@ -394,6 +467,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         rightPanelAutoOpen,
         explicitBadgeVisibility,
         lyricsSyncMode,
+        showFullScreenLyrics,
+        fullScreenBackgroundBlur,
+        fullScreenBackgroundDarkness,
         showSidebar,
         showScrollbar,
         blurEffects,
@@ -411,6 +487,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         dynamicCardsEnabled,
         explicitBadgeVisibility,
         font,
+        fullScreenBackgroundBlur,
+        fullScreenBackgroundDarkness,
+        showFullScreenLyrics,
+        librarySource,
         libraryItemStyle,
         libraryOpenState,
         librarySortDefault,
@@ -440,6 +520,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         if (preferences.font !== undefined) {
             setFontState(preferences.font);
             safeStorageSetItem("app-font", preferences.font);
+        }
+        if (preferences.librarySource !== undefined) {
+            setLibrarySourceState(preferences.librarySource);
+            safeStorageSetItem("library-source", preferences.librarySource);
         }
         if (preferences.compactMode !== undefined) {
             setCompactModeState(preferences.compactMode);
@@ -523,8 +607,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             safeStorageSetItem("title-line-mode", preferences.titleLineMode);
         }
         if (preferences.rightPanelAutoOpen !== undefined) {
-            setRightPanelAutoOpenState(preferences.rightPanelAutoOpen);
-            safeStorageSetItem("right-panel-auto-open", preferences.rightPanelAutoOpen);
+            const resolvedRightPanelAutoOpen = resolveRightPanelAutoOpenPreference(preferences.rightPanelAutoOpen);
+            setRightPanelAutoOpenState(resolvedRightPanelAutoOpen);
+            persistRightPanelAutoOpenPreference(resolvedRightPanelAutoOpen, hasExplicitRightPanelAutoOpenPreference());
         }
         if (preferences.explicitBadgeVisibility !== undefined) {
             setExplicitBadgeVisibilityState(preferences.explicitBadgeVisibility);
@@ -533,6 +618,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         if (preferences.lyricsSyncMode !== undefined) {
             setLyricsSyncModeState(preferences.lyricsSyncMode);
             safeStorageSetItem("lyrics-sync-mode", preferences.lyricsSyncMode);
+        }
+        if (preferences.showFullScreenLyrics !== undefined) {
+            setShowFullScreenLyricsState(preferences.showFullScreenLyrics);
+            safeStorageSetItem("show-fullscreen-lyrics", String(preferences.showFullScreenLyrics));
+        }
+        if (preferences.fullScreenBackgroundBlur !== undefined) {
+            const normalized = clampPercentage(preferences.fullScreenBackgroundBlur);
+            setFullScreenBackgroundBlurState(normalized);
+            safeStorageSetItem("fullscreen-background-blur", String(normalized));
+        }
+        if (preferences.fullScreenBackgroundDarkness !== undefined) {
+            const normalized = clampPercentage(preferences.fullScreenBackgroundDarkness);
+            setFullScreenBackgroundDarknessState(normalized);
+            safeStorageSetItem("fullscreen-background-darkness", String(normalized));
         }
         if (preferences.showSidebar !== undefined) {
             setShowSidebarState(preferences.showSidebar);
@@ -640,62 +739,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }, [theme, font, compactMode, dynamicCardsEnabled, cardSize, websiteMode, effectiveWebsiteMode, effectiveCardSize, animationsEnabled, blurEffects, showScrollbar, sidebarStyle, playerButtonsLayout, coverArtCorners, pageDensity, accentSource, animationMode, titleLineMode, explicitBadgeVisibility, lyricsSyncMode]);
 
     useEffect(() => {
-        if (safeStorageGetItem("card-style") !== "editorial") {
-            safeStorageSetItem("card-style", "editorial");
+        if (font !== "System Default") {
+            ensureGoogleFontLoaded(font);
         }
-    }, []);
+    }, [font]);
 
     useEffect(() => {
-        const storedTheme = safeStorageGetItem("app-theme");
-        if (storedTheme === null || storedTheme === "default") {
-            safeStorageSetItem("app-theme", "amoled");
-        }
-    }, []);
-
-    useEffect(() => {
-        if (safeStorageGetItem("website-mode") === null) {
+        const storedWebsiteMode = safeStorageGetItem("website-mode");
+        if (storedWebsiteMode && storedWebsiteMode !== "roundish") {
             safeStorageSetItem("website-mode", "roundish");
         }
-    }, []);
-
-    useEffect(() => {
-        if (safeStorageGetItem("show-local-files") === null) {
-            safeStorageSetItem("show-local-files", "true");
-        }
-    }, []);
-
-    useEffect(() => {
-        if (safeStorageGetItem("show-scrollbar") === null) {
-            safeStorageSetItem("show-scrollbar", "true");
-        }
-    }, []);
-
-    useEffect(() => {
-        if (safeStorageGetItem("right-panel-style") === null) {
-            safeStorageSetItem("right-panel-style", "artwork");
-        }
-    }, []);
-
-    useEffect(() => {
-        if (safeStorageGetItem("bottom-player-style") === null) {
-            safeStorageSetItem("bottom-player-style", "current");
-        }
-    }, []);
-    useEffect(() => {
-        if (safeStorageGetItem("card-size") === null) safeStorageSetItem("card-size", "small");
-        if (safeStorageGetItem("sidebar-style") === null) safeStorageSetItem("sidebar-style", "classic");
-        if (safeStorageGetItem("right-panel-default-tab") === null) safeStorageSetItem("right-panel-default-tab", "lyrics");
-        if (safeStorageGetItem("library-sort-default") === null) safeStorageSetItem("library-sort-default", "recents");
-        if (safeStorageGetItem("library-open-state") === null) safeStorageSetItem("library-open-state", "expanded");
-        if (safeStorageGetItem("player-buttons-layout") === null) safeStorageSetItem("player-buttons-layout", "compact");
-        if (safeStorageGetItem("cover-art-corners") === null) safeStorageSetItem("cover-art-corners", "sharp");
-        if (safeStorageGetItem("page-density") === null) safeStorageSetItem("page-density", "comfortable");
-        if (safeStorageGetItem("accent-source") === null) safeStorageSetItem("accent-source", "dynamic");
-        if (safeStorageGetItem("animation-mode") === null) safeStorageSetItem("animation-mode", "full");
-        if (safeStorageGetItem("title-line-mode") === null) safeStorageSetItem("title-line-mode", "single");
-        if (safeStorageGetItem("right-panel-auto-open") === null) safeStorageSetItem("right-panel-auto-open", "always");
-        if (safeStorageGetItem("explicit-badge-visibility") === null) safeStorageSetItem("explicit-badge-visibility", "show");
-        if (safeStorageGetItem("lyrics-sync-mode") === null) safeStorageSetItem("lyrics-sync-mode", "follow");
     }, []);
 
     useEffect(() => {
@@ -772,6 +825,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const setTheme = useCallback((t: Theme) => { setThemeState(t); safeStorageSetItem("app-theme", t); }, []);
     const setAccentColor = useCallback((c: string) => { setAccentColorState(c); safeStorageSetItem("accent-color", c); }, []);
     const setFont = useCallback((f: Font) => { setFontState(f); safeStorageSetItem("app-font", f); }, []);
+    const setLibrarySource = useCallback((s: LibrarySource) => {
+        setLibrarySourceState(s);
+        safeStorageSetItem("library-source", s);
+    }, []);
     const setCompactMode = useCallback((e: boolean) => { setCompactModeState(e); safeStorageSetItem("compact-mode", String(e)); }, []);
     const setShowLocalFiles = useCallback((e: boolean) => { setShowLocalFilesState(e); safeStorageSetItem("show-local-files", String(e)); }, []);
     const setDynamicCardsEnabled = useCallback((e: boolean) => { setDynamicCardsEnabledState(e); safeStorageSetItem("dynamic-cards", String(e)); }, []);
@@ -791,10 +848,30 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const setAccentSource = useCallback((s: AccentSource) => { setAccentSourceState(s); safeStorageSetItem("accent-source", s); safeStorageSetItem("accent-color", s); }, []);
     const setAnimationMode = useCallback((s: AnimationMode) => { setAnimationModeState(s); setAnimationsEnabledState(s !== "off"); safeStorageSetItem("animation-mode", s); safeStorageSetItem("animations", String(s !== "off")); }, []);
     const setTitleLineMode = useCallback((s: TitleLineMode) => { setTitleLineModeState(s); safeStorageSetItem("title-line-mode", s); }, []);
-    const setRightPanelAutoOpen = useCallback((s: RightPanelAutoOpen) => { setRightPanelAutoOpenState(s); safeStorageSetItem("right-panel-auto-open", s); }, []);
+    const setRightPanelAutoOpen = useCallback((s: RightPanelAutoOpen) => {
+        setRightPanelAutoOpenState(s);
+        persistRightPanelAutoOpenPreference(s, true);
+    }, []);
     const setExplicitBadgeVisibility = useCallback((s: ExplicitBadgeVisibility) => { setExplicitBadgeVisibilityState(s); safeStorageSetItem("explicit-badge-visibility", s); }, []);
     const setLyricsSyncMode = useCallback((s: LyricsSyncMode) => { setLyricsSyncModeState(s); safeStorageSetItem("lyrics-sync-mode", s); }, []);
-    const setShowSidebar = useCallback((e: boolean) => { setShowSidebarState(e); safeStorageSetItem("show-sidebar", String(e)); }, []);
+    const setShowFullScreenLyrics = useCallback((e: boolean) => {
+        setShowFullScreenLyricsState(e);
+        safeStorageSetItem("show-fullscreen-lyrics", String(e));
+    }, []);
+    const setFullScreenBackgroundBlur = useCallback((value: number) => {
+        const normalized = clampPercentage(value);
+        setFullScreenBackgroundBlurState(normalized);
+        safeStorageSetItem("fullscreen-background-blur", String(normalized));
+    }, []);
+    const setFullScreenBackgroundDarkness = useCallback((value: number) => {
+        const normalized = clampPercentage(value);
+        setFullScreenBackgroundDarknessState(normalized);
+        safeStorageSetItem("fullscreen-background-darkness", String(normalized));
+    }, []);
+    const setShowSidebar = useCallback((e: boolean) => {
+        setShowSidebarState(e);
+        safeStorageSetItem("show-sidebar", String(e));
+    }, []);
     const setShowScrollbar = useCallback((e: boolean) => { setShowScrollbarState(e); safeStorageSetItem("show-scrollbar", String(e)); }, []);
     const setAnimationsEnabled = useCallback((e: boolean) => { setAnimationsEnabledState(e); setAnimationModeState(e ? "full" : "off"); safeStorageSetItem("animations", String(e)); safeStorageSetItem("animation-mode", e ? "full" : "off"); }, []);
     const setBlurEffects = useCallback((e: boolean) => { setBlurEffectsState(e); safeStorageSetItem("blur-effects", String(e)); }, []);
@@ -819,6 +896,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         theme, setTheme,
         accentColor, setAccentColor,
         font, setFont,
+        librarySource, setLibrarySource,
         compactMode, setCompactMode,
         showLocalFiles, setShowLocalFiles,
         dynamicCardsEnabled, setDynamicCardsEnabled,
@@ -841,6 +919,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         rightPanelAutoOpen, setRightPanelAutoOpen,
         explicitBadgeVisibility, setExplicitBadgeVisibility,
         lyricsSyncMode, setLyricsSyncMode,
+        showFullScreenLyrics, setShowFullScreenLyrics,
+        fullScreenBackgroundBlur, setFullScreenBackgroundBlur,
+        fullScreenBackgroundDarkness, setFullScreenBackgroundDarkness,
         showSidebar, setShowSidebar,
         showScrollbar, setShowScrollbar,
         animationsEnabled, setAnimationsEnabled,
@@ -852,17 +933,19 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         accentColor, accentSource, animationMode, animationsEnabled, blurEffects,
         bottomPlayerStyle, cardSize, clearCacheAndReset, compactMode, coverArtCorners,
         discordPresenceEnabled, downloadFormat, dynamicCardsEnabled, explicitBadgeVisibility,
-        font, libraryItemStyle, libraryOpenState, librarySortDefault, lyricsSyncMode,
+        font, fullScreenBackgroundBlur, fullScreenBackgroundDarkness, libraryItemStyle, libraryOpenState, librarySortDefault, lyricsSyncMode,
+        librarySource,
         pageDensity, playerButtonsLayout, rightPanelAutoOpen, rightPanelDefaultTab,
         rightPanelStyle, scrobblePercent, setAccentColor, setAccentSource,
         setAnimationMode, setAnimationsEnabled, setBlurEffects, setBottomPlayerStyle,
         setCardSize, setCompactMode, setCoverArtCorners, setDiscordPresenceEnabled,
         setDownloadFormat, setDynamicCardsEnabled, setExplicitBadgeVisibility, setFont,
+        setFullScreenBackgroundBlur, setFullScreenBackgroundDarkness, setLibrarySource,
         setLibraryItemStyle, setLibraryOpenState, setLibrarySortDefault, setLyricsSyncMode,
         setPageDensity, setPlayerButtonsLayout, setRightPanelAutoOpen, setRightPanelDefaultTab,
         setRightPanelStyle, setScrobblePercent, setShowLocalFiles, setShowScrollbar,
-        setShowSidebar, setSidebarStyle, setTheme, setTitleLineMode, setWebsiteMode,
-        showLocalFiles, showScrollbar, showSidebar, sidebarStyle, theme, titleLineMode,
+        setShowFullScreenLyrics, setShowSidebar, setSidebarStyle, setTheme, setTitleLineMode, setWebsiteMode,
+        showFullScreenLyrics, showLocalFiles, showScrollbar, showSidebar, sidebarStyle, theme, titleLineMode,
         websiteMode
     ]);
 

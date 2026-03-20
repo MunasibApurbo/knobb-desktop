@@ -1,44 +1,71 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { filterAudioTracks, searchTracks, tidalTrackToAppTrack } from "@/lib/musicApi";
 import { Track } from "@/types/music";
-import { usePlayer } from "@/contexts/PlayerContext";
-import { Play, Loader2 } from "lucide-react";
-import { motion } from "framer-motion";
-import { ArtistsLink } from "@/components/ArtistsLink";
-import { TrackContextMenu } from "@/components/TrackContextMenu";
+import { Layers3, Loader2, Music2, Radio, UserRound, Video } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { TrackCard } from "@/components/home/HomeMediaCards";
+import { MediaCardShell } from "@/components/MediaCardShell";
 import {
-  MEDIA_CARD_ACTION_ICON_CLASS,
+  MEDIA_CARD_BODY_CLASS,
   MEDIA_CARD_META_CLASS,
   MEDIA_CARD_TITLE_CLASS,
 } from "@/components/mediaCardStyles";
-import { isSameTrack } from "@/lib/trackIdentity";
+import { PageTransition } from "@/components/PageTransition";
+import { useLikedSongs } from "@/contexts/LikedSongsContext";
+import { useMotionPreferences } from "@/hooks/useMotionPreferences";
+import {
+  getContentSwapVariants,
+  getStaggerContainerVariants,
+  getStaggerItemVariants,
+} from "@/lib/motion";
+import { type BrowseGenreDefinition } from "@/lib/browseGenres";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
+import { cn } from "@/lib/utils";
+import { fetchTidalGenreDetail, findBrowseGenreByToken } from "@/lib/tidalGenresApi";
+import { useTidalGenres } from "@/hooks/useTidalGenres";
 
-const GENRES = [
-  { id: "pop", label: "Pop", query: "pop hits 2025", color: "330 80% 55%" },
-  { id: "hiphop", label: "Hip-Hop", query: "hip hop new 2025", color: "35 90% 55%" },
-  { id: "rock", label: "Rock", query: "rock anthems", color: "0 70% 50%" },
-  { id: "electronic", label: "Electronic", query: "electronic dance", color: "200 80% 55%" },
-  { id: "rnb", label: "R&B", query: "r&b soul 2025", color: "280 60% 55%" },
-  { id: "jazz", label: "Jazz", query: "jazz classics modern", color: "45 70% 50%" },
-  { id: "classical", label: "Classical", query: "classical masterpieces", color: "220 50% 55%" },
-  { id: "indie", label: "Indie", query: "indie alternative", color: "160 60% 45%" },
-  { id: "latin", label: "Latin", query: "latin reggaeton 2025", color: "15 85% 55%" },
-  { id: "kpop", label: "K-Pop", query: "kpop trending", color: "310 70% 60%" },
-  { id: "metal", label: "Metal", query: "heavy metal", color: "0 0% 35%" },
-  { id: "country", label: "Country", query: "country hits 2025", color: "30 60% 45%" },
-];
+function buildGenreCapabilityItems(genre: BrowseGenreDefinition | null) {
+  if (!genre) return [];
 
-const stagger = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
-const fadeUp = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
+  return [
+    genre.hasPlaylists ? { key: "playlists", label: "Playlists", icon: Radio } : null,
+    genre.hasAlbums ? { key: "albums", label: "Albums", icon: Layers3 } : null,
+    genre.hasTracks ? { key: "tracks", label: "Tracks", icon: Music2 } : null,
+    genre.hasVideos ? { key: "videos", label: "Videos", icon: Video } : null,
+    genre.hasArtists ? { key: "artists", label: "Artists", icon: UserRound } : null,
+  ].filter((item): item is { key: string; label: string; icon: typeof Music2 } => Boolean(item));
+}
 
 export default function GenrePage() {
-  const { play, currentTrack, isPlaying } = usePlayer();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [selectedGenreMeta, setSelectedGenreMeta] = useState<BrowseGenreDefinition | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
+  const { isLiked, toggleLike } = useLikedSongs();
+  const { motionEnabled, websiteMode } = useMotionPreferences();
+  const { genres, usingLiveGenres } = useTidalGenres();
+  const genresById = useMemo(
+    () => new Map(genres.map((genre) => [genre.id, genre])),
+    [genres],
+  );
+  const genreGridVariants = useMemo(
+    () => getStaggerContainerVariants(motionEnabled, websiteMode),
+    [motionEnabled, websiteMode],
+  );
+  const genreTileVariants = useMemo(
+    () => getStaggerItemVariants(motionEnabled, websiteMode),
+    [motionEnabled, websiteMode],
+  );
+  const resultsSwapVariants = useMemo(
+    () => getContentSwapVariants(motionEnabled, websiteMode),
+    [motionEnabled, websiteMode],
+  );
 
-  const loadGenre = useCallback(async (genre: typeof GENRES[0]) => {
+  const loadGenre = useCallback(async (genre: BrowseGenreDefinition) => {
     setSelectedGenre(genre.id);
+    setSelectedGenreMeta(genre);
     setLoading(true);
     try {
       const results = await searchTracks(genre.query, 20);
@@ -50,78 +77,199 @@ export default function GenrePage() {
     }
   }, []);
 
+  useEffect(() => {
+    const requestedGenreId = searchParams.get("genre");
+    if (!requestedGenreId || requestedGenreId === selectedGenre) {
+      return;
+    }
+
+    const genre = findBrowseGenreByToken(genres, requestedGenreId);
+    if (!genre) {
+      return;
+    }
+
+    void loadGenre(genre);
+  }, [genres, loadGenre, searchParams, selectedGenre]);
+
+  const handleSelectGenre = useCallback((genre: BrowseGenreDefinition) => {
+    setSearchParams({ genre: genre.id });
+    if (selectedGenre !== genre.id) {
+      void loadGenre(genre);
+    }
+  }, [loadGenre, selectedGenre, setSearchParams]);
+
+  const selectedGenreDefinition = selectedGenre ? genresById.get(selectedGenre) ?? null : null;
+  const capabilityItems = useMemo(
+    () => buildGenreCapabilityItems(selectedGenreMeta || selectedGenreDefinition),
+    [selectedGenreDefinition, selectedGenreMeta],
+  );
+
+  useEffect(() => {
+    const genre = selectedGenreDefinition;
+    if (!genre?.apiPath) {
+      setSelectedGenreMeta(genre ?? null);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchTidalGenreDetail(genre.apiPath)
+      .then((detail) => {
+        if (!cancelled) {
+          setSelectedGenreMeta(detail);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedGenreMeta(genre);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGenreDefinition]);
+
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <h1 className="text-2xl font-bold text-foreground mb-6">Browse All</h1>
+    <PageTransition>
+      <div className="page-shell hover-desaturate-page space-y-6">
+        <section className={cn("browse-section page-panel", PANEL_SURFACE_CLASS)}>
+          <div className="flex flex-col gap-2 px-4 py-5 md:px-6 md:py-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Browse</p>
+            <h1 className="text-[2rem] font-black tracking-tight text-white md:text-5xl">Browse All</h1>
+            <p className="max-w-2xl text-sm text-white/66 md:text-base">
+              Explore genres with the same motion language and card behavior used across the rest of KNOBB. The list now syncs with the official TIDAL genre API whenever it is available.
+            </p>
+          </div>
+        </section>
 
-      {/* Genre Grid */}
-      <motion.div variants={stagger} initial="hidden" animate="show" className="media-card-grid gap-4 mb-8">
-        {GENRES.map((genre) => (
-          <motion.button
-            key={genre.id}
-            variants={fadeUp}
-            onClick={() => loadGenre(genre)}
-            className={`relative h-28  overflow-hidden text-left p-4 transition-all hover:scale-[1.02] active:scale-[0.98] ${selectedGenre === genre.id ? "ring-2 ring-foreground/30" : ""
-              }`}
-            style={{
-              background: `linear-gradient(135deg, hsl(${genre.color}), hsl(${genre.color} / 0.6))`,
-            }}
+        <section className={cn("browse-section page-panel overflow-hidden", PANEL_SURFACE_CLASS)}>
+          <div className="home-section-header hover-desaturate-meta px-4 py-3 md:px-6">
+            <h2 className="text-xl font-bold text-foreground">Genres</h2>
+          </div>
+          <motion.div
+            variants={genreGridVariants}
+            initial="hidden"
+            animate="show"
+            className="media-card-grid hover-desaturate-grid gap-0 border-l border-t border-white/10"
           >
-            <span className="text-lg font-bold text-white drop-shadow-md">{genre.label}</span>
-          </motion.button>
-        ))}
-      </motion.div>
+            {genres.map((genre) => (
+              <MediaCardShell
+                key={genre.id}
+                variants={genreTileVariants}
+                onClick={() => handleSelectGenre(genre)}
+                className={cn(
+                  "overflow-hidden text-left",
+                  selectedGenre === genre.id && "ring-1 ring-inset ring-white/30",
+                )}
+              >
+                <div className="relative aspect-square w-full overflow-hidden shadow-sm">
+                  {genre.imageUrl ? (
+                    <div
+                      className="absolute inset-0 bg-cover bg-center"
+                      style={{ backgroundImage: `url(${genre.imageUrl})` }}
+                    />
+                  ) : null}
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      background: `linear-gradient(135deg, hsl(${genre.color}) 0%, hsl(${genre.color} / 0.72) 100%)`,
+                      mixBlendMode: genre.imageUrl ? "multiply" : "normal",
+                    }}
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.18),transparent_34%),linear-gradient(180deg,transparent,rgba(0,0,0,0.28))]" />
+                </div>
+                <div className={`${MEDIA_CARD_BODY_CLASS} relative`}>
+                  <div className="absolute inset-0 -z-10 bg-gradient-to-b from-white/6 via-black/8 to-black/26" aria-hidden="true" />
+                  <p className={`${MEDIA_CARD_TITLE_CLASS} truncate font-medium`}>{genre.label}</p>
+                  <p className={`${MEDIA_CARD_META_CLASS} truncate`}>
+                    {genre.source === "tidal-api" ? "Live TIDAL API" : "Genre"}
+                  </p>
+                </div>
+              </MediaCardShell>
+            ))}
+          </motion.div>
+        </section>
 
-      {/* Genre Results */}
-      {selectedGenre && (
-        <div>
-          <h2 className="text-xl font-bold text-foreground mb-4">
-            {GENRES.find((g) => g.id === selectedGenre)?.label}
-          </h2>
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <section className={cn("browse-section page-panel overflow-hidden", PANEL_SURFACE_CLASS)}>
+          <div className="home-section-header hover-desaturate-meta px-4 py-3 md:px-6">
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-foreground">{selectedGenreDefinition?.label ?? "Pick a genre"}</h2>
+              <p className="text-sm text-white/58">
+                {selectedGenreDefinition
+                  ? `${tracks.length} tracks ready to explore${usingLiveGenres ? " from a live TIDAL genre catalog" : ""}`
+                  : "Choose a genre above to load its latest browse results."}
+              </p>
             </div>
-          ) : (
-            <motion.div variants={stagger} initial="hidden" animate="show" className="media-card-grid gap-5">
-              {tracks.map((track) => {
-                const isCurrent = isSameTrack(currentTrack, track);
+          </div>
+          {capabilityItems.length > 0 ? (
+            <div className="flex flex-wrap gap-2 px-4 pb-4 md:px-6">
+              {capabilityItems.map((item) => {
+                const Icon = item.icon;
                 return (
-                  <TrackContextMenu key={track.id} track={track} tracks={tracks}>
-                    <motion.div
-                      variants={fadeUp}
-                      className="media-card-shell relative group cursor-pointer transition-opacity hover:opacity-80"
-                      onClick={() => play(track, tracks)}
-                    >
-                      <div className="relative mb-2 overflow-hidden aspect-square shadow-sm">
-                        <img src={track.coverUrl} alt={track.title} className="media-card-artwork w-full h-full object-cover" />
-                        <div
-                          className="media-card-hover-control media-card-hover-control-left absolute flex items-center justify-center shadow-xl"
-                          style={{ background: `hsl(var(--dynamic-accent))` }}
-                        >
-                          {isCurrent && isPlaying ? (
-                            <div className="playing-bars flex items-end gap-[2px]"><span /><span /><span /></div>
-                          ) : (
-                            <Play className={`${MEDIA_CARD_ACTION_ICON_CLASS} text-foreground ml-0.5 fill-current`} />
-                          )}
-                        </div>
-                      </div>
-                      <p className={`${MEDIA_CARD_TITLE_CLASS} font-medium mt-1 truncate`}>{track.title}</p>
-                      <ArtistsLink
-                        name={track.artist}
-                        artists={track.artists}
-                        artistId={track.artistId}
-                        className={`${MEDIA_CARD_META_CLASS} truncate block`}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </motion.div>
-                  </TrackContextMenu>
+                  <span
+                    key={item.key}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/68"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </span>
                 );
               })}
-            </motion.div>
-          )}
-        </div>
-      )}
-    </motion.div>
+            </div>
+          ) : null}
+
+          <AnimatePresence mode="wait">
+            {selectedGenreDefinition ? (
+              <motion.div
+                key={selectedGenreDefinition.id}
+                variants={resultsSwapVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="px-4 pb-4 md:px-6 md:pb-6"
+              >
+                {loading ? (
+                  <div className="flex h-40 items-center justify-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <motion.div
+                    variants={genreGridVariants}
+                    initial="hidden"
+                    animate="show"
+                    className="media-card-grid hover-desaturate-grid gap-0 border-l border-t border-white/10"
+                  >
+                    {tracks.map((track, index) => (
+                      <TrackCard
+                        key={track.id}
+                        track={track}
+                        tracks={tracks}
+                        liked={isLiked(track.id)}
+                        onToggleLike={() => {
+                          void toggleLike(track);
+                        }}
+                        isPriority={index < 6}
+                      />
+                    ))}
+                  </motion.div>
+                )}
+              </motion.div>
+            ) : (
+              <motion.div
+                key="browse-all-empty"
+                variants={resultsSwapVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="px-4 pb-6 pt-2 text-sm text-white/58 md:px-6"
+              >
+                Hovering and selection now use the shared browse/card motion system.
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </section>
+      </div>
+    </PageTransition>
   );
 }

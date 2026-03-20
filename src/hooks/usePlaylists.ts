@@ -1,6 +1,7 @@
 import {
   createElement,
   createContext,
+  startTransition,
   useCallback,
   useContext,
   useEffect,
@@ -15,9 +16,10 @@ import {
   buildPlaylist,
   getTrackKey,
   isUniqueViolation,
+  normalizeRole,
+  normalizeVisibility,
 } from "@/hooks/playlists/helpers";
 import { pushAppDiagnostic } from "@/lib/appDiagnostics";
-import { scheduleBackgroundTask } from "@/lib/performanceProfile";
 import {
   getSupabaseClient,
   loadPlaylistCollaboratorsModule,
@@ -25,6 +27,8 @@ import {
   loadPlaylistQueriesModule,
   reportClientErrorLazy,
 } from "@/lib/runtimeModules";
+import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
+import { normalizeTrackIdentity } from "@/lib/trackIdentity";
 import type {
   AddTrackResult,
   PlaylistCollaboratorRole,
@@ -100,14 +104,113 @@ function mergePlaylistSummaries(
   });
 }
 
+function chunkTracks<T>(items: T[], chunkSize: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+}
+
+const PLAYLISTS_STORAGE_KEY_PREFIX = "knobb-playlists:v1";
+
+function getPlaylistsStorageKey(userId: string) {
+  return `${PLAYLISTS_STORAGE_KEY_PREFIX}:${userId}`;
+}
+
+function normalizeCachedTracks(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  const normalizedTracks: Track[] = [];
+  for (const track of value) {
+    if (!track || typeof track !== "object") continue;
+
+    try {
+      normalizedTracks.push(normalizeTrackIdentity(track as Track));
+    } catch {
+      // Ignore malformed cached tracks and keep the playlist summary available.
+    }
+  }
+
+  return normalizedTracks;
+}
+
+function normalizeCachedPlaylist(value: unknown, userId: string): UserPlaylist | null {
+  const raw = value as Partial<UserPlaylist> | null;
+  if (!raw) return null;
+
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!id || !name) return null;
+
+  const tracks = normalizeCachedTracks(raw.tracks);
+  const trackCount = Number(raw.track_count);
+  const normalizedTrackCount = Number.isFinite(trackCount)
+    ? Math.max(0, Math.round(trackCount))
+    : tracks.length;
+  const tracksLoaded = raw.tracks_loaded === true || normalizedTrackCount === 0 || tracks.length >= normalizedTrackCount;
+
+  return {
+    id,
+    name,
+    description: typeof raw.description === "string" ? raw.description : "",
+    cover_url: raw.cover_url ? String(raw.cover_url) : null,
+    created_at:
+      typeof raw.created_at === "string" && raw.created_at.trim()
+        ? raw.created_at
+        : new Date().toISOString(),
+    owner_user_id:
+      typeof raw.owner_user_id === "string" && raw.owner_user_id.trim()
+        ? raw.owner_user_id
+        : userId,
+    access_role: normalizeRole(raw.access_role),
+    visibility: normalizeVisibility(raw.visibility),
+    share_token:
+      typeof raw.share_token === "string" && raw.share_token.trim()
+        ? raw.share_token
+        : crypto.randomUUID(),
+    track_count: normalizedTrackCount,
+    tracks_loaded: tracksLoaded,
+    tracks,
+  };
+}
+
+function sortPlaylistsByCreatedAtDesc(playlists: UserPlaylist[]) {
+  return [...playlists].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+}
+
+function readCachedPlaylists(userId: string | null) {
+  if (!userId) return [];
+
+  const raw = safeStorageGetItem(getPlaylistsStorageKey(userId));
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return sortPlaylistsByCreatedAtDesc(
+      parsed.map((playlist) => normalizeCachedPlaylist(playlist, userId)).filter(Boolean) as UserPlaylist[],
+    );
+  } catch {
+    return [];
+  }
+}
+
 function usePlaylistsState() {
   const { user } = useAuth();
-  const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
-  const [loading, setLoading] = useState(() => Boolean(user));
-  const [initialized, setInitialized] = useState(false);
+  const userId = user?.id ?? null;
+  const [playlists, setPlaylists] = useState<UserPlaylist[]>(() => readCachedPlaylists(userId));
+  const [loading, setLoading] = useState(() => Boolean(user) && readCachedPlaylists(userId).length === 0);
+  const [initialized, setInitialized] = useState(() => !user || readCachedPlaylists(userId).length > 0);
   const [lastPlaylistError, setLastPlaylistError] = useState<string | null>(null);
   const playlistsRef = useRef<UserPlaylist[]>([]);
   const lastPlaylistErrorRef = useRef<string | null>(null);
+  const hydratedUserIdRef = useRef<string | null>(userId);
 
   const setPlaylistError = useCallback((message: string | null) => {
     lastPlaylistErrorRef.current = message;
@@ -123,6 +226,22 @@ function usePlaylistsState() {
     playlistsRef.current = playlists;
   }, [playlists]);
 
+  useEffect(() => {
+    if (!userId) return;
+    safeStorageSetItem(getPlaylistsStorageKey(userId), JSON.stringify(playlists));
+  }, [playlists, userId]);
+
+  useEffect(() => {
+    if (hydratedUserIdRef.current === userId) return;
+
+    hydratedUserIdRef.current = userId;
+    const cachedPlaylists = readCachedPlaylists(userId);
+    playlistsRef.current = cachedPlaylists;
+    setPlaylists(cachedPlaylists);
+    setInitialized(!user || cachedPlaylists.length > 0);
+    setLoading(Boolean(user) && cachedPlaylists.length === 0);
+  }, [user, userId]);
+
   const fetchPlaylists = useCallback(async () => {
     if (!user) {
       setPlaylists([]);
@@ -136,7 +255,9 @@ function usePlaylistsState() {
     try {
       const { fetchUserPlaylists } = await loadPlaylistQueriesModule();
       const nextPlaylists = await fetchUserPlaylists(user.id);
-      setPlaylists((previous) => mergePlaylistSummaries(previous, nextPlaylists));
+      startTransition(() => {
+        setPlaylists((previous) => mergePlaylistSummaries(previous, nextPlaylists));
+      });
     } finally {
       setLoading(false);
       setInitialized(true);
@@ -144,14 +265,7 @@ function usePlaylistsState() {
   }, [user]);
 
   useEffect(() => {
-    if (!user) {
-      void fetchPlaylists();
-      return;
-    }
-
-    return scheduleBackgroundTask(() => {
-      void fetchPlaylists();
-    }, 900);
+    void fetchPlaylists();
   }, [fetchPlaylists, user]);
 
   useEffect(() => {
@@ -161,21 +275,19 @@ function usePlaylistsState() {
     let channel: Awaited<
       ReturnType<Awaited<ReturnType<typeof loadPlaylistQueriesModule>>["subscribeToPlaylistChanges"]>
     > | null = null;
-    const cancel = scheduleBackgroundTask(() => {
-      void (async () => {
-        const { invalidateUserPlaylistsCache, subscribeToPlaylistChanges } = await loadPlaylistQueriesModule();
-        if (!active) return;
 
-        channel = subscribeToPlaylistChanges(user.id, () => {
-          invalidateUserPlaylistsCache(user.id);
-          void fetchPlaylists();
-        });
-      })();
-    }, 1400);
+    void (async () => {
+      const { invalidateUserPlaylistsCache, subscribeToPlaylistChanges } = await loadPlaylistQueriesModule();
+      if (!active) return;
+
+      channel = subscribeToPlaylistChanges(user.id, () => {
+        invalidateUserPlaylistsCache(user.id);
+        void fetchPlaylists();
+      });
+    })();
 
     return () => {
       active = false;
-      cancel();
       if (channel) {
         void loadPlaylistQueriesModule().then(({ removePlaylistSubscription }) => removePlaylistSubscription(channel!));
       }
@@ -193,22 +305,49 @@ function usePlaylistsState() {
       return existing.tracks;
     }
 
-    setPlaylists((prev) =>
-      prev.map((playlist) =>
-        playlist.id === playlistId
-          ? {
-              ...playlist,
-              cover_url: playlist.cover_url || tracks[0]?.coverUrl || null,
-              track_count: tracks.length,
-              tracks,
-              tracks_loaded: true,
-            }
-          : playlist
-      )
-    );
+    startTransition(() => {
+      setPlaylists((prev) =>
+        prev.map((playlist) =>
+          playlist.id === playlistId
+            ? {
+                ...playlist,
+                cover_url: playlist.cover_url || tracks[0]?.coverUrl || null,
+                track_count: tracks.length,
+                tracks,
+                tracks_loaded: true,
+              }
+            : playlist
+        )
+      );
+    });
 
     return tracks;
   }, []);
+
+  const ensurePlaylistLoaded = useCallback(async (playlistId: string) => {
+    const existing = playlistsRef.current.find((playlist) => playlist.id === playlistId);
+    if (existing) return existing;
+    if (!user) return null;
+
+    const { fetchUserPlaylistById } = await loadPlaylistQueriesModule();
+    const playlist = await fetchUserPlaylistById(user.id, playlistId);
+    if (!playlist) {
+      return null;
+    }
+
+    startTransition(() => {
+      setPlaylists((prev) => {
+        const alreadyLoaded = prev.find((entry) => entry.id === playlist.id);
+        if (alreadyLoaded) {
+          return mergePlaylistSummaries(prev, [playlist]);
+        }
+
+        return [playlist, ...prev];
+      });
+    });
+
+    return playlist;
+  }, [user]);
 
   const createPlaylist = useCallback(
     async (
@@ -467,6 +606,143 @@ function usePlaylistsState() {
     [fetchPlaylists, invalidatePlaylistsCache, user?.id]
   );
 
+  const importTracksToPlaylist = useCallback(
+    async (
+      playlistId: string,
+      tracks: Track[],
+      onProgress?: (progress: {
+        addedCount: number;
+        current: number;
+        duplicateCount: number;
+        failedCount: number;
+        total: number;
+      }) => void,
+    ) => {
+      const target = playlistsRef.current.find((playlist) => playlist.id === playlistId);
+      if (!target) {
+        return {
+          addedCount: 0,
+          duplicateCount: 0,
+          failedCount: tracks.length,
+        };
+      }
+
+      const existingKeys = new Set(
+        target.tracks_loaded
+          ? target.tracks.map((track) => getTrackKey(track))
+          : [],
+      );
+      const seenIncomingKeys = new Set<string>();
+      const candidateTracks: Track[] = [];
+      let addedCount = 0;
+      let duplicateCount = 0;
+      let failedCount = 0;
+      const total = tracks.length;
+
+      for (const track of tracks) {
+        const trackKey = getTrackKey(track);
+        if (seenIncomingKeys.has(trackKey) || existingKeys.has(trackKey)) {
+          duplicateCount += 1;
+          continue;
+        }
+
+        seenIncomingKeys.add(trackKey);
+        candidateTracks.push(track);
+      }
+
+      const { insertPlaylistTrackRecords, setPlaylistCoverUrl } = await loadPlaylistMutationsModule();
+      const chunks = chunkTracks(candidateTracks, 25);
+      let processed = 0;
+      const insertedTracksForState: Track[] = [];
+
+      for (const chunk of chunks) {
+        const startPosition = target.track_count + addedCount;
+        const { insertedTrackKeys, error } = await insertPlaylistTrackRecords(playlistId, chunk, startPosition);
+
+        processed += chunk.length;
+
+        if (error) {
+          console.error("Failed to import playlist tracks", error);
+          failedCount += chunk.length;
+          onProgress?.({
+            addedCount,
+            current: Math.min(processed + duplicateCount + failedCount, total),
+            duplicateCount,
+            failedCount,
+            total,
+          });
+          continue;
+        }
+
+        const insertedKeySet = new Set(insertedTrackKeys);
+        const insertedTracks = chunk.filter((track) => insertedKeySet.has(getTrackKey(track)));
+        const chunkDuplicates = chunk.length - insertedTracks.length;
+
+        addedCount += insertedTracks.length;
+        duplicateCount += chunkDuplicates;
+        insertedTracksForState.push(...insertedTracks);
+        insertedTracks.forEach((track) => {
+          existingKeys.add(getTrackKey(track));
+        });
+
+        onProgress?.({
+          addedCount,
+          current: Math.min(processed + duplicateCount + failedCount, total),
+          duplicateCount,
+          failedCount,
+          total,
+        });
+
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      }
+
+      if (insertedTracksForState.length > 0) {
+        const optimisticInsertedTracks = insertedTracksForState.map((track) => ({
+          ...track,
+          addedAt: new Date().toISOString(),
+        }));
+
+        startTransition(() => {
+          setPlaylists((prev) =>
+            prev.map((playlist) =>
+              playlist.id === playlistId
+                ? {
+                    ...playlist,
+                    cover_url: playlist.cover_url || optimisticInsertedTracks[0]?.coverUrl || null,
+                    track_count: playlist.track_count + optimisticInsertedTracks.length,
+                    tracks: playlist.tracks_loaded
+                      ? [...playlist.tracks, ...optimisticInsertedTracks]
+                      : playlist.tracks,
+                  }
+                : playlist
+            )
+          );
+        });
+      }
+
+      if (target.track_count === 0 && addedCount > 0) {
+        const firstInsertedTrack = candidateTracks.find((track) => existingKeys.has(getTrackKey(track)));
+        if (firstInsertedTrack?.coverUrl) {
+          const { error: coverError } = await setPlaylistCoverUrl(playlistId, firstInsertedTrack.coverUrl);
+          if (coverError) {
+            console.error("Failed to update playlist cover", coverError);
+          }
+        }
+      }
+
+      if (addedCount > 0 || duplicateCount > 0) {
+        void invalidatePlaylistsCache(user?.id);
+      }
+
+      return {
+        addedCount,
+        duplicateCount,
+        failedCount,
+      };
+    },
+    [invalidatePlaylistsCache, user?.id]
+  );
+
   const createPlaylistWithTracks = useCallback(
     async (
       name: string,
@@ -483,78 +759,16 @@ function usePlaylistsState() {
       });
       if (!playlistId) return null;
 
-      let addedCount = 0;
-      let duplicateCount = 0;
-      let failedCount = 0;
-
-      for (const track of tracks) {
-        const result = await addTrack(playlistId, track);
-        if (result.added) {
-          addedCount += 1;
-        } else if (result.reason === "duplicate") {
-          duplicateCount += 1;
-        } else {
-          failedCount += 1;
-        }
-      }
+      const result = await importTracksToPlaylist(playlistId, tracks);
 
       return {
-        addedCount,
-        duplicateCount,
-        failedCount,
+        addedCount: result.addedCount,
+        duplicateCount: result.duplicateCount,
+        failedCount: result.failedCount,
         playlistId,
       };
     },
-    [addTrack, createPlaylist]
-  );
-
-  const importTracksToPlaylist = useCallback(
-    async (
-      playlistId: string,
-      tracks: Track[],
-      onProgress?: (progress: {
-        addedCount: number;
-        current: number;
-        duplicateCount: number;
-        failedCount: number;
-        total: number;
-      }) => void,
-    ) => {
-      let addedCount = 0;
-      let duplicateCount = 0;
-      let failedCount = 0;
-
-      for (let index = 0; index < tracks.length; index += 1) {
-        const result = await addTrack(playlistId, tracks[index]);
-
-        if (result.added) {
-          addedCount += 1;
-        } else if (result.reason === "duplicate") {
-          duplicateCount += 1;
-        } else {
-          failedCount += 1;
-        }
-
-        onProgress?.({
-          addedCount,
-          current: index + 1,
-          duplicateCount,
-          failedCount,
-          total: tracks.length,
-        });
-
-        if ((index + 1) % 5 === 0) {
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-      }
-
-      return {
-        addedCount,
-        duplicateCount,
-        failedCount,
-      };
-    },
-    [addTrack]
+    [createPlaylist, importTracksToPlaylist]
   );
 
   const moveTrack = useCallback(
@@ -734,6 +948,7 @@ function usePlaylistsState() {
       moveTrack,
       removeTrack,
       loadPlaylistTracks,
+      ensurePlaylistLoaded,
       getCollaborators,
       inviteCollaborator,
       updateCollaboratorRole,
@@ -756,6 +971,7 @@ function usePlaylistsState() {
       inviteCollaborator,
       lastPlaylistError,
       loadPlaylistTracks,
+      ensurePlaylistLoaded,
       loading,
       moveTrack,
       playlists,

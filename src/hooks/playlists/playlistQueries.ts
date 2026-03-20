@@ -120,6 +120,64 @@ export async function fetchUserPlaylists(
   }
 }
 
+export async function fetchUserPlaylistById(
+  userId: string,
+  playlistId: string,
+): Promise<UserPlaylist | null> {
+  const { data: playlistRow, error: playlistError } = await supabase
+    .from("playlists")
+    .select("id,name,description,cover_url,created_at,user_id,visibility,share_token")
+    .eq("id", playlistId)
+    .maybeSingle<PlaylistRecord>();
+
+  if (playlistError || !playlistRow) {
+    if (playlistError) {
+      console.error("Failed to fetch playlist by id", playlistError);
+    }
+    return null;
+  }
+
+  let accessRole = playlistRow.user_id === userId ? "owner" : undefined;
+
+  if (!accessRole) {
+    const { data: membershipRow, error: membershipError } = await supabase
+      .from("playlist_collaborators")
+      .select("role")
+      .eq("playlist_id", playlistId)
+      .eq("user_id", userId)
+      .maybeSingle<{ role: string | null }>();
+
+    if (membershipError) {
+      console.error("Failed to fetch playlist collaborator role", membershipError);
+      return null;
+    }
+
+    accessRole = normalizeRole(membershipRow?.role);
+  }
+
+  const { count: trackCount, error: countError } = await supabase
+    .from("playlist_tracks")
+    .select("id", { count: "exact", head: true })
+    .eq("playlist_id", playlistId);
+
+  if (countError) {
+    console.error("Failed to count playlist tracks", countError);
+    return null;
+  }
+
+  return buildPlaylist(
+    playlistRow,
+    userId,
+    undefined,
+    [],
+    {
+      accessRole,
+      trackCount: Number(trackCount ?? 0),
+      tracksLoaded: Number(trackCount ?? 0) === 0,
+    },
+  );
+}
+
 export async function fetchPlaylistTracks(playlistId: string): Promise<Track[] | null> {
   const { data, error } = await supabase.rpc("get_playlist_tracks", {
     target_playlist_id: playlistId,
@@ -138,7 +196,7 @@ export async function fetchPlaylistTracks(playlistId: string): Promise<Track[] |
         return null;
       }
 
-      return ((fallback.data || []) as PlaylistTrackRpcRecord[]).map((row) => ({
+      return ((fallback.data || []) as unknown as PlaylistTrackRpcRecord[]).map((row) => ({
         ...(row.track_data as Track),
         addedAt: row.added_at,
       }));
@@ -148,7 +206,7 @@ export async function fetchPlaylistTracks(playlistId: string): Promise<Track[] |
     return null;
   }
 
-  return ((data || []) as PlaylistTrackRpcRecord[]).map((row) => ({
+  return ((data || []) as unknown as PlaylistTrackRpcRecord[]).map((row) => ({
     ...(row.track_data as Track),
     addedAt: row.added_at,
   }));

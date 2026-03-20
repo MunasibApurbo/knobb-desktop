@@ -6,15 +6,10 @@ import type {
   UserPlaylist,
 } from "@/hooks/playlists/types";
 import type { Track } from "@/types/music";
+import { buildTrackKey } from "@/lib/librarySources";
 
 export function getTrackKey(track: Track) {
-  if (typeof track.tidalId === "number" && Number.isFinite(track.tidalId)) {
-    return `tidal:${track.tidalId}`;
-  }
-  if (track.id) return `id:${track.id}`;
-  return `fallback:${track.title.trim().toLowerCase()}::${track.artist
-    .trim()
-    .toLowerCase()}::${track.album.trim().toLowerCase()}::${track.duration}`;
+  return buildTrackKey(track);
 }
 
 export function isUniqueViolation(error: PostgrestError | null) {

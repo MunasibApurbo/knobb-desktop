@@ -1,1 +1,8 @@
+/api/unreleased /.netlify/functions/unreleased-proxy 200
+/api/tidal-browse /.netlify/functions/tidal-browse-proxy 200
+/api/youtube-music /.netlify/functions/youtube-music-proxy 200
+/api/audio-proxy /.netlify/functions/audio-proxy 200
+/api/image-proxy /.netlify/functions/image-proxy 200
+/embed/track/:trackId /.netlify/functions/embed-track?trackId=:trackId 200
+/track/:trackId /.netlify/functions/track-share?trackId=:trackId 200
 /* /index.html 200

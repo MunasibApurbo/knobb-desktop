@@ -1,0 +1,108 @@
+.landing-wrapper {
+  --landing-screen-height: 100vh;
+  --landing-screen-height: 100dvh;
+  --bg: #000000;
+  --bg2: #050505;
+  --fg: #ffffff;
+  --fg-muted: #999999;
+  --accent1: #1a1a1a; /* Dark Glass */
+  --accent2: #222222; /* Lighter Glass */
+  --accent3: #00f2ff; /* Knobb Cyan */
+  --accent4: #7000ff; /* Knobb Purple */
+
+  background-color: var(--bg);
+  color: var(--fg);
+  overflow-x: hidden;
+  position: relative;
+  min-height: var(--landing-screen-height);
+  scroll-behavior: auto !important; /* Prevent native conflicts with Lenis */
+}
+
+.landing-wrapper * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.landing-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.landing-wrapper h1,
+.landing-wrapper h2,
+.landing-wrapper h3 {
+  text-transform: uppercase;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 0.95;
+  will-change: transform;
+}
+
+.landing-wrapper h1 {
+  font-size: clamp(2.5rem, 8vw, 6rem);
+}
+
+.landing-wrapper h2 {
+  font-size: clamp(2rem, 6vw, 4.5rem);
+}
+
+.landing-wrapper h3 {
+  font-size: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+.landing-wrapper a {
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.landing-wrapper button,
+.landing-wrapper input,
+.landing-wrapper select,
+.landing-wrapper textarea {
+  font: inherit;
+}
+
+.landing-wrapper p,
+.landing-wrapper p.ss {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.landing-wrapper p.mn {
+  text-transform: uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.125;
+}
+
+/* body - scrollbar hide */
+.landing-wrapper::-webkit-scrollbar {
+  width: 0;
+}
+
+
+
+@media (max-width: 1000px) {
+  .landing-wrapper h1 {
+    font-size: 2.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-wrapper *,
+  .landing-wrapper *::before,
+  .landing-wrapper *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

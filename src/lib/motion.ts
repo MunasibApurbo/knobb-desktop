@@ -5,105 +5,48 @@ import type { WebsiteMode } from "@/contexts/SettingsContext";
 export const MOTION_EASE = {
   smooth: [0.22, 1, 0.36, 1] as const,
   swift: [0.16, 1, 0.3, 1] as const,
-  settle: [0.33, 1, 0.68, 1] as const,
+  settle: [0.28, 0.84, 0.42, 1] as const,
 };
 
 export const MOTION_DURATION = {
-  instant: 0.18,
-  fast: 0.26,
-  base: 0.42,
-  slow: 0.72,
-  ambient: 1.1,
+  instant: 0.12,
+  fast: 0.22,
+  base: 0.38,
+  slow: 0.56,
+  ambient: 1.05,
 } as const;
 
 export const MOTION_SPRING = {
   shell: {
     type: "spring",
-    stiffness: 220,
-    damping: 28,
-    mass: 0.9,
+    stiffness: 320,
+    damping: 30,
+    mass: 0.82,
   } satisfies Transition,
   card: {
     type: "spring",
-    stiffness: 260,
-    damping: 22,
-    mass: 0.78,
+    stiffness: 360,
+    damping: 32,
+    mass: 0.72,
   } satisfies Transition,
   control: {
     type: "spring",
-    stiffness: 360,
-    damping: 24,
-    mass: 0.7,
+    stiffness: 460,
+    damping: 34,
+    mass: 0.58,
   } satisfies Transition,
 } as const;
 
 export const MOTION_DEPTH = {
-  pageOffset: 18,
-  sectionOffset: 24,
+  pageOffset: 12,
+  sectionOffset: 14,
   cardLift: 12,
-  cardTilt: 8,
-  cardShift: 9,
-  shellCompress: 22,
+  cardTilt: 4.25,
+  cardShift: 5,
+  shellCompress: 14,
 } as const;
-
-const ROUNDISH_MOTION_EASE = {
-  smooth: [0.18, 1, 0.24, 1] as const,
-  swift: [0.14, 1, 0.22, 1] as const,
-  settle: [0.28, 1, 0.44, 1] as const,
-};
-
-const ROUNDISH_MOTION_DURATION = {
-  instant: 0.2,
-  fast: 0.34,
-  base: 0.56,
-  slow: 0.9,
-  ambient: 1.4,
-} as const;
-
-const ROUNDISH_MOTION_SPRING = {
-  shell: {
-    type: "spring",
-    stiffness: 178,
-    damping: 22,
-    mass: 1.06,
-  } satisfies Transition,
-  card: {
-    type: "spring",
-    stiffness: 205,
-    damping: 18,
-    mass: 0.92,
-  } satisfies Transition,
-  control: {
-    type: "spring",
-    stiffness: 285,
-    damping: 18,
-    mass: 0.82,
-  } satisfies Transition,
-} as const;
-
-const ROUNDISH_MOTION_DEPTH = {
-  pageOffset: 24,
-  sectionOffset: 30,
-  cardLift: 16,
-  cardTilt: 10,
-  cardShift: 11,
-  shellCompress: 28,
-} as const;
-
-function isRoundishMode(websiteMode: WebsiteMode) {
-  return websiteMode === "roundish";
-}
-
-export function getMotionProfile(websiteMode: WebsiteMode = "edgy") {
-  if (isRoundishMode(websiteMode)) {
-    return {
-      ease: ROUNDISH_MOTION_EASE,
-      duration: ROUNDISH_MOTION_DURATION,
-      spring: ROUNDISH_MOTION_SPRING,
-      depth: ROUNDISH_MOTION_DEPTH,
-    } as const;
-  }
-
+export function getMotionProfile(websiteMode: WebsiteMode = "roundish") {
+  void websiteMode;
   return {
     ease: MOTION_EASE,
     duration: MOTION_DURATION,
@@ -114,7 +57,7 @@ export function getMotionProfile(websiteMode: WebsiteMode = "edgy") {
 
 export function getPageTransitionVariants(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Variants {
   if (!motionEnabled) {
     return {
@@ -125,13 +68,12 @@ export function getPageTransitionVariants(
   }
 
   const { duration, ease, depth } = getMotionProfile(websiteMode);
-  const isRoundish = isRoundishMode(websiteMode);
 
   return {
     initial: {
       opacity: 0,
       y: depth.pageOffset,
-      scale: isRoundish ? 0.986 : 0.992,
+      scale: 1,
     },
     animate: {
       opacity: 1,
@@ -144,8 +86,8 @@ export function getPageTransitionVariants(
     },
     exit: {
       opacity: 0,
-      y: isRoundish ? -14 : -10,
-      scale: isRoundish ? 1.008 : 1.004,
+      y: -depth.pageOffset * 0.45,
+      scale: 0.996,
       transition: {
         duration: duration.fast,
         ease: ease.settle,
@@ -156,7 +98,7 @@ export function getPageTransitionVariants(
 
 export function getSectionRevealVariants(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Variants {
   if (!motionEnabled) {
     return {
@@ -166,22 +108,21 @@ export function getSectionRevealVariants(
   }
 
   const { duration, ease, depth } = getMotionProfile(websiteMode);
-  const isRoundish = isRoundishMode(websiteMode);
 
   return {
     hidden: {
       opacity: 0,
-      y: depth.sectionOffset,
-      scale: isRoundish ? 0.988 : 1,
+      y: depth.sectionOffset * 0.45,
+      scale: 1,
     },
     show: (index = 0) => ({
       opacity: 1,
       y: 0,
       scale: 1,
       transition: {
-        duration: duration.slow,
+        duration: duration.fast,
         ease: ease.smooth,
-        delay: index * (isRoundish ? 0.1 : 0.08),
+        delay: index * 0.024,
       },
     }),
   };
@@ -189,8 +130,9 @@ export function getSectionRevealVariants(
 
 export function getStaggerContainerVariants(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Variants {
+  void websiteMode;
   if (!motionEnabled) {
     return {
       hidden: { opacity: 1 },
@@ -198,15 +140,13 @@ export function getStaggerContainerVariants(
     };
   }
 
-  const isRoundish = isRoundishMode(websiteMode);
-
   return {
     hidden: { opacity: 1 },
     show: {
       opacity: 1,
       transition: {
-        staggerChildren: isRoundish ? 0.075 : 0.055,
-        delayChildren: isRoundish ? 0.05 : 0.03,
+        staggerChildren: 0.016,
+        delayChildren: 0.01,
       },
     },
   };
@@ -214,7 +154,7 @@ export function getStaggerContainerVariants(
 
 export function getStaggerItemVariants(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Variants {
   if (!motionEnabled) {
     return {
@@ -224,20 +164,17 @@ export function getStaggerItemVariants(
   }
 
   const { duration, ease } = getMotionProfile(websiteMode);
-  const isRoundish = isRoundishMode(websiteMode);
 
   return {
     hidden: {
       opacity: 0,
-      y: isRoundish ? 24 : 18,
-      scale: isRoundish ? 0.972 : 0.985,
-      rotateX: isRoundish ? 1.5 : 0,
+      y: 10,
+      scale: 0.992,
     },
     show: {
       opacity: 1,
       y: 0,
       scale: 1,
-      rotateX: 0,
       transition: {
         duration: duration.base,
         ease: ease.smooth,
@@ -248,7 +185,7 @@ export function getStaggerItemVariants(
 
 export function getSurfaceSwapTransition(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Transition {
   const { duration, ease } = getMotionProfile(websiteMode);
 
@@ -279,7 +216,7 @@ export function getPageTitleLayoutId(
 
 export function getLoadingPulseTransition(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Transition {
   const { duration, ease } = getMotionProfile(websiteMode);
 
@@ -295,7 +232,7 @@ export function getLoadingPulseTransition(
 
 export function getContentSwapVariants(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ): Variants {
   if (!motionEnabled) {
     return {
@@ -306,12 +243,11 @@ export function getContentSwapVariants(
   }
 
   const { duration, ease } = getMotionProfile(websiteMode);
-  const isRoundish = isRoundishMode(websiteMode);
 
   return {
     initial: {
       opacity: 0,
-      y: isRoundish ? 8 : 6,
+      y: 4,
       scale: 1,
     },
     animate: {
@@ -325,7 +261,7 @@ export function getContentSwapVariants(
     },
     exit: {
       opacity: 0,
-      y: isRoundish ? -4 : -3,
+      y: -2,
       scale: 1,
       transition: {
         duration: duration.fast,
@@ -338,7 +274,7 @@ export function getContentSwapVariants(
 export function getShellCompressionStyles(
   scrollProgress: number,
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ) {
   if (!motionEnabled) {
     return {
@@ -364,22 +300,18 @@ export function getShellCompressionStyles(
 
 export function getControlHover(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ) {
+  void websiteMode;
   if (!motionEnabled) return undefined;
-  if (isRoundishMode(websiteMode)) {
-    return { scale: 1.085, y: -2.8, rotate: -1.2 };
-  }
-  return { scale: 1.05, y: -1.5 };
+  return { scale: 1.04, y: -1.4, rotate: 0 };
 }
 
 export function getControlTap(
   motionEnabled: boolean,
-  websiteMode: WebsiteMode = "edgy",
+  websiteMode: WebsiteMode = "roundish",
 ) {
+  void websiteMode;
   if (!motionEnabled) return undefined;
-  if (isRoundishMode(websiteMode)) {
-    return { scale: 0.94, y: 1.6, rotate: 0.8 };
-  }
-  return { scale: 0.96, y: 1 };
+  return { scale: 0.972, y: 0.8, rotate: 0 };
 }

@@ -1,19 +1,22 @@
-const CACHE_NAME = "knobb-shell-v2";
+const CACHE_NAME = "knobb-shell-v8";
 const APP_SHELL_ASSETS = [
   "/",
   "/index.html",
   "/site.webmanifest",
   "/placeholder.svg",
-  "/favicon.svg",
-  "/favicon.ico",
-  "/favicon-16x16.png",
-  "/favicon-32x32.png",
-  "/apple-touch-icon.png",
+  "/brand/logo-k-black-square-512.png",
+  "/brand/logo-k-black-square-256.png",
 ];
+
+function isShellNavigationPath(pathname) {
+  return !pathname.startsWith("/track/") && !pathname.startsWith("/embed/track/");
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL_ASSETS)).then(() => self.skipWaiting()),
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.allSettled(APP_SHELL_ASSETS.map((asset) => cache.add(asset))))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -34,38 +37,39 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Handle navigation requests
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          void caches.open(CACHE_NAME).then((cache) => cache.put("/", copy));
+          if (response.ok && isShellNavigationPath(url.pathname)) {
+            void caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", copy));
+          }
           return response;
         })
         .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match("/") || caches.match("/index.html");
+          return (await caches.match("/index.html")) || caches.match("/");
         }),
     );
     return;
   }
 
-  const shouldCacheAsset = ["document", "script", "style", "image", "font", "worker"].includes(request.destination);
+  // Assets to cache: scripts, styles, images, fonts
+  const shouldCacheAsset = ["script", "style", "image", "font"].includes(request.destination);
   if (!shouldCacheAsset) return;
 
+  // Stale-while-revalidate for assets
   event.respondWith(
     caches.match(request).then((cached) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-
-      return cached || networkFetch;
+      const fetchPromise = fetch(request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const copy = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return networkResponse;
+      });
+      return cached || fetchPromise;
     }),
   );
 });

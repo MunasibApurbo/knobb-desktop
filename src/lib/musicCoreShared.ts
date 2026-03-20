@@ -119,6 +119,7 @@ export type SourceArtistPage = SourceArtist & {
   albums: SourceAlbum[];
   eps: SourceAlbum[];
   tracks: SourceTrack[];
+  videos: SourceTrack[];
 };
 
 export type EndpointLatencySnapshot = {
@@ -134,25 +135,37 @@ export const UPTIME_URLS = [
 ] as const;
 
 export const API_INSTANCE_POOL = [
+  "https://aether.squid.wtf",
+  "https://zeus.squid.wtf",
+  "https://kraken.squid.wtf",
+  "https://phoenix.squid.wtf",
+  "https://shiva.squid.wtf",
+  "https://chaos.squid.wtf",
   "https://triton.squid.wtf",
-  "https://tidal-api.binimum.org",
   "https://maus.qqdl.site",
   "https://vogel.qqdl.site",
   "https://katze.qqdl.site",
   "https://hund.qqdl.site",
-  "https://tidal.kinoplus.online",
   "https://wolf.qqdl.site",
+  "https://tidal-api.binimum.org",
+  "https://tidal.kinoplus.online",
 ] as const;
 
 export const STREAMING_INSTANCE_POOL = [
+  "https://aether.squid.wtf",
+  "https://zeus.squid.wtf",
+  "https://kraken.squid.wtf",
+  "https://phoenix.squid.wtf",
+  "https://shiva.squid.wtf",
+  "https://chaos.squid.wtf",
   "https://triton.squid.wtf",
-  "https://tidal-api.binimum.org",
   "https://maus.qqdl.site",
   "https://vogel.qqdl.site",
   "https://katze.qqdl.site",
   "https://hund.qqdl.site",
-  "https://tidal.kinoplus.online",
   "https://wolf.qqdl.site",
+  "https://tidal-api.binimum.org",
+  "https://tidal.kinoplus.online",
 ] as const;
 
 export function delay(ms: number) {
@@ -215,7 +228,7 @@ export function deriveTrackQuality(track: SourceTrack | null | undefined) {
 
 export function isTrackUnavailable(track: SourceTrack | null | undefined) {
   if (!track) return true;
-  return track.allowStreaming === false || track.streamReady === false || track.title === "Unavailable";
+  return track.isUnavailable === true || track.title === "Unavailable";
 }
 
 export function getPercentile(samples: number[], percentile: number) {
@@ -250,6 +263,24 @@ export function normalizeOrigin(value: string) {
   } catch {
     return null;
   }
+}
+
+export function isDash(url: string, mimeType?: string) {
+  const normalizedUrl = url.trim().toLowerCase();
+  const normalizedMime = String(mimeType || "").trim().toLowerCase();
+  return normalizedUrl.includes(".mpd") || normalizedMime.includes("dash+xml") || normalizedMime.includes("mpd");
+}
+
+export function isHls(url: string, mimeType?: string) {
+  const normalizedUrl = url.trim().toLowerCase();
+  const normalizedMime = String(mimeType || "").trim().toLowerCase();
+  return normalizedUrl.includes(".m3u8") || normalizedMime.includes("mpegurl");
+}
+
+export function resolveProtocol(url: string, mimeType?: string): "direct" | "dash" | "hls" {
+  if (isDash(url, mimeType)) return "dash";
+  if (isHls(url, mimeType)) return "hls";
+  return "direct";
 }
 
 export function buildInstanceUrl(baseUrl: string, relativePath: string) {

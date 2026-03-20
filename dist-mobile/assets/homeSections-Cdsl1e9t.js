@@ -1,0 +1,1 @@
+const t={recommended:{title:"Recommended Songs",itemType:"track"},newreleases:{title:"New Releases for You",itemType:"album"},recent:{title:"Recently Played",itemType:"track"},recalbums:{title:"Albums You Might Like",itemType:"album"},recartists:{title:"Artists You Might Like",itemType:"artist"}};function i(e){return e in t}export{t as H,i};

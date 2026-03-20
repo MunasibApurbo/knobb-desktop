@@ -21,6 +21,7 @@ export interface TidalTrack {
   imageId?: string | null;
   type?: string;
   isUnavailable?: boolean;
+  isVideo?: boolean;
 }
 
 export interface TidalArtist {

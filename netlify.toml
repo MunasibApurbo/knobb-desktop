@@ -2,9 +2,40 @@
   command = "npm run build"
   publish = "dist"
 
+[functions]
+  node_bundler = "esbuild"
+
+[functions."youtube-music-proxy"]
+  included_files = ["node_modules/@bufbuild/protobuf/dist/cjs/**", "bin/yt-dlp_linux", "netlify/cookies/ytmusic-cookies.txt"]
+
 [[redirects]]
   from = "/api/unreleased"
   to = "/.netlify/functions/unreleased-proxy"
+  status = 200
+
+[[redirects]]
+  from = "/api/tidal-browse"
+  to = "/.netlify/functions/tidal-browse-proxy"
+  status = 200
+
+[[redirects]]
+  from = "/api/youtube-music"
+  to = "/.netlify/functions/youtube-music-proxy"
+  status = 200
+
+[[redirects]]
+  from = "/api/audio-proxy"
+  to = "/.netlify/functions/audio-proxy"
+  status = 200
+
+[[redirects]]
+  from = "/api/image-proxy"
+  to = "/.netlify/functions/image-proxy"
+  status = 200
+
+[[redirects]]
+  from = "/api/discord-webhook"
+  to = "/.netlify/functions/discord-webhook"
   status = 200
 
 [[redirects]]

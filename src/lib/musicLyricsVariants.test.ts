@@ -54,4 +54,48 @@ describe("getLyricsFallbackCandidateIds", () => {
 
     expect(getLyricsFallbackCandidateIds(base, [duplicate, liveVersion, closeMatch])).toEqual([3]);
   });
+
+  it("keeps non-Latin titles and artists matchable for lyric fallbacks", () => {
+    const base = makeTrack({
+      id: 10,
+      title: "আমার সোনার বাংলা",
+      artist: { id: 5001, name: "অর্ণব", picture: null },
+      artists: [{ id: 5001, name: "অর্ণব", type: "MAIN" }],
+      album: {
+        id: 9001,
+        title: "গানের খাতা",
+        cover: "bangla-cover",
+        vibrantColor: null,
+      },
+      audioQuality: "LOW",
+    });
+    const stereo = makeTrack({
+      id: 11,
+      title: "আমার সোনার বাংলা",
+      artist: { id: 5001, name: "অর্ণব", picture: null },
+      artists: [{ id: 5001, name: "অর্ণব", type: "MAIN" }],
+      album: {
+        id: 9001,
+        title: "গানের খাতা",
+        cover: "bangla-cover",
+        vibrantColor: null,
+      },
+      audioQuality: "LOSSLESS",
+    });
+    const unrelated = makeTrack({
+      id: 12,
+      title: "ভুল গান",
+      artist: { id: 5002, name: "অন্য শিল্পী", picture: null },
+      artists: [{ id: 5002, name: "অন্য শিল্পী", type: "MAIN" }],
+      album: {
+        id: 9002,
+        title: "অন্য অ্যালবাম",
+        cover: "other-cover",
+        vibrantColor: null,
+      },
+      audioQuality: "HI_RES_LOSSLESS",
+    });
+
+    expect(getLyricsFallbackCandidateIds(base, [unrelated, stereo])).toEqual([11]);
+  });
 });

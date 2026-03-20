@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { ArtistLink } from "@/components/ArtistLink";
 import { AlbumLink } from "@/components/AlbumLink";
-import { Disc3, User, Music2 } from "lucide-react";
+import { Disc3, User, Music } from "lucide-react";
 import { formatAudioQualityLabel } from "@/lib/audioQuality";
 
 interface CreditsDialogProps {
@@ -51,7 +51,7 @@ export function CreditsDialog({ track, isOpen, onClose }: CreditsDialogProps) {
                         </div>
 
                         <div className="flex items-start gap-3">
-                            <Music2 className="w-4 h-4 mt-1 text-muted-foreground" />
+                            <Music className="w-4 h-4 mt-1 text-muted-foreground" />
                             <div>
                                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Playback Quality</p>
                                 <div className="flex items-center gap-2 mt-1">

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { motion } from "framer-motion";
 
 import { useMotionPreferences } from "@/hooks/useMotionPreferences";
@@ -7,71 +7,151 @@ import { MOTION_SPRING } from "@/lib/motion";
 interface VolumeBarProps {
   volume: number; // 0-1
   onChange: (v: number) => void;
+  ariaLabel: string;
+  ariaValueText?: (value: number) => string;
   className?: string;
   variant?: "wavy" | "straight";
 }
 
 const BAR_COUNT = 16;
+const KEYBOARD_STEP = 0.05;
+const PAGE_STEP = 0.1;
 
-export function VolumeBar({ volume, onChange, className = "", variant = "wavy" }: VolumeBarProps) {
+function clamp(value: number, min = 0, max = 1) {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function VolumeBar({
+  volume,
+  onChange,
+  ariaLabel,
+  ariaValueText,
+  className = "",
+  variant = "wavy",
+}: VolumeBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [dragging, setDragging] = useState(false);
   const { motionEnabled } = useMotionPreferences();
+  const safeVolume = clamp(Number.isFinite(volume) ? volume : 0);
 
   const handleInteraction = useCallback(
     (clientX: number) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      if (rect.width <= 0) return;
+      const pct = clamp((clientX - rect.left) / rect.width);
       onChange(pct);
     },
-    [onChange]
+    [onChange],
   );
 
   const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
+    (e: ReactPointerEvent<HTMLDivElement>) => {
       draggingRef.current = true;
       setDragging(true);
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
       handleInteraction(e.clientX);
     },
     [handleInteraction]
   );
 
   const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
+    (e: ReactPointerEvent<HTMLDivElement>) => {
       if (!draggingRef.current) return;
       handleInteraction(e.clientX);
     },
     [handleInteraction]
   );
 
-  const onPointerUp = useCallback(() => {
+  const stopDragging = useCallback(() => {
     draggingRef.current = false;
     setDragging(false);
   }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handleGlobalPointerEnd = () => {
+      stopDragging();
+    };
+
+    window.addEventListener("pointerup", handleGlobalPointerEnd);
+    window.addEventListener("pointercancel", handleGlobalPointerEnd);
+    window.addEventListener("blur", handleGlobalPointerEnd);
+
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalPointerEnd);
+      window.removeEventListener("pointercancel", handleGlobalPointerEnd);
+      window.removeEventListener("blur", handleGlobalPointerEnd);
+    };
+  }, [dragging, stopDragging]);
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let nextValue: number | null = null;
+
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowDown":
+        nextValue = safeVolume - KEYBOARD_STEP;
+        break;
+      case "ArrowRight":
+      case "ArrowUp":
+        nextValue = safeVolume + KEYBOARD_STEP;
+        break;
+      case "PageDown":
+        nextValue = safeVolume - PAGE_STEP;
+        break;
+      case "PageUp":
+        nextValue = safeVolume + PAGE_STEP;
+        break;
+      case "Home":
+        nextValue = 0;
+        break;
+      case "End":
+        nextValue = 1;
+        break;
+      default:
+        break;
+    }
+
+    if (nextValue === null) return;
+
+    event.preventDefault();
+    onChange(clamp(nextValue));
+  }, [onChange, safeVolume]);
 
   return (
     <motion.div
       ref={containerRef}
       className={`flex items-end gap-[2px] cursor-pointer h-5 ${className}`}
+      role="slider"
+      tabIndex={0}
+      aria-label={ariaLabel}
+      aria-orientation="horizontal"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(safeVolume * 100)}
+      aria-valuetext={ariaValueText?.(safeVolume) ?? `${Math.round(safeVolume * 100)}%`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      onPointerUp={stopDragging}
+      onPointerCancel={stopDragging}
+      onKeyDown={handleKeyDown}
       onPointerLeave={() => {
-        draggingRef.current = false;
-        setDragging(false);
-        setHovered(false);
+        if (!draggingRef.current) {
+          setHovered(false);
+        }
       }}
       onPointerEnter={() => setHovered(true)}
+      style={{ touchAction: "none" }}
       animate={motionEnabled ? { scaleY: dragging ? 1.08 : hovered ? 1.03 : 1 } : undefined}
       transition={MOTION_SPRING.control}
     >
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
         const barPosition = (i + 0.5) / BAR_COUNT; // center of bar
-        const isActive = barPosition <= volume;
+        const isActive = barPosition <= safeVolume;
 
         let heightPct = 0.15;
         if (variant === "straight") {

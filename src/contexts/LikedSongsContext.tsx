@@ -1,12 +1,15 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, startTransition } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
 import { Track } from "@/types/music";
 import { normalizeTrackIdentity } from "@/lib/trackIdentity";
 import { scheduleBackgroundTask } from "@/lib/performanceProfile";
 import { getSupabaseClient } from "@/lib/runtimeModules";
+import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safeStorage";
+import { showErrorToast } from "@/lib/toast";
+import { buildTrackKey } from "@/lib/librarySources";
+import { hydrateArtistGridTrackPlayback } from "@/lib/artistGridPlayback";
 
 interface LikedSongsContextType {
   likedSongs: Track[];
@@ -16,13 +19,10 @@ interface LikedSongsContextType {
 }
 
 const LikedSongsContext = createContext<LikedSongsContextType | null>(null);
+const LIKED_SONGS_STORAGE_KEY_PREFIX = "knobb-liked-songs:v1";
 
 const getTrackKey = (track: Track) => {
-  if (typeof track.tidalId === "number" && Number.isFinite(track.tidalId)) {
-    return String(track.tidalId);
-  }
-  if (track.id) return String(track.id);
-  return `${track.title}|${track.artist}|${track.album}|${track.duration}`.toLowerCase();
+  return buildTrackKey(track);
 };
 
 const dedupeTracks = (tracks: Track[]) => {
@@ -37,15 +37,64 @@ const dedupeTracks = (tracks: Track[]) => {
   return deduped;
 };
 
+function getLikedSongsStorageKey(userId: string) {
+  return `${LIKED_SONGS_STORAGE_KEY_PREFIX}:${userId}`;
+}
+
+function normalizeStoredLikedSongs(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  const normalizedTracks: Track[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") continue;
+
+    try {
+      normalizedTracks.push(normalizeTrackIdentity(candidate as Track));
+    } catch {
+      // Ignore malformed cached entries and keep the rest of the library usable.
+    }
+  }
+
+  return dedupeTracks(normalizedTracks);
+}
+
+function readCachedLikedSongs(userId: string | null) {
+  if (!userId) return [];
+
+  const raw = safeStorageGetItem(getLikedSongsStorageKey(userId));
+  if (!raw) return [];
+
+  try {
+    return normalizeStoredLikedSongs(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
+  }
+}
+
 export function LikedSongsProvider({ children }: { children: React.ReactNode }) {
-  const [likedSongs, setLikedSongs] = useState<Track[]>([]);
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const [likedSongs, setLikedSongs] = useState<Track[]>(() => readCachedLikedSongs(userId));
   const likedSongsRef = useRef<Track[]>([]);
+  const hydratedUserIdRef = useRef<string | null>(userId);
 
   useEffect(() => {
     likedSongsRef.current = likedSongs;
   }, [likedSongs]);
+
+  useEffect(() => {
+    if (!userId) return;
+    safeStorageSetItem(getLikedSongsStorageKey(userId), JSON.stringify(likedSongs));
+  }, [likedSongs, userId]);
+
+  useEffect(() => {
+    if (hydratedUserIdRef.current === userId) return;
+
+    hydratedUserIdRef.current = userId;
+    const cachedLikedSongs = readCachedLikedSongs(userId);
+    likedSongsRef.current = cachedLikedSongs;
+    setLikedSongs(cachedLikedSongs);
+  }, [userId]);
 
   const fetchRemoteLikedSongs = useCallback(async () => {
     if (!user) {
@@ -63,16 +112,18 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
 
       if (error) throw error;
 
-      const remoteLikedSongs = (data || []).map((row) =>
-        normalizeTrackIdentity({
-          ...(row.track_data as unknown as Track),
-          addedAt: row.liked_at,
-        })
+      const normalized = dedupeTracks(
+        (data || []).map((row) =>
+          normalizeTrackIdentity({
+            ...(row.track_data as unknown as Track),
+            addedAt: row.liked_at,
+          }),
+        ),
       );
-
-      const normalized = dedupeTracks(remoteLikedSongs);
       likedSongsRef.current = normalized;
-      setLikedSongs(normalized);
+      startTransition(() => {
+        setLikedSongs(normalized);
+      });
     } catch (e) {
       console.error("Failed to fetch liked songs:", e);
     }
@@ -80,15 +131,8 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
 
   // Fetch liked songs on mount or user change (local-first, remote-sync)
   useEffect(() => {
-    if (!user) {
-      void fetchRemoteLikedSongs();
-      return;
-    }
-
-    return scheduleBackgroundTask(() => {
-      void fetchRemoteLikedSongs();
-    }, 900);
-  }, [fetchRemoteLikedSongs, user]);
+    void fetchRemoteLikedSongs();
+  }, [fetchRemoteLikedSongs]);
 
   useEffect(() => {
     if (!userId) return;
@@ -127,19 +171,24 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
     };
   }, [fetchRemoteLikedSongs, userId]);
 
+  const likedTrackIdSet = useMemo(
+    () => new Set(likedSongs.map((track) => String(track.id))),
+    [likedSongs],
+  );
+
   const isLiked = useCallback(
-    (trackId: string) => likedSongs.some((t) => String(t.id) === String(trackId)),
-    [likedSongs]
+    (trackId: string) => likedTrackIdSet.has(String(trackId)),
+    [likedTrackIdSet]
   );
 
   const addLikedSong = useCallback(
     async (track: Track): Promise<"added" | "duplicate" | "error"> => {
       if (!user) {
-        toast.error("Please sign in to like songs");
+        showErrorToast("Please sign in to like songs");
         return "error";
       }
 
-      const normalizedTrack = normalizeTrackIdentity(track);
+      const normalizedTrack = normalizeTrackIdentity(await hydrateArtistGridTrackPlayback(track));
       const targetKey = getTrackKey(normalizedTrack);
       const alreadyLiked = likedSongsRef.current.some((t) => getTrackKey(t) === targetKey);
       if (alreadyLiked) return "duplicate";
@@ -170,7 +219,7 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
         console.error("Failed to sync liked song", e);
         likedSongsRef.current = previous;
         setLikedSongs(previous);
-        toast.error("Failed to sync liked song");
+        showErrorToast("Failed to sync liked song");
         return "error";
       }
     },
@@ -180,11 +229,11 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
   const toggleLike = useCallback(
     async (track: Track) => {
       if (!user) {
-        toast.error("Please sign in to like songs");
+        showErrorToast("Please sign in to like songs");
         return;
       }
 
-      const normalizedTrack = normalizeTrackIdentity(track);
+      const normalizedTrack = normalizeTrackIdentity(await hydrateArtistGridTrackPlayback(track));
       const targetKey = getTrackKey(normalizedTrack);
       const currentlyLiked = likedSongsRef.current.some(
         (t) => getTrackKey(t) === targetKey
@@ -229,7 +278,7 @@ export function LikedSongsProvider({ children }: { children: React.ReactNode }) 
         // Rollback
         likedSongsRef.current = previous;
         setLikedSongs(previous);
-        toast.error("Failed to sync liked song");
+        showErrorToast("Failed to sync liked song");
       }
     },
     [user]

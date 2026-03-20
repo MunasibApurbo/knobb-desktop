@@ -1,7 +1,8 @@
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Track } from "@/types/music";
-import { getTotalDuration } from "@/lib/utils";
+import { getTotalDuration, cn } from "@/lib/utils";
+import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 import { filterAudioTracks, getAlbumWithTracks, searchAlbumTracksByName, getTidalImageUrl, tidalTrackToAppTrack, hexToHsl } from "@/lib/musicApi";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,20 +15,22 @@ import { TrackListRow } from "@/components/detail/TrackListRow";
 import { Play, Pause, Shuffle, Heart, AlertCircle, RefreshCw, Share, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageTransition } from "@/components/PageTransition";
-import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { AlbumContextMenu } from "@/components/AlbumContextMenu";
 import { ArtistsLink } from "@/components/ArtistsLink";
 import { TrackContextMenu } from "@/components/TrackContextMenu";
-import { useMainScrollY } from "@/hooks/useMainScrollY";
 import { downloadTracks } from "@/lib/downloadHelpers";
 import { copyPlainTextToClipboard, getTrackShareIdentifier } from "@/lib/mediaNavigation";
+import { VirtualizedTrackList } from "@/components/VirtualizedTrackList";
 import { usePageMetadata } from "@/hooks/usePageMetadata";
 import { startPlaylistDrag } from "@/lib/playlistDrag";
 import { getReleaseYear } from "@/lib/releaseDates";
 import { isSameTrack } from "@/lib/trackIdentity";
+import { useTrackSelectionShortcutsContext } from "@/contexts/TrackSelectionShortcutsContext";
 
 export default function AlbumPage() {
+  const { setActiveScope } = useTrackSelectionShortcutsContext();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -51,18 +54,19 @@ export default function AlbumPage() {
     year: number | null;
     canvasColor: string;
   } | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const scrollY = useMainScrollY();
   const fetchedRef = useRef<string>("");
   const sharedTrackScrollRef = useRef<string | null>(null);
+  const isCurrentAlbum = currentTrack ? tracks.some((track) => isSameTrack(currentTrack, track)) : false;
+  const albumIsSaved = tidalAlbumId ? isSaved(tidalAlbumId) : false;
 
   usePageMetadata(albumInfo ? {
-    title: `${albumInfo.title} - ${albumInfo.artist}`,
-    description: `Stream ${albumInfo.title} by ${albumInfo.artist} on Knobb.${tracks.length > 0 ? ` ${tracks.length} tracks ready to play.` : ""}`,
+    title: `${albumInfo.title} | Listen on Knobb`,
+    description: `Listen to ${albumInfo.title} by ${albumInfo.artist} on Knobb. ${tracks.length > 0 ? `${tracks.length} tracks ready to play.` : ""} High-quality audio discovery and archives.`,
     image: albumInfo.coverUrl || undefined,
     imageAlt: `${albumInfo.title} album cover`,
+    twitterCard: "summary",
     type: "music.album",
     structuredData: {
       "@context": "https://schema.org",
@@ -84,7 +88,6 @@ export default function AlbumPage() {
     if (!tidalAlbumId || !id) return;
     fetchedRef.current = id;
     setError(false);
-    setLoading(true);
 
     (async () => {
       try {
@@ -124,8 +127,6 @@ export default function AlbumPage() {
       } catch (e) {
         console.error("Failed to load album:", e);
         setError(true);
-      } finally {
-        setLoading(false);
       }
     })();
   }, [id, tidalAlbumId, urlArtist, urlTitle]);
@@ -146,31 +147,14 @@ export default function AlbumPage() {
     });
   }, [sharedTrackId, tracks]);
 
-  if (loading) return <LoadingSkeleton variant="detail" />;
-
-  if (error || !albumInfo) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <AlertCircle className="w-12 h-12 text-muted-foreground" />
-        <p className="text-muted-foreground text-lg font-medium">Failed to load album</p>
-        <Button variant="outline" onClick={loadAlbum} className="gap-2">
-          <RefreshCw className="w-4 h-4" /> Try again
-        </Button>
-      </div>
-    );
-  }
-
-  const isCurrentAlbum = currentTrack && tracks.some((t) => t.id === currentTrack.id);
-  const albumIsSaved = tidalAlbumId ? isSaved(tidalAlbumId) : false;
-
-  const handleShareAlbum = async () => {
+  const handleShareAlbum = useCallback(async () => {
     const url = window.location.href;
     await copyPlainTextToClipboard(url);
     toast.success("Album link copied to clipboard");
-  };
+  }, []);
 
-  const handleToggleSavedAlbum = async () => {
-    if (!tidalAlbumId) return;
+  const handleToggleSavedAlbum = useCallback(async () => {
+    if (!tidalAlbumId || !albumInfo) return;
     if (!user) {
       const from = `${window.location.pathname}${window.location.search}${window.location.hash}`;
       navigate("/auth", { state: { from } });
@@ -195,53 +179,154 @@ export default function AlbumPage() {
         ? `Removed ${albumInfo.title} from your library`
         : `Saved ${albumInfo.title} to your library`
     );
-  };
+  }, [albumInfo, albumIsSaved, navigate, tidalAlbumId, toggleSavedAlbum, tracks, user]);
 
-  const handleDownloadAlbum = async () => {
-    if (tracks.length === 0 || isDownloading) return;
+  const handleDownloadAlbum = useCallback(async () => {
+    if (!albumInfo || tracks.length === 0 || isDownloading) return;
     const confirmed = window.confirm(`Download all ${tracks.length} tracks from "${albumInfo.title}"?`);
     if (!confirmed) return;
 
     setIsDownloading(true);
     toast.info(`Downloading ${albumInfo.title}...`);
 
-    const quality = downloadFormat === "flac" ? "LOSSLESS" : "HIGH";
-    const result = await downloadTracks(tracks, quality);
+    try {
+      const quality = downloadFormat === "flac" ? "LOSSLESS" : "HIGH";
+      const result = await downloadTracks(tracks, quality);
 
-    setIsDownloading(false);
+      if (result.successCount === result.total) {
+        toast.success(`Downloaded ${albumInfo.title}`);
+        return;
+      }
 
-    if (result.successCount === result.total) {
-      toast.success(`Downloaded ${albumInfo.title}`);
+      if (result.successCount > 0) {
+        toast.warning(`Downloaded ${result.successCount} of ${result.total} tracks from ${albumInfo.title}`);
+        return;
+      }
+
+      toast.error(`Failed to download ${albumInfo.title}`);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [albumInfo, downloadFormat, isDownloading, tracks]);
+
+  const albumShortcutScope = useMemo(() => (
+    !albumInfo
+      ? null
+      : {
+          id: `album:${tidalAlbumId ?? albumInfo.title}`,
+          selectedCount: 0,
+          selectAll: () => undefined,
+          clearSelection: () => undefined,
+          deleteSelection: () => undefined,
+          collectionActions: {
+            download: () => void handleDownloadAlbum(),
+            play: () => {
+              if (isCurrentAlbum) {
+                togglePlay();
+                return;
+              }
+              if (tracks.length > 0) {
+                play(tracks[0], tracks);
+              }
+            },
+            share: () => void handleShareAlbum(),
+            shuffle: () => {
+              if (tracks.length === 0) return;
+              const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+              play(shuffled[0], shuffled);
+            },
+            toggleSaved: () => void handleToggleSavedAlbum(),
+          },
+        }
+  ), [
+    albumInfo,
+    handleDownloadAlbum,
+    handleShareAlbum,
+    handleToggleSavedAlbum,
+    isCurrentAlbum,
+    play,
+    tidalAlbumId,
+    togglePlay,
+    tracks,
+  ]);
+
+  useEffect(() => {
+    if (!albumShortcutScope) {
+      setActiveScope(null);
       return;
     }
 
-    if (result.successCount > 0) {
-      toast.warning(`Downloaded ${result.successCount} of ${result.total} tracks from ${albumInfo.title}`);
-      return;
-    }
+    setActiveScope(albumShortcutScope);
 
-    toast.error(`Failed to download ${albumInfo.title}`);
+    return () => {
+      setActiveScope(null);
+    };
+  }, [albumShortcutScope, setActiveScope]);
+
+  const activateAlbumShortcutScope = useCallback(() => {
+    if (!albumShortcutScope) return;
+    setActiveScope(albumShortcutScope);
+  }, [albumShortcutScope, setActiveScope]);
+
+  if (error && !albumInfo) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <AlertCircle className="w-12 h-12 text-muted-foreground" />
+        <p className="text-muted-foreground text-lg font-medium">Failed to load album</p>
+        <Button variant="outline" onClick={loadAlbum} className="gap-2">
+          <RefreshCw className="w-4 h-4" /> Try again
+        </Button>
+      </div>
+    );
+  }
+
+  const resolvedAlbumInfo = albumInfo ?? {
+    title: urlTitle || "Album",
+    artist: urlArtist || "Unknown Artist",
+    artistId: undefined,
+    coverUrl: tracks[0]?.coverUrl || "/placeholder.svg",
+    year: null,
+    canvasColor: tracks[0]?.canvasColor || "220 70% 55%",
   };
 
   return (
     <PageTransition>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="mobile-page-shell">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="page-shell"
+        onFocusCapture={activateAlbumShortcutScope}
+        onPointerDownCapture={activateAlbumShortcutScope}
+      >
         <DetailHero
-          accentColor={albumInfo.canvasColor}
-          artworkUrl={albumInfo.coverUrl || "/placeholder.svg"}
+          accentColor={resolvedAlbumInfo.canvasColor}
+          artworkUrl={resolvedAlbumInfo.coverUrl || "/placeholder.svg"}
+          className="album-detail-hero"
+          artworkWrapper={(artwork) => (
+            <AlbumContextMenu
+              albumId={resolvedAlbumInfo.id}
+              title={resolvedAlbumInfo.title}
+              artist={resolvedAlbumInfo.artist}
+              artistId={resolvedAlbumInfo.artistId}
+              coverUrl={resolvedAlbumInfo.coverUrl}
+              year={resolvedAlbumInfo.year}
+            >
+              {artwork}
+            </AlbumContextMenu>
+          )}
           dragPayload={tracks.length > 0 ? {
-            label: albumInfo.title,
+            label: resolvedAlbumInfo.title,
             source: "album",
             tracks,
           } : undefined}
           label="Album"
-          scrollY={scrollY}
-          title={albumInfo.title}
+          title={resolvedAlbumInfo.title}
           body={(
             <div className="flex items-center gap-2">
               <ArtistsLink
-                name={albumInfo.artist}
-                artists={[{ id: albumInfo.artistId, name: albumInfo.artist }]}
+                name={resolvedAlbumInfo.artist}
+                artists={[{ id: resolvedAlbumInfo.artistId, name: resolvedAlbumInfo.artist }]}
                 className="text-sm font-semibold text-foreground/90 hover:underline"
               />
             </div>
@@ -258,10 +343,10 @@ export default function AlbumPage() {
                   <strong>{getTotalDuration(tracks)}</strong>
                 </span>
               ) : null}
-              {albumInfo.year ? (
+              {resolvedAlbumInfo.year ? (
                 <span className="detail-chip">
                   <span>Year</span>
-                  <strong>{albumInfo.year}</strong>
+                  <strong>{resolvedAlbumInfo.year}</strong>
                 </span>
               ) : null}
             </>
@@ -316,9 +401,13 @@ export default function AlbumPage() {
         </DetailActionBar>
 
         {tracks.length > 0 && (
-          <section className="border border-white/10 bg-white/[0.02]">
-            <div>
-              {tracks.map((track, i) => {
+          <section className={cn("page-panel overflow-hidden border border-white/10", PANEL_SURFACE_CLASS)}>
+            <VirtualizedTrackList
+              items={tracks}
+              getItemKey={(track) => track.id}
+              rowHeight={86}
+              className="content-visibility-list"
+              renderRow={(track, i) => {
                 const isCurrent = isSameTrack(currentTrack, track);
                 const trackShareId = getTrackShareIdentifier(track);
                 const isSharedTrack = sharedTrackId !== null && sharedTrackId === trackShareId;
@@ -345,8 +434,8 @@ export default function AlbumPage() {
                     />
                   </TrackContextMenu>
                 );
-              })}
-            </div>
+              }}
+            />
           </section>
         )}
       </motion.div>

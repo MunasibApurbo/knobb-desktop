@@ -1,0 +1,1 @@
+import{a}from"./index-DKK_mt8D.js";function m(){const e=a();if(e.pathname.startsWith("/embed/")||e.pathname.startsWith("/embed-player/"))return!0;const t=new URLSearchParams(e.search).get("embed");return t==="1"||t==="true"}export{m as u};

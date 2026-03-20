@@ -135,8 +135,14 @@ function readStoredPlayerState(): Partial<PersistedPlayerState> {
 
 export function createInitialPlayerState(): PlayerState {
   const storedPlayerState = readStoredPlayerState();
+  const quality = readStoredAudioQuality();
   return {
     currentTrack: storedPlayerState.currentTrack ?? null,
+    resolvedAudioQuality: null,
+    resolvedAvailableAudioQualityLabels: [],
+    resolvedAudioQualityLabel: null,
+    resolvedVideoQuality: null,
+    playbackMode: "native",
     hasPlaybackStarted: Boolean(storedPlayerState.currentTrack),
     isPlaying: false,
     currentTime: storedPlayerState.currentTime ?? 0,
@@ -148,8 +154,8 @@ export function createInitialPlayerState(): PlayerState {
     showRightPanel: storedPlayerState.showRightPanel ?? false,
     rightPanelTab: storedPlayerState.rightPanelTab ?? "lyrics",
     isLoading: false,
-    autoQualityEnabled: readStoredBoolean(AUTO_QUALITY_KEY, true),
-    quality: readStoredAudioQuality(),
+    autoQualityEnabled: quality === "AUTO",
+    quality,
     normalization: readStoredBoolean(NORMALIZATION_KEY),
     equalizerEnabled: readStoredBoolean(EQUALIZER_ENABLED_KEY),
     eqGains: readStoredEqGains(),
@@ -160,6 +166,7 @@ export function createInitialPlayerState(): PlayerState {
     playbackSpeed: readStoredNumber(PLAYBACK_SPEED_KEY, 1),
     preservePitch: readStoredBoolean(PRESERVE_PITCH_KEY, true),
     sleepTimerEndsAt: null,
+    isFullScreen: false,
   };
 }
 

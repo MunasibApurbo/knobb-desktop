@@ -1,17 +1,28 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useLocation } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { APP_HOME_PATH } from "@/lib/routes";
+
+function AuthGateFallback({ message }: { message: string }) {
+  return (
+    <div className="page-shell flex min-h-full items-center justify-center px-4 py-8">
+      <div className="page-panel shell-black-panel w-full max-w-md px-5 py-6 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Knobb
+        </p>
+        <p className="mt-3 text-sm text-foreground">
+          {message}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export function RequireAuth({ children }: React.PropsWithChildren) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AuthGateFallback message="Restoring your session..." />;
   }
 
   if (!user) {
@@ -33,11 +44,7 @@ export function RequireAdmin({ children }: React.PropsWithChildren) {
   const location = useLocation();
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AuthGateFallback message="Checking your account access..." />;
   }
 
   if (!user) {
@@ -46,7 +53,7 @@ export function RequireAdmin({ children }: React.PropsWithChildren) {
   }
 
   if (!isAdmin) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={APP_HOME_PATH} replace />;
   }
 
   return <>{children}</>;

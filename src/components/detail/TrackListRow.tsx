@@ -1,4 +1,4 @@
-import { forwardRef, useRef } from "react";
+import { forwardRef, memo, useRef } from "react";
 import type { ComponentPropsWithoutRef, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react";
 
 import { AlbumLink } from "@/components/AlbumLink";
@@ -9,9 +9,13 @@ import { formatDuration } from "@/lib/utils";
 import { Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearActivePlaylistDrag } from "@/lib/playlistDrag";
+import { getTrackArtworkUrl } from "@/lib/trackArtwork";
+import { useOptionalPlayerWarmTrackPlayback } from "@/contexts/PlayerContext";
 
 interface TrackListRowProps extends Omit<ComponentPropsWithoutRef<"div">, "onPlay" | "title"> {
   actionSlot?: ReactNode;
+  actionSlotLayout?: "single" | "double";
+  artworkClassName?: string;
   className?: string;
   desktopMeta?: ReactNode;
   disabled?: boolean;
@@ -25,7 +29,6 @@ interface TrackListRowProps extends Omit<ComponentPropsWithoutRef<"div">, "onPla
   dragHandleLabel?: string;
   leadingSlot?: ReactNode;
   middleContent?: ReactNode;
-  mobileMeta?: ReactNode;
   onDragHandleEnd?: (event: DragEvent<HTMLButtonElement>) => void;
   onDragHandleStart?: (event: DragEvent<HTMLButtonElement>) => void;
   onPlay: (event: MouseEvent<HTMLDivElement>) => void;
@@ -36,8 +39,10 @@ interface TrackListRowProps extends Omit<ComponentPropsWithoutRef<"div">, "onPla
   trailingContent?: ReactNode;
 }
 
-export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(function TrackListRow({
+export const TrackListRow = memo(forwardRef<HTMLDivElement, TrackListRowProps>(function TrackListRow({
   actionSlot,
+  actionSlotLayout = "single",
+  artworkClassName,
   className,
   desktopMeta,
   disabled = false,
@@ -51,7 +56,6 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
   dragHandleLabel,
   leadingSlot,
   middleContent,
-  mobileMeta,
   onDragHandleEnd,
   onDragHandleStart,
   onPlay,
@@ -60,8 +64,14 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
   title,
   track,
   trailingContent,
+  onFocus,
+  onMouseEnter,
+  onPointerDown,
   ...props
 }, ref) {
+  const warmTrackPlayback = useOptionalPlayerWarmTrackPlayback();
+  const isVideoTrack = track.isVideo === true;
+  const artworkUrl = getTrackArtworkUrl(track);
   const resolvedSubtitle = subtitle ?? (
     <ArtistsLink
       name={track.artist}
@@ -69,7 +79,7 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       artistId={track.artistId}
       className={cn(
         "block truncate text-xs",
-        isCurrent ? "text-black" : "text-white/62 transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.84)]",
+        isCurrent ? "text-black" : "text-white/62 transition-colors duration-300 group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.84)]",
       )}
       onClick={(event) => event.stopPropagation()}
     />
@@ -83,7 +93,7 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       artistName={track.artist}
       className={cn(
         "block truncate text-sm",
-        isCurrent ? "text-black hover:text-black" : "text-white/54 transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
+        isCurrent ? "text-black hover:text-black" : "text-white/54 transition-colors duration-300 group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
       )}
     />
   );
@@ -92,7 +102,12 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
   const hasDesktopMeta = desktopMeta !== undefined && desktopMeta !== null;
   const hasMiddleContent = middleContent !== null;
   const hasRowDrag = Boolean(onDragHandleStart);
+  const hasDoubleActionSlot = actionSlotLayout === "double";
   const suppressClickRef = useRef(false);
+  const warmPlayback = () => {
+    if (disabled) return;
+    warmTrackPlayback?.(track);
+  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -107,11 +122,24 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       {...props}
       ref={ref}
       className={cn(
-        "detail-track-row content-visibility-list group relative grid w-full grid-cols-[2rem_3rem_minmax(0,1fr)_2.75rem_4rem] items-center gap-x-4 overflow-hidden border-b border-white/10 px-4 py-3 text-left",
-        hasDesktopMeta
-          ? "md:grid-cols-[2rem_3rem_minmax(18rem,1.35fr)_minmax(14rem,1fr)_8rem_2.75rem_4rem] xl:grid-cols-[2rem_3rem_minmax(22rem,1.45fr)_minmax(16rem,1fr)_9rem_2.75rem_4rem]"
-          : "md:grid-cols-[2rem_3rem_minmax(18rem,1.35fr)_minmax(14rem,1fr)_2.75rem_4rem] xl:grid-cols-[2rem_3rem_minmax(22rem,1.45fr)_minmax(16rem,1fr)_2.75rem_4rem]",
-        isCurrent ? "is-current" : "transition-colors duration-200",
+        "detail-track-row content-visibility-list group relative grid w-full items-center gap-x-3 overflow-hidden px-4 py-3 text-left lg:gap-x-4",
+        "menu-sweep-row",
+        isVideoTrack
+          ? hasDesktopMeta
+            ? hasDoubleActionSlot
+              ? "grid-cols-[2rem_4.5rem_minmax(0,1fr)_5.25rem_4rem] md:grid-cols-[2rem_4.5rem_minmax(0,1.6fr)_minmax(0,1fr)_6.5rem_5.25rem_4rem] xl:grid-cols-[2rem_4.5rem_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_5.25rem_4rem] 2xl:grid-cols-[2rem_4.5rem_minmax(18rem,1.45fr)_minmax(14rem,1fr)_8rem_5.25rem_4rem]"
+              : "grid-cols-[2rem_4.5rem_minmax(0,1fr)_2.75rem_4rem] md:grid-cols-[2rem_4.5rem_minmax(0,1.6fr)_minmax(0,1fr)_6.5rem_2.75rem_4rem] xl:grid-cols-[2rem_4.5rem_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_2.75rem_4rem] 2xl:grid-cols-[2rem_4.5rem_minmax(18rem,1.45fr)_minmax(14rem,1fr)_8rem_2.75rem_4rem]"
+            : hasDoubleActionSlot
+              ? "grid-cols-[2rem_4.5rem_minmax(0,1fr)_5.25rem_4rem] md:grid-cols-[2rem_4.5rem_minmax(0,1.7fr)_minmax(0,1fr)_5.25rem_4rem] xl:grid-cols-[2rem_4.5rem_minmax(14rem,1.55fr)_minmax(11rem,1fr)_5.25rem_4rem] 2xl:grid-cols-[2rem_4.5rem_minmax(22rem,1.45fr)_minmax(16rem,1fr)_5.25rem_4rem]"
+              : "grid-cols-[2rem_4.5rem_minmax(0,1fr)_2.75rem_4rem] md:grid-cols-[2rem_4.5rem_minmax(0,1.7fr)_minmax(0,1fr)_2.75rem_4rem] xl:grid-cols-[2rem_4.5rem_minmax(14rem,1.55fr)_minmax(11rem,1fr)_2.75rem_4rem] 2xl:grid-cols-[2rem_4.5rem_minmax(22rem,1.45fr)_minmax(16rem,1fr)_2.75rem_4rem]"
+          : hasDesktopMeta
+            ? hasDoubleActionSlot
+              ? "grid-cols-[2rem_3rem_minmax(0,1fr)_5.25rem_4rem] md:grid-cols-[2rem_3rem_minmax(0,1.6fr)_minmax(0,1fr)_6.5rem_5.25rem_4rem] xl:grid-cols-[2rem_3rem_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_5.25rem_4rem] 2xl:grid-cols-[2rem_3rem_minmax(18rem,1.45fr)_minmax(14rem,1fr)_8rem_5.25rem_4rem]"
+              : "grid-cols-[2rem_3rem_minmax(0,1fr)_2.75rem_4rem] md:grid-cols-[2rem_3rem_minmax(0,1.6fr)_minmax(0,1fr)_6.5rem_2.75rem_4rem] xl:grid-cols-[2rem_3rem_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_2.75rem_4rem] 2xl:grid-cols-[2rem_3rem_minmax(18rem,1.45fr)_minmax(14rem,1fr)_8rem_2.75rem_4rem]"
+            : hasDoubleActionSlot
+              ? "grid-cols-[2rem_3rem_minmax(0,1fr)_5.25rem_4rem] md:grid-cols-[2rem_3rem_minmax(0,1.7fr)_minmax(0,1fr)_5.25rem_4rem] xl:grid-cols-[2rem_3rem_minmax(14rem,1.55fr)_minmax(11rem,1fr)_5.25rem_4rem] 2xl:grid-cols-[2rem_3rem_minmax(22rem,1.45fr)_minmax(16rem,1fr)_5.25rem_4rem]"
+              : "grid-cols-[2rem_3rem_minmax(0,1fr)_2.75rem_4rem] md:grid-cols-[2rem_3rem_minmax(0,1.7fr)_minmax(0,1fr)_2.75rem_4rem] xl:grid-cols-[2rem_3rem_minmax(14rem,1.55fr)_minmax(11rem,1fr)_2.75rem_4rem] 2xl:grid-cols-[2rem_3rem_minmax(22rem,1.45fr)_minmax(16rem,1fr)_2.75rem_4rem]",
+        isCurrent ? "is-current" : undefined,
         isRowDragging ? "opacity-55" : undefined,
         hasRowDrag && !disabled ? "cursor-grab active:cursor-grabbing" : undefined,
         disabled ? "cursor-not-allowed opacity-65" : undefined,
@@ -151,7 +179,19 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
         }, 0);
         onDragHandleEnd?.(event as unknown as DragEvent<HTMLButtonElement>);
       }}
+      onFocus={(event) => {
+        warmPlayback();
+        onFocus?.(event);
+      }}
       onKeyDown={handleKeyDown}
+      onMouseEnter={(event) => {
+        warmPlayback();
+        onMouseEnter?.(event);
+      }}
+      onPointerDown={(event) => {
+        warmPlayback();
+        onPointerDown?.(event);
+      }}
     >
       {dropIndicator ? (
         <span
@@ -163,19 +203,13 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
         />
       ) : null}
 
-      {!isCurrent && !disabled ? (
-        <span
-          className="pointer-events-none absolute inset-0 origin-left scale-x-0 transition-transform duration-300 ease-out group-hover:scale-x-100"
-          style={{ backgroundColor: "hsl(var(--player-waveform) / 0.95)" }}
-        />
-      ) : null}
 
-      <div className="relative z-10 flex items-center justify-center">
+      <div className="relative z-10 flex items-center justify-center self-center">
         {leadingSlot ?? (
           <span
             className={cn(
               "flex w-[20px] items-center justify-center text-center text-sm tabular-nums",
-              isCurrent ? "h-4 text-black" : "text-muted-foreground transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
+              isCurrent ? "h-4 text-black" : "text-muted-foreground group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
             )}
           >
             {isCurrent ? <PlayingIndicator isPaused={!isPlaying} /> : `${index + 1}.`}
@@ -184,56 +218,55 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       </div>
 
       <img
-        src={track.coverUrl}
+        src={artworkUrl}
         alt=""
         loading="lazy"
         decoding="async"
         draggable={false}
-        className="relative z-10 h-12 w-12 rounded-[var(--cover-radius)] object-cover"
+        className={cn(
+          "relative z-10 object-cover",
+          isVideoTrack
+            ? "h-10 w-[4.5rem] rounded-md border border-white/10"
+            : "force-round-artwork h-12 w-12 rounded-full",
+          artworkClassName,
+        )}
       />
 
-      <div className="relative z-10 min-w-0 pr-2 md:pr-4">
+      <div className="relative z-10 flex min-w-0 flex-col justify-center pr-2 md:pr-4">
         <p
           className={cn(
-            "truncate text-sm",
-            isCurrent ? "font-semibold text-black" : "font-medium text-white transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
+            "truncate text-sm leading-tight",
+            isCurrent ? "font-semibold text-black" : "font-medium text-white group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
           )}
         >
           {resolvedTitle}
         </p>
         {resolvedSubtitle}
-        {mobileMeta ? (
-          <div
-            className={cn(
-              "mt-1 truncate text-[11px] md:hidden",
-              isCurrent ? "text-black/78" : "text-white/46 transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground)/0.7)]",
-            )}
-          >
-            {mobileMeta}
-          </div>
-        ) : null}
       </div>
 
       {hasMiddleContent ? (
-        <div className="relative z-10 hidden min-w-0 pr-2 md:block md:pr-4">
+        <div className="relative z-10 hidden min-w-0 items-center pr-2 md:flex md:pr-4">
           {resolvedMiddle}
         </div>
       ) : null}
 
       {hasDesktopMeta ? (
-        <div className="relative z-10 hidden min-w-0 md:block">
+        <div className="relative z-10 hidden min-w-0 items-center md:flex">
           {desktopMeta}
         </div>
       ) : null}
 
       {onToggleLike || actionSlot ? (
-        <div className="relative z-10 flex min-w-[2.75rem] items-center justify-center justify-self-center gap-0.5">
+        <div className={cn(
+          "relative z-10 flex h-full items-center justify-center justify-self-center gap-0.5 self-center",
+          hasDoubleActionSlot ? "min-w-[5.25rem]" : "min-w-[2.75rem]",
+        )}>
           {onToggleLike ? (
             <button
               type="button"
               draggable={false}
               aria-label={isLiked ? "Remove from liked songs" : "Add to liked songs"}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--control-radius)] text-white/68 transition-colors hover:bg-white/10 hover:text-white"
+              className="menu-sweep-hover inline-flex h-8 w-8 items-center justify-center rounded-[var(--control-radius)] text-white/68 transition-colors hover:bg-white/10 hover:text-white"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -246,10 +279,10 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
                   isLiked
                     ? isCurrent
                       ? "fill-current text-black"
-                      : "fill-current text-white drop-shadow-md transition-colors duration-200 group-hover:text-black"
+                      : "fill-current text-white drop-shadow-md transition-colors duration-300 group-hover:text-black"
                     : isCurrent
                       ? "text-black"
-                      : "text-white/66 transition-colors duration-200 group-hover:text-black",
+                      : "text-white/66 transition-colors duration-300 group-hover:text-black",
                 )}
               />
             </button>
@@ -261,8 +294,8 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       {resolvedTrailing ? (
         <span
           className={cn(
-            "relative z-10 w-16 justify-self-end text-right font-mono text-sm tabular-nums",
-            isCurrent ? "text-black" : "text-white/52 transition-colors duration-200 group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
+            "relative z-10 inline-flex h-full w-16 items-center justify-end self-center text-right font-mono text-sm tabular-nums",
+            isCurrent ? "text-black" : "text-white/52 group-hover:text-[hsl(var(--dynamic-accent-foreground))]",
           )}
       >
         {resolvedTrailing}
@@ -270,4 +303,4 @@ export const TrackListRow = forwardRef<HTMLDivElement, TrackListRowProps>(functi
       ) : null}
     </div>
   );
-});
+}));

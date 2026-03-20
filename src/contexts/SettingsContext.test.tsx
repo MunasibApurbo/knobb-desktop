@@ -17,8 +17,8 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/lib/profilePreferences", () => ({
-  loadProfilePreferences: (...args: unknown[]) => settingsAccountSyncMocks.loadProfilePreferences(...args),
-  persistProfilePreferences: (...args: unknown[]) => settingsAccountSyncMocks.persistProfilePreferences(...args),
+  loadProfilePreferences: settingsAccountSyncMocks.loadProfilePreferences,
+  persistProfilePreferences: settingsAccountSyncMocks.persistProfilePreferences,
 }));
 
 function SettingsSnapshot() {
@@ -31,12 +31,14 @@ function SettingsSnapshot() {
     websiteMode,
     rightPanelStyle,
     bottomPlayerStyle,
+    showFullScreenLyrics,
     showSidebar,
     showScrollbar,
     setDiscordPresenceEnabled,
     setFont,
     setRightPanelStyle,
     setBottomPlayerStyle,
+    setShowFullScreenLyrics,
     setWebsiteMode,
     setShowSidebar,
     setShowScrollbar,
@@ -52,6 +54,7 @@ function SettingsSnapshot() {
       <div data-testid="website-mode">{websiteMode}</div>
       <div data-testid="right-panel-style">{rightPanelStyle}</div>
       <div data-testid="bottom-player-style">{bottomPlayerStyle}</div>
+      <div data-testid="show-fullscreen-lyrics">{String(showFullScreenLyrics)}</div>
       <div data-testid="show-sidebar">{String(showSidebar)}</div>
       <div data-testid="show-scrollbar">{String(showScrollbar)}</div>
       <button type="button" onClick={() => setDiscordPresenceEnabled(true)}>
@@ -59,6 +62,9 @@ function SettingsSnapshot() {
       </button>
       <button type="button" onClick={() => setFont("Space Grotesk")}>
         Use Space Grotesk
+      </button>
+      <button type="button" onClick={() => setFont("Inter")}>
+        Use Inter
       </button>
       <button type="button" onClick={() => setWebsiteMode("roundish")}>
         Roundish
@@ -68,6 +74,9 @@ function SettingsSnapshot() {
       </button>
       <button type="button" onClick={() => setBottomPlayerStyle("black")}>
         Black bottom player
+      </button>
+      <button type="button" onClick={() => setShowFullScreenLyrics(false)}>
+        Hide fullscreen lyrics
       </button>
       <button type="button" onClick={() => setShowSidebar(false)}>
         Hide sidebar
@@ -130,6 +139,7 @@ describe("SettingsProvider", () => {
     expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
     expect(screen.getByTestId("right-panel-style")).toHaveTextContent("artwork");
     expect(screen.getByTestId("bottom-player-style")).toHaveTextContent("current");
+    expect(screen.getByTestId("show-fullscreen-lyrics")).toHaveTextContent("true");
     expect(screen.getByTestId("show-sidebar")).toHaveTextContent("true");
     expect(screen.getByTestId("show-scrollbar")).toHaveTextContent("true");
 
@@ -162,24 +172,26 @@ describe("SettingsProvider", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("website-mode")).toHaveTextContent("edgy");
+      expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
     });
 
     expect(screen.getByTestId("right-panel-style")).toHaveTextContent("classic");
     expect(screen.getByTestId("card-size")).toHaveTextContent("big");
-    expect(document.documentElement.getAttribute("data-website-mode")).toBe("edgy");
+    expect(document.documentElement.getAttribute("data-website-mode")).toBe("roundish");
   });
 
-  it("persists and applies website mode changes", async () => {
+  it("normalizes saved edgy website mode to roundish", async () => {
+    window.localStorage.setItem("website-mode", "edgy");
+
     render(
       <SettingsProvider>
         <SettingsSnapshot />
       </SettingsProvider>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Roundish" }));
-
-    expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
+    await waitFor(() => {
+      expect(screen.getByTestId("website-mode")).toHaveTextContent("roundish");
+    });
     expect(window.localStorage.getItem("website-mode")).toBe("roundish");
     expect(document.documentElement.getAttribute("data-website-mode")).toBe("roundish");
   });
@@ -210,6 +222,19 @@ describe("SettingsProvider", () => {
     expect(window.localStorage.getItem("bottom-player-style")).toBe("black");
   });
 
+  it("persists full-screen lyrics visibility changes", () => {
+    render(
+      <SettingsProvider>
+        <SettingsSnapshot />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide fullscreen lyrics" }));
+
+    expect(screen.getByTestId("show-fullscreen-lyrics")).toHaveTextContent("false");
+    expect(window.localStorage.getItem("show-fullscreen-lyrics")).toBe("false");
+  });
+
   it("persists and applies font changes", () => {
     render(
       <SettingsProvider>
@@ -222,6 +247,20 @@ describe("SettingsProvider", () => {
     expect(screen.getByTestId("font")).toHaveTextContent("Space Grotesk");
     expect(window.localStorage.getItem("app-font")).toBe("Space Grotesk");
     expect(document.documentElement.style.getPropertyValue("--font-sans")).toBe('"Space Grotesk", sans-serif');
+  });
+
+  it("persists and applies newly exposed font choices", () => {
+    render(
+      <SettingsProvider>
+        <SettingsSnapshot />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Inter" }));
+
+    expect(screen.getByTestId("font")).toHaveTextContent("Inter");
+    expect(window.localStorage.getItem("app-font")).toBe("Inter");
+    expect(document.documentElement.style.getPropertyValue("--font-sans")).toBe('"Inter", sans-serif');
   });
 
   it("persists Discord presence preference", () => {
@@ -237,13 +276,7 @@ describe("SettingsProvider", () => {
     expect(window.localStorage.getItem("discord-presence-enabled")).toBe("true");
   });
 
-  it("respects the selected website mode on mobile viewports", () => {
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      writable: true,
-      value: 390,
-    });
-
+  it("keeps the selected website mode on narrow viewports", () => {
     render(
       <SettingsProvider>
         <SettingsSnapshot />

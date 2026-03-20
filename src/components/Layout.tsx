@@ -1,56 +1,67 @@
 import { usePlayer } from "@/contexts/PlayerContext";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { SidebarContext } from "@/contexts/SidebarContext";
 import type { ImperativePanelHandle } from "react-resizable-panels";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useDesktopWheelSmoothing } from "@/hooks/useDesktopWheelSmoothing";
+import { useSmoothScroll } from "@/hooks/useSmoothScroll";
 import { usePlayHistoryRecorder } from "@/hooks/usePlayHistoryRecorder";
 import { useEmbedMode } from "@/hooks/useEmbedMode";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useMotionPreferences } from "@/hooks/useMotionPreferences";
 import { TrackSelectionShortcutsProvider } from "@/contexts/TrackSelectionShortcutsContext";
+import { AuthContext } from "@/contexts/AuthContext";
 import { useSettings } from "@/contexts/SettingsContext";
-import { lazy, Suspense, useState, useCallback, useEffect, useRef, createContext, useContext } from "react";
-import { DesktopUpdateGate } from "@/components/DesktopUpdateGate";
-
-const LazyAppSidebar = lazy(async () => {
-  const module = await import("@/components/AppSidebar");
-  return { default: module.AppSidebar };
-});
-
-const LazyMobileNav = lazy(async () => {
-  const module = await import("@/components/MobileNav");
-  return { default: module.MobileNav };
-});
-
-const LazyMobileMiniPlayer = lazy(async () => {
-  const module = await import("@/components/mobile/MobileMiniPlayer");
-  return { default: module.MobileMiniPlayer };
-});
-
-const LazyMobilePlayerSheet = lazy(async () => {
-  const module = await import("@/components/mobile/MobilePlayerSheet");
-  return { default: module.MobilePlayerSheet };
-});
-
-const LazyBottomPlayer = lazy(async () => {
-  const module = await import("@/components/BottomPlayer");
-  return { default: module.BottomPlayer };
-});
-
-const LazyRightPanel = lazy(async () => {
-  const module = await import("@/components/RightPanel");
-  return { default: module.RightPanel };
-});
-
-const LazyAppDiagnosticsInbox = lazy(async () => {
-  const module = await import("@/components/AppDiagnosticsInbox");
-  return { default: module.AppDiagnosticsInbox };
-});
+import { lazy, Suspense, startTransition, useState, useCallback, useEffect, useRef, useContext, type CSSProperties } from "react";
+import { APP_HOME_PATH } from "@/lib/routes";
+import { LayoutDesktopShell } from "@/components/LayoutDesktopShell";
+import { scheduleBackgroundTask, useDeferredMount } from "@/lib/performanceProfile";
 
 const LAST_ROUTE_KEY = "last-route";
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
+const APP_REFERENCE_WIDTH_PX = 1920;
+const APP_REFERENCE_HEIGHT_PX = 1080;
+const FULL_WIDTH_VIEWPORT_FLOOR_PX = APP_REFERENCE_WIDTH_PX * 0.9;
+const FULL_WINDOW_HEIGHT_ALLOWANCE_PX = 24;
+const SHORT_DISPLAY_HEIGHT_FLOOR_PX = 720;
+const VERY_SHORT_DISPLAY_HEIGHT_FLOOR_PX = 620;
+const MIN_APP_UI_SCALE = 0.44;
+const MAX_APP_UI_SCALE = 2;
 const COLLAPSED_SIDEBAR_WIDTH_PX = 84;
+const MIN_RIGHT_PANEL_MAIN_WIDTH_PX = 460;
+const COMPRESSED_SIDEBAR_WIDTH_PX = APP_REFERENCE_WIDTH_PX * 0.14;
+const TIGHT_SIDEBAR_WIDTH_PX = APP_REFERENCE_WIDTH_PX * 0.16;
+const COMFORTABLE_SIDEBAR_WIDTH_PX = APP_REFERENCE_WIDTH_PX * 0.18;
+const HALF_WINDOW_RATIO_THRESHOLD = 0.62;
+const QUARTER_WINDOW_RATIO_THRESHOLD = 0.36;
+const DeferredAppDiagnosticsInbox = lazy(async () => {
+  const module = await import("@/components/AppDiagnosticsInbox");
+  return { default: module.AppDiagnosticsInbox };
+});
+const DeferredBottomPlayer = lazy(async () => {
+  const module = await import("@/components/BottomPlayer");
+  return { default: module.BottomPlayer };
+});
+const DeferredFullScreenPlayer = lazy(async () => {
+  const module = await import("@/components/FullScreenPlayer");
+  return { default: module.FullScreenPlayer };
+});
+
+let fullScreenPlayerModulePromise: Promise<typeof import("@/components/FullScreenPlayer")> | null = null;
+
+function preloadFullScreenPlayerModule() {
+  if (!fullScreenPlayerModulePromise) {
+    fullScreenPlayerModulePromise = import("@/components/FullScreenPlayer").catch((error) => {
+      fullScreenPlayerModulePromise = null;
+      throw error;
+    });
+  }
+
+  return fullScreenPlayerModulePromise;
+}
+
+function FullScreenPlayerFallback() {
+  return <div className="fixed inset-0 z-[100] bg-black/92 backdrop-blur-[10px]" aria-hidden="true" />;
+}
 
 function readStoredBoolean(key: string, fallback = false) {
   if (typeof window === "undefined") return fallback;
@@ -80,13 +91,7 @@ function writeStoredValue(key: string, value: string) {
   }
 }
 
-interface SidebarContextType {
-  collapsed: boolean;
-  setCollapsed: (v: boolean) => void;
-  expandPanel: () => void;
-}
-const SidebarContext = createContext<SidebarContextType>({ collapsed: false, setCollapsed: () => { }, expandPanel: () => { } });
-export function useSidebarCollapsed() { return useContext(SidebarContext); }
+export { useSidebarCollapsed } from "@/contexts/SidebarContext";
 
 function LayoutShortcutBindings() {
   useKeyboardShortcuts();
@@ -94,22 +99,95 @@ function LayoutShortcutBindings() {
   return null;
 }
 
-function SidebarFallback() {
-  return <div className="h-full w-full border-r border-white/5 chrome-bar bg-black/15" />;
+function getScreenWidth() {
+  if (typeof window === "undefined") return 1600;
+
+  const candidate = window.screen?.availWidth || window.screen?.width || window.innerWidth;
+  return Number.isFinite(candidate) && candidate > 0 ? candidate : window.innerWidth;
+}
+
+function getScreenHeight() {
+  if (typeof window === "undefined") return 900;
+
+  const candidate = window.screen?.availHeight || window.screen?.height || window.innerHeight;
+  return Number.isFinite(candidate) && candidate > 0 ? candidate : window.innerHeight;
+}
+
+function getShellWidthMode(viewportWidth: number, screenWidth: number) {
+  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 1600;
+  if (safeViewportWidth >= FULL_WIDTH_VIEWPORT_FLOOR_PX) return "full";
+
+  const safeScreenWidth = Number.isFinite(screenWidth) && screenWidth > 0
+    ? Math.max(screenWidth, safeViewportWidth)
+    : safeViewportWidth;
+  const windowRatio = safeViewportWidth / safeScreenWidth;
+
+  if (windowRatio <= QUARTER_WINDOW_RATIO_THRESHOLD) return "quarter";
+  if (windowRatio <= HALF_WINDOW_RATIO_THRESHOLD) return "half";
+  return "full";
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getDesktopAppUiScale(
+  viewportWidth: number,
+  viewportHeight: number,
+  shellWidthMode: ReturnType<typeof getShellWidthMode>,
+) {
+  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : APP_REFERENCE_WIDTH_PX;
+  const safeViewportHeight = Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : APP_REFERENCE_HEIGHT_PX;
+
+  const rawScale = Math.min(
+    safeViewportWidth / APP_REFERENCE_WIDTH_PX,
+    safeViewportHeight / APP_REFERENCE_HEIGHT_PX,
+  );
+
+  if (shellWidthMode === "quarter") {
+    const comfortFloor = clampNumber(
+      Math.min(safeViewportWidth / 1320, safeViewportHeight / 820),
+      0.56,
+      0.68,
+    );
+    return clampNumber(Math.max(rawScale, comfortFloor), MIN_APP_UI_SCALE, MAX_APP_UI_SCALE);
+  }
+
+  if (shellWidthMode === "half") {
+    const comfortFloor = clampNumber(
+      Math.min(safeViewportWidth / 1480, safeViewportHeight / 860),
+      0.66,
+      0.78,
+    );
+    return clampNumber(Math.max(rawScale, comfortFloor), MIN_APP_UI_SCALE, MAX_APP_UI_SCALE);
+  }
+
+  // Full-window laptop-class desktops should not feel materially "cheaper"
+  // than the reference display just because they have fewer pixels to spare.
+  const comfortFloor = clampNumber(
+    Math.min(safeViewportWidth / 1680, safeViewportHeight / 940),
+    0.62,
+    0.88,
+  );
+
+  return clampNumber(Math.max(rawScale, comfortFloor), MIN_APP_UI_SCALE, MAX_APP_UI_SCALE);
 }
 
 export function Layout({ children }: React.PropsWithChildren) {
-  const { currentTrack, hasPlaybackStarted, setRightPanelOpen, setRightPanelTab, showRightPanel } = usePlayer();
-  const { showSidebar, libraryOpenState } = useSettings();
+  const { currentTrack, hasPlaybackStarted, isFullScreen, setRightPanelOpen, showRightPanel } = usePlayer();
+  const user = useContext(AuthContext)?.user ?? null;
+  const { showSidebar, libraryOpenState = "expanded" } = useSettings();
   const location = useLocation();
   const navigate = useNavigate();
   const isEmbedMode = useEmbedMode();
-  const isMobile = useIsMobile();
   const {
+    motionEnabled,
     allowShellAmbientMotion,
     allowShellDepthMotion,
     lowEndDevice,
+    hasHoverCapablePointer,
   } = useMotionPreferences();
+  const deferredUtilityChromeReady = useDeferredMount(1400);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readStoredBoolean(SIDEBAR_COLLAPSED_KEY, libraryOpenState === "collapsed"));
   const [compactSidebarExpanded, setCompactSidebarExpanded] = useState(false);
   const [panelGroupVersion, setPanelGroupVersion] = useState(0);
@@ -118,7 +196,6 @@ export function Layout({ children }: React.PropsWithChildren) {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(
     () => !(hasPlaybackStarted && showRightPanel && Boolean(currentTrack)),
   );
-  const [mobilePlayerOpen, setMobilePlayerOpen] = useState(false);
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null);
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
   const sidebarSyncActionRef = useRef<"idle" | "sync-expand" | "sync-collapse">("idle");
@@ -126,64 +203,174 @@ export function Layout({ children }: React.PropsWithChildren) {
   const sidebarExpandedSizeRef = useRef(0);
   const rightPanelExpandedSizeRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLElement>(null);
   const hasRestoredRouteRef = useRef(false);
   const shellDragActiveRef = useRef(false);
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1600 : window.innerWidth,
   );
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? 900 : window.innerHeight,
+  );
+  const [screenWidth, setScreenWidth] = useState(getScreenWidth);
+  const [screenHeight, setScreenHeight] = useState(getScreenHeight);
+  const [shouldRenderFullScreenPlayer, setShouldRenderFullScreenPlayer] = useState(isFullScreen);
   const panelSizeFromPx = useCallback(
     (px: number) => (px / Math.max(viewportWidth, 1)) * 100,
     [viewportWidth],
   );
 
-  const isCompactDesktop = !isMobile && viewportWidth < 1500;
-  const isDenseDesktop = !isMobile && viewportWidth < 1320;
-  const isTightDesktop = !isMobile && viewportWidth < 1420;
-  const isCompressedDesktop = !isMobile && viewportWidth < 1240;
-  const showDesktopSidebar = !isMobile && showSidebar;
+  const shellWidthMode = getShellWidthMode(viewportWidth, screenWidth);
+  const appUiScale = getDesktopAppUiScale(viewportWidth, viewportHeight, shellWidthMode);
+  const normalizedViewportWidth = viewportWidth / appUiScale;
+  const normalizedViewportHeight = viewportHeight / appUiScale;
+  const isNarrowHoverDesktopWindow = hasHoverCapablePointer && viewportWidth < 900;
+  const isHalfWidthShell = shellWidthMode === "half" || shellWidthMode === "quarter";
+  const isQuarterWidthShell = shellWidthMode === "quarter";
+  const desktopClassWidth = shellWidthMode === "full"
+    ? Math.max(
+      viewportWidth,
+      Math.min(
+        Number.isFinite(screenWidth) && screenWidth > 0 ? screenWidth : viewportWidth,
+        viewportWidth + 72,
+      ),
+    )
+    : normalizedViewportWidth;
+  const desktopClassHeight = shellWidthMode === "full"
+    ? Math.max(
+      viewportHeight,
+      Math.min(
+        Number.isFinite(screenHeight) && screenHeight > 0 ? screenHeight : viewportHeight,
+        viewportHeight + FULL_WINDOW_HEIGHT_ALLOWANCE_PX,
+      ),
+    )
+    : normalizedViewportHeight;
+  const isShortDesktop = isNarrowHoverDesktopWindow
+    ? viewportHeight < 700
+    : shellWidthMode === "full"
+      ? desktopClassHeight < 700
+    : normalizedViewportHeight < 940 || screenHeight < SHORT_DISPLAY_HEIGHT_FLOOR_PX;
+  const isVeryShortDesktop = isNarrowHoverDesktopWindow
+    ? viewportHeight < 620
+    : shellWidthMode === "full"
+      ? desktopClassHeight < 620
+    : normalizedViewportHeight < 860 || screenHeight < VERY_SHORT_DISPLAY_HEIGHT_FLOOR_PX;
+  const isCompactDesktop = isNarrowHoverDesktopWindow
+    ? viewportWidth < 760 || viewportHeight < 720
+    : shellWidthMode === "full"
+      ? desktopClassWidth < 1220 || desktopClassHeight < 700
+    : normalizedViewportWidth < 1500 || isShortDesktop || isHalfWidthShell;
+  const isDenseDesktop = isNarrowHoverDesktopWindow
+    ? viewportWidth < 700 || viewportHeight < 660
+    : shellWidthMode === "full"
+      ? desktopClassWidth < 1120 || desktopClassHeight < 660
+    : normalizedViewportWidth < 1440 || normalizedViewportHeight < 900 || isHalfWidthShell;
+  const isTightDesktop = isNarrowHoverDesktopWindow
+    ? viewportWidth < 640 || viewportHeight < 620
+    : shellWidthMode === "full"
+      ? desktopClassWidth < 1180 || desktopClassHeight < 680
+    : normalizedViewportWidth < 1420 || normalizedViewportHeight < 920 || isHalfWidthShell;
+  const isCompressedDesktop = isNarrowHoverDesktopWindow
+    ? viewportWidth < 580 || viewportHeight < 560 || lowEndDevice
+    : shellWidthMode === "full"
+      ? desktopClassWidth < 1040 || desktopClassHeight < 620 || lowEndDevice
+    : normalizedViewportWidth < 1360 || isVeryShortDesktop || lowEndDevice || isQuarterWidthShell;
+  const shouldUseCompactSidebarState = isNarrowHoverDesktopWindow
+    ? viewportWidth < 640 || lowEndDevice
+    : shellWidthMode === "full"
+      ? desktopClassWidth < 1120 || lowEndDevice
+    : normalizedViewportWidth < 1240 || lowEndDevice || isHalfWidthShell;
+  const forceCollapsedSidebar = isNarrowHoverDesktopWindow
+    ? viewportWidth < 560 || lowEndDevice
+    : shellWidthMode === "full"
+      ? desktopClassWidth < 1020 || lowEndDevice
+    : normalizedViewportWidth < 1180 || lowEndDevice || isQuarterWidthShell;
+  const showDesktopSidebar = showSidebar;
   const activePlayerTrack = hasPlaybackStarted ? currentTrack : null;
-  const shouldShowRightPanel = hasPlaybackStarted && showRightPanel && Boolean(currentTrack);
-  const effectiveSidebarCollapsed = isCompressedDesktop
+  const rightPanelRequested = hasPlaybackStarted && showRightPanel && Boolean(currentTrack);
+  const effectiveSidebarCollapsed = forceCollapsedSidebar
     ? true
-    : isCompactDesktop
+    : shouldUseCompactSidebarState
       ? !compactSidebarExpanded
       : sidebarCollapsed;
-  const collapsedSidebarSize = Math.max(4, panelSizeFromPx(COLLAPSED_SIDEBAR_WIDTH_PX));
-  const sidebarDefaultSize = isTightDesktop ? 16 : 18;
-  const rightPanelTargetWidth = isCompressedDesktop
-    ? 280
+  const collapsedSidebarWidth = COLLAPSED_SIDEBAR_WIDTH_PX * appUiScale;
+  const collapsedSidebarSize = Math.max(4, panelSizeFromPx(collapsedSidebarWidth));
+  const sidebarExpandedTargetWidth = (isCompressedDesktop
+    ? COMPRESSED_SIDEBAR_WIDTH_PX
+    : isTightDesktop
+      ? TIGHT_SIDEBAR_WIDTH_PX
+      : COMFORTABLE_SIDEBAR_WIDTH_PX) * appUiScale;
+  const sidebarDefaultSize = panelSizeFromPx(sidebarExpandedTargetWidth);
+  const rightPanelTargetWidth = (isCompressedDesktop
+    ? 248
     : isDenseDesktop
-      ? 300
+      ? 272
       : isCompactDesktop
-        ? 320
-        : 360;
+        ? 296
+        : 340) * appUiScale;
+  const sidebarDockWidth = showDesktopSidebar
+    ? (effectiveSidebarCollapsed ? collapsedSidebarWidth : Math.round((sidebarDefaultSize / 100) * viewportWidth))
+    : 0;
+  const canDockRightPanel =
+    !lowEndDevice &&
+    viewportWidth >= sidebarDockWidth + rightPanelTargetWidth + MIN_RIGHT_PANEL_MAIN_WIDTH_PX;
+  const shouldShowRightPanel = rightPanelRequested && canDockRightPanel;
   const rightPanelDefaultSize = shouldShowRightPanel ? panelSizeFromPx(rightPanelTargetWidth) : 0;
   const rightPanelMinSize = panelSizeFromPx(rightPanelTargetWidth);
-  const rightPanelMaxSize = panelSizeFromPx(rightPanelTargetWidth + (isCompactDesktop ? 56 : 84));
+  const rightPanelMaxSize = panelSizeFromPx(rightPanelTargetWidth + ((isCompactDesktop ? 56 : 84) * appUiScale));
   const rightPanelMinWidth = rightPanelTargetWidth;
-  const showShellChrome = isMobile || allowShellDepthMotion || allowShellAmbientMotion;
-  const showRightPanelHandle = shouldShowRightPanel || !rightPanelCollapsed;
-  const shouldRenderRightPanel = shouldShowRightPanel || !rightPanelCollapsed;
+  const showShellChrome = allowShellDepthMotion || allowShellAmbientMotion;
+  const showShellTopGlow = showShellChrome && location.pathname !== "/settings" && !isCompressedDesktop;
+  const showRightPanelHandle = canDockRightPanel && (shouldShowRightPanel || !rightPanelCollapsed);
+  const shouldRenderRightPanel = canDockRightPanel && (shouldShowRightPanel || !rightPanelCollapsed);
+  const smoothScrollEnabled =
+    !isEmbedMode &&
+    motionEnabled &&
+    !lowEndDevice;
   const effectiveSidebarDefaultSize = effectiveSidebarCollapsed
     ? collapsedSidebarSize
     : Math.max(collapsedSidebarSize, sidebarExpandedSizeRef.current || sidebarDefaultSize);
   const effectiveRightPanelDefaultSize = shouldShowRightPanel
     ? Math.min(
-        Math.max(rightPanelExpandedSizeRef.current || rightPanelDefaultSize, rightPanelMinSize),
-        rightPanelMaxSize,
-      )
+      Math.max(rightPanelExpandedSizeRef.current || rightPanelDefaultSize, rightPanelMinSize),
+      rightPanelMaxSize,
+    )
     : 0;
   const effectiveCenterDefaultSize = 100 - (showDesktopSidebar ? effectiveSidebarDefaultSize : 0) - effectiveRightPanelDefaultSize;
+  const handleFullScreenExitComplete = useCallback(() => {
+    if (!isFullScreen) {
+      setShouldRenderFullScreenPlayer(false);
+    }
+  }, [isFullScreen]);
+
+  useSmoothScroll({
+    enabled: smoothScrollEnabled,
+    wrapperRef: scrollRef,
+    contentRef: scrollContentRef,
+    lerp: 0.18,
+    startDelay: 0,
+    wheelMultiplier: 0.84,
+  });
+
+  useDesktopWheelSmoothing({
+    enabled: false,
+    viewportRef: scrollRef,
+  });
+
+  const setSidebarCollapsedPreference = useCallback((next: boolean) => {
+    setSidebarCollapsed(next);
+    writeStoredValue(SIDEBAR_COLLAPSED_KEY, String(next));
+  }, []);
 
   const setSidebarCollapsedMode = useCallback(
     (next: boolean) => {
-      if (isCompactDesktop) {
+      setSidebarCollapsedPreference(next);
+      if (shouldUseCompactSidebarState) {
         setCompactSidebarExpanded(!next);
         return;
       }
-      setSidebarCollapsed(next);
     },
-    [isCompactDesktop],
+    [setSidebarCollapsedPreference, shouldUseCompactSidebarState],
   );
 
   const syncSidebarPanel = useCallback((collapsed: boolean) => {
@@ -215,7 +402,12 @@ export function Layout({ children }: React.PropsWithChildren) {
       if (frameId) return;
       frameId = window.requestAnimationFrame(() => {
         frameId = 0;
-        setViewportWidth(window.innerWidth);
+        startTransition(() => {
+          setViewportWidth(window.innerWidth);
+          setViewportHeight(window.innerHeight);
+          setScreenWidth(getScreenWidth());
+          setScreenHeight(getScreenHeight());
+        });
       });
     };
 
@@ -229,30 +421,30 @@ export function Layout({ children }: React.PropsWithChildren) {
 
   useEffect(() => {
     const shouldCollapse = libraryOpenState === "collapsed";
-    if (isCompactDesktop) {
+    setSidebarCollapsedPreference(shouldCollapse);
+
+    if (shouldUseCompactSidebarState) {
       setCompactSidebarExpanded(!shouldCollapse);
       return;
     }
 
-    setSidebarCollapsed(shouldCollapse);
-    writeStoredValue(SIDEBAR_COLLAPSED_KEY, String(shouldCollapse));
-  }, [isCompactDesktop, libraryOpenState]);
+  }, [libraryOpenState, setSidebarCollapsedPreference, shouldUseCompactSidebarState]);
 
   useEffect(() => {
     if (hasRestoredRouteRef.current) return;
     hasRestoredRouteRef.current = true;
 
-    if (location.pathname !== "/" || location.search || location.hash) {
+    if (!user || location.pathname !== APP_HOME_PATH || location.search || location.hash) {
       return;
     }
 
     const storedRoute = readStoredRoute();
-    if (!storedRoute || storedRoute === "/" || storedRoute.startsWith("/auth")) {
+    if (!storedRoute || storedRoute === APP_HOME_PATH || storedRoute.startsWith("/auth")) {
       return;
     }
 
     navigate(storedRoute, { replace: true });
-  }, [location.hash, location.pathname, location.search, navigate]);
+  }, [location.hash, location.pathname, location.search, navigate, user]);
 
   useEffect(() => {
     if (location.pathname.startsWith("/auth")) return;
@@ -260,15 +452,28 @@ export function Layout({ children }: React.PropsWithChildren) {
     writeStoredValue(LAST_ROUTE_KEY, currentRoute);
   }, [location.hash, location.pathname, location.search]);
 
+  const content = children ?? <Outlet />;
+
+  useEffect(() => {
+    if (isEmbedMode || !activePlayerTrack) {
+      setShouldRenderFullScreenPlayer(false);
+      return;
+    }
+
+    if (isFullScreen) {
+      setShouldRenderFullScreenPlayer(true);
+    }
+  }, [activePlayerTrack, isEmbedMode, isFullScreen]);
+
   useEffect(() => {
     writeStoredValue(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    if (!isCompactDesktop) {
+    if (!shouldUseCompactSidebarState) {
       setCompactSidebarExpanded(false);
     }
-  }, [isCompactDesktop]);
+  }, [shouldUseCompactSidebarState]);
 
   useEffect(() => {
     if (!effectiveSidebarCollapsed) {
@@ -277,21 +482,15 @@ export function Layout({ children }: React.PropsWithChildren) {
   }, [collapsedSidebarSize, effectiveSidebarCollapsed, sidebarDefaultSize]);
 
   useEffect(() => {
-    if (isMobile || !showDesktopSidebar) {
+    if (!showDesktopSidebar) {
       sidebarSyncActionRef.current = "idle";
       return;
     }
 
     syncSidebarPanel(effectiveSidebarCollapsed);
-  }, [effectiveSidebarCollapsed, isMobile, showDesktopSidebar, syncSidebarPanel]);
+  }, [effectiveSidebarCollapsed, showDesktopSidebar, syncSidebarPanel]);
 
   useEffect(() => {
-    if (isMobile) {
-      rightPanelSyncActionRef.current = "idle";
-      setRightPanelCollapsed(true);
-      return;
-    }
-
     if (shouldShowRightPanel) {
       rightPanelSyncActionRef.current = "sync-expand";
       setRightPanelCollapsed(false);
@@ -301,31 +500,12 @@ export function Layout({ children }: React.PropsWithChildren) {
       setRightPanelCollapsed(true);
       rightPanelRef.current?.collapse();
     }
-  }, [shouldShowRightPanel, isMobile]);
+  }, [shouldShowRightPanel]);
 
   useEffect(() => {
-    if (isMobile || !shouldShowRightPanel || rightPanelCollapsed || isRightPanelDragging) return;
+    if (!shouldShowRightPanel || rightPanelCollapsed || isRightPanelDragging) return;
     rightPanelRef.current?.resize(rightPanelDefaultSize);
-  }, [isMobile, isRightPanelDragging, rightPanelCollapsed, rightPanelDefaultSize, shouldShowRightPanel]);
-
-  useEffect(() => {
-    if (activePlayerTrack) return;
-    setMobilePlayerOpen(false);
-  }, [activePlayerTrack]);
-
-  const openMobilePlayer = useCallback(() => {
-    if (!activePlayerTrack) return;
-    setMobilePlayerOpen(true);
-  }, [activePlayerTrack]);
-
-  const openMobilePlayerTab = useCallback(
-    (tab: "lyrics" | "queue") => {
-      if (!activePlayerTrack) return;
-      setRightPanelTab(tab);
-      setMobilePlayerOpen(true);
-    },
-    [activePlayerTrack, setRightPanelTab],
-  );
+  }, [isRightPanelDragging, rightPanelCollapsed, rightPanelDefaultSize, shouldShowRightPanel]);
 
   const handleRightPanelCollapse = useCallback(() => {
     const action = rightPanelSyncActionRef.current;
@@ -427,8 +607,6 @@ export function Layout({ children }: React.PropsWithChildren) {
   }, [isSidebarDragging, isRightPanelDragging]);
 
   useEffect(() => {
-    if (isMobile) return;
-
     const recoverStuckPanelDrag = () => {
       if (!shellDragActiveRef.current) return;
 
@@ -457,7 +635,54 @@ export function Layout({ children }: React.PropsWithChildren) {
       window.removeEventListener("blur", recoverStuckPanelDrag);
       document.removeEventListener("visibilitychange", recoverStuckPanelDrag);
     };
-  }, [isMobile]);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+
+    const root = document.documentElement;
+    let clearScrollingTimeout = 0;
+
+    const markMainScrolling = () => {
+      if (root.getAttribute("data-main-scrolling") !== "true") {
+        root.setAttribute("data-main-scrolling", "true");
+      }
+      if (clearScrollingTimeout) {
+        window.clearTimeout(clearScrollingTimeout);
+      }
+      clearScrollingTimeout = window.setTimeout(() => {
+        root.removeAttribute("data-main-scrolling");
+        clearScrollingTimeout = 0;
+      }, 140);
+    };
+
+    viewport.addEventListener("wheel", markMainScrolling, { passive: true });
+
+    return () => {
+      if (clearScrollingTimeout) {
+        window.clearTimeout(clearScrollingTimeout);
+      }
+      root.removeAttribute("data-main-scrolling");
+      viewport.removeEventListener("wheel", markMainScrolling);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isEmbedMode || !activePlayerTrack || lowEndDevice) return;
+
+    return scheduleBackgroundTask(() => {
+      void preloadFullScreenPlayerModule().catch(() => undefined);
+    }, 1800);
+  }, [activePlayerTrack, isEmbedMode, lowEndDevice]);
+
+  const shellScaleStyle = {
+    "--app-ui-scale": appUiScale.toFixed(4),
+    "--app-reference-width": `${APP_REFERENCE_WIDTH_PX}px`,
+    "--app-reference-height": `${APP_REFERENCE_HEIGHT_PX}px`,
+  } as CSSProperties;
 
   return (
     <SidebarContext.Provider
@@ -466,153 +691,71 @@ export function Layout({ children }: React.PropsWithChildren) {
       <TrackSelectionShortcutsProvider>
         <LayoutShortcutBindings />
         <div
-          className="h-screen w-screen flex flex-col relative overflow-hidden"
-          // Keep the app feeling native by suppressing the browser context menu.
-          onContextMenu={(event) => {
-            if (!isEmbedMode) event.preventDefault();
-          }}
+          className="relative flex h-screen min-h-screen w-full max-w-full flex-col overflow-hidden supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:min-h-[100dvh]"
+          data-shell-density={isCompressedDesktop ? "compressed" : isDenseDesktop ? "dense" : isCompactDesktop ? "compact" : "comfortable"}
+          data-shell-height={isVeryShortDesktop ? "short" : isShortDesktop ? "medium" : "tall"}
+          data-shell-width={shellWidthMode}
+          style={shellScaleStyle}
         >
-          <DesktopUpdateGate />
           {isEmbedMode ? (
-            <main className="min-h-screen bg-[#050505]">{children}</main>
+            <main className="min-h-screen bg-[#050505]">{content}</main>
           ) : (
             <>
-              {!lowEndDevice ? (
+              {deferredUtilityChromeReady ? (
                 <Suspense fallback={null}>
-                  <LazyAppDiagnosticsInbox />
+                  <DeferredAppDiagnosticsInbox />
                 </Suspense>
               ) : null}
               <div className="fixed inset-0 z-0 bg-black" />
 
-              <div className="flex-1 min-h-0 relative z-10">
-                {!isMobile ? (
-                  <ResizablePanelGroup key={panelGroupVersion} id="app-shell-panels" direction="horizontal" className="h-full">
-                    {showDesktopSidebar ? (
-                      <>
-                        <ResizablePanel
-                          id="app-shell-sidebar"
-                          order={1}
-                          ref={sidebarPanelRef}
-                          defaultSize={effectiveSidebarDefaultSize}
-                          collapsible={false}
-                          collapsedSize={collapsedSidebarSize}
-                          minSize={collapsedSidebarSize}
-                          maxSize={isCompactDesktop ? 24 : 30}
-                          onCollapse={handleSidebarCollapse}
-                          onExpand={handleSidebarExpand}
-                          onResize={handleSidebarResize}
-                        >
-                          <div
-                            className="h-full overflow-hidden"
-                            style={{
-                              opacity: 1,
-                              transform: "translate3d(0, 0, 0)",
-                            }}
-                          >
-                            <Suspense fallback={<SidebarFallback />}>
-                              <LazyAppSidebar />
-                            </Suspense>
-                          </div>
-                        </ResizablePanel>
-                        <ResizableHandle
-                          className="relative z-50 -mx-1.5 w-3 cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-white/0 hover:after:bg-white/10 transition-colors"
-                          onDragging={handleSidebarDragging}
-                        />
-                      </>
-                    ) : null}
-
-                    <ResizablePanel id="app-shell-main" order={2} defaultSize={effectiveCenterDefaultSize} minSize={40}>
-                      <div className="relative flex flex-col h-full min-h-0">
-                        {showShellChrome ? (
-                          <div
-                            aria-hidden="true"
-                            className="shell-top-glow pointer-events-none absolute inset-x-0 top-0 z-20 h-24 opacity-[0.18]"
-                          />
-                        ) : null}
-                        <ScrollArea className="flex-1" ref={scrollRef} viewportProps={{ "data-main-scroll-viewport": "true" }}>
-                          <main className="shell-main-content desktop-shell-main-content pb-8 overflow-x-hidden">
-                            {children}
-                          </main>
-                        </ScrollArea>
-                      </div>
-                    </ResizablePanel>
-
-                    <ResizableHandle
-                      className={`relative z-50 -mx-1 w-2 cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-white/0 hover:after:bg-white/10 transition-colors ${!showRightPanelHandle ? "hidden" : ""}`}
-                      hitAreaMargins={{ fine: 2, coarse: 6 }}
-                      onDragging={handleRightHandleDragging}
-                    />
-                    <ResizablePanel
-                      id="app-shell-right-panel"
-                      order={3}
-                      ref={rightPanelRef}
-                      defaultSize={effectiveRightPanelDefaultSize}
-                      minSize={rightPanelMinSize}
-                      maxSize={rightPanelMaxSize}
-                      collapsible={true}
-                      collapsedSize={0}
-                      className={isRightPanelDragging ? "" : "transition-[flex] duration-500"}
-                      style={isRightPanelDragging ? undefined : { transitionTimingFunction: "cubic-bezier(0.33,1,0.68,1)" }}
-                      onCollapse={handleRightPanelCollapse}
-                      onExpand={handleRightPanelExpand}
-                      onResize={handleRightPanelResize}
-                    >
-                      <div
-                        className="w-full h-full"
-                        style={{ minWidth: shouldShowRightPanel ? `${rightPanelMinWidth}px` : "0px" }}
-                      >
-                        {shouldRenderRightPanel ? (
-                          <Suspense fallback={null}>
-                            <LazyRightPanel />
-                          </Suspense>
-                        ) : null}
-                      </div>
-                    </ResizablePanel>
-                  </ResizablePanelGroup>
-                ) : (
-                  <div className="relative flex flex-col flex-1 min-h-0">
-                    {showShellChrome ? (
-                      <div
-                        aria-hidden="true"
-                        className="shell-top-glow pointer-events-none absolute inset-x-0 top-0 z-20 h-20 opacity-[0.14]"
-                      />
-                    ) : null}
-                    <ScrollArea className="flex-1" ref={scrollRef} viewportProps={{ "data-main-scroll-viewport": "true" }}>
-                      <main className="shell-main-content mobile-main-content px-4 pb-8 pt-3">
-                        {children}
-                      </main>
-                    </ScrollArea>
-                  </div>
-                )}
+              <div className="relative z-10 flex-1 min-h-0">
+                <LayoutDesktopShell
+                  panelGroupVersion={panelGroupVersion}
+                  showDesktopSidebar={showDesktopSidebar}
+                  sidebarPanelRef={sidebarPanelRef}
+                  rightPanelRef={rightPanelRef}
+                  effectiveSidebarDefaultSize={effectiveSidebarDefaultSize}
+                  collapsedSidebarSize={collapsedSidebarSize}
+                  isCompactDesktop={isCompactDesktop}
+                  handleSidebarCollapse={handleSidebarCollapse}
+                  handleSidebarExpand={handleSidebarExpand}
+                  handleSidebarResize={handleSidebarResize}
+                  handleSidebarDragging={handleSidebarDragging}
+                  effectiveCenterDefaultSize={effectiveCenterDefaultSize}
+                  showShellTopGlow={showShellTopGlow}
+                  scrollRef={scrollRef}
+                  scrollContentRef={scrollContentRef}
+                  content={content}
+                  hasBottomPlayer={Boolean(activePlayerTrack)}
+                  showRightPanelHandle={showRightPanelHandle}
+                  handleRightHandleDragging={handleRightHandleDragging}
+                  effectiveRightPanelDefaultSize={effectiveRightPanelDefaultSize}
+                  rightPanelMinSize={rightPanelMinSize}
+                  rightPanelMaxSize={rightPanelMaxSize}
+                  isRightPanelDragging={isRightPanelDragging}
+                  handleRightPanelCollapse={handleRightPanelCollapse}
+                  handleRightPanelExpand={handleRightPanelExpand}
+                  handleRightPanelResize={handleRightPanelResize}
+                  shouldShowRightPanel={shouldShowRightPanel}
+                  shouldRenderRightPanel={shouldRenderRightPanel}
+                  rightPanelMinWidth={rightPanelMinWidth}
+                />
               </div>
 
-              {!isMobile && activePlayerTrack ? (
-                <Suspense fallback={null}>
-                  <LazyBottomPlayer />
-                </Suspense>
+              {activePlayerTrack ? (
+                <div
+                  className="fixed inset-x-0 bottom-0 z-30"
+                  data-testid="bottom-player-dock"
+                >
+                  <Suspense fallback={null}>
+                    <DeferredBottomPlayer shellWidthMode={shellWidthMode} />
+                  </Suspense>
+                </div>
               ) : null}
 
-              {isMobile && activePlayerTrack ? (
-                <Suspense fallback={null}>
-                  <LazyMobileMiniPlayer
-                    onOpenPlayer={openMobilePlayer}
-                    onOpenTab={openMobilePlayerTab}
-                  />
-                </Suspense>
-              ) : null}
-
-              {isMobile ? (
-                <Suspense fallback={null}>
-                  <LazyMobileNav />
-                </Suspense>
-              ) : null}
-
-              {isMobile && activePlayerTrack ? (
-                <Suspense fallback={null}>
-                  <LazyMobilePlayerSheet
-                    open={mobilePlayerOpen}
-                    onOpenChange={setMobilePlayerOpen}
-                  />
+              {!isEmbedMode && shouldRenderFullScreenPlayer ? (
+                <Suspense fallback={<FullScreenPlayerFallback />}>
+                  <DeferredFullScreenPlayer onExitComplete={handleFullScreenExitComplete} />
                 </Suspense>
               ) : null}
             </>

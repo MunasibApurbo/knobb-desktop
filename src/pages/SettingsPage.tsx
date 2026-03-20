@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Download, ExternalLink, HelpCircle, Loader2, Search, Shield } from "lucide-react";
+import { CheckCircle2, ExternalLink, HelpCircle, Loader2, Search, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { DiscordConnectDialog } from "@/components/DiscordConnectDialog";
+import { VolumeBar } from "@/components/VolumeBar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PANEL_SURFACE_CLASS } from "@/components/ui/surfaceStyles";
 import { SettingsEqualizer } from "@/components/SettingsEqualizer";
 import { Switch } from "@/components/ui/switch";
 import { PageTransition } from "@/components/PageTransition";
+import { UtilityPageLayout, UtilityPagePanel } from "@/components/UtilityPageLayout";
 import {
   Select,
   SelectContent,
@@ -23,8 +33,24 @@ import { usePlayer } from "@/contexts/PlayerContext";
 import { AudioQuality } from "@/contexts/player/playerTypes";
 import { DownloadFormat, useSettings } from "@/contexts/SettingsContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { subscribeToDiscordPresenceBridge } from "@/lib/discordPresence";
 import { type AudioQualityOption, getAudioQualityOptions } from "@/lib/audioQuality";
+import {
+  clearDiscordWebhookPresence,
+  getDiscordWebhookUrl,
+  isDiscordWebhookEnabled,
+  setDiscordWebhookEnabled as persistDiscordWebhookEnabled,
+  setDiscordWebhookUrl as persistDiscordWebhookUrl,
+  validateDiscordWebhook,
+} from "@/lib/discordWebhookPresence";
+import {
+  getListenBrainzToken,
+  isListenBrainzEnabled,
+  setListenBrainzEnabled as persistListenBrainzEnabled,
+  setListenBrainzToken as persistListenBrainzToken,
+  validateListenBrainzToken,
+} from "@/lib/externalScrobbling";
 import { getLocalDiscordPresenceBridgeStatus } from "@/lib/localDiscordPresenceBridge";
 import { clearMusicApiCache } from "@/lib/musicApi";
 import {
@@ -33,19 +59,8 @@ import {
   removeOtherPlaybackSessions,
   type PlaybackSessionSnapshot,
 } from "@/lib/playbackSessions";
-import {
-  KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL,
-  detectDesktopDownloadPlatform,
-  formatDesktopPlatform,
-  isDesktopDownloadRecommended,
-  KNOBB_DESKTOP_REPO_URL,
-  KNOBB_RELEASES_URL,
-  KNOBB_WINDOWS_DOWNLOAD_URL,
-} from "@/lib/desktopDownloads";
-import { getDesktopUpdatePresentation } from "@/lib/desktopUpdatePresentation";
 import { cn } from "@/lib/utils";
-import { getKnobbDesktopPlatform, isKnobbDesktopApp } from "@/lib/desktopApp";
-import { useKnobbDesktopUpdate } from "@/hooks/useKnobbDesktopUpdate";
+import { DESTRUCTIVE_OUTLINE_BUTTON_CLASS } from "@/components/ui/surfaceStyles";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -58,9 +73,45 @@ function normalizeSearchValue(value: string) {
   return value.trim().toLowerCase();
 }
 
+type BrowserStorageSnapshot = {
+  usageBytes: number | null;
+  quotaBytes: number | null;
+  persisted: boolean | null;
+  cacheBytes: number | null;
+  persistenceSupported: boolean;
+};
+
+function getStorageUsageDetail(
+  estimate: (StorageEstimate & { usageDetails?: Record<string, number | undefined> }) | null,
+  key: string,
+) {
+  const value = estimate?.usageDetails?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function matchesSearchQuery(query: string, ...values: Array<string | number | null | undefined>) {
   if (!query) return true;
   return values.some((value) => normalizeSearchValue(String(value ?? "")).includes(query));
+}
+
+function getAuthProviders(appMetadata: { provider?: unknown; providers?: unknown } | undefined) {
+  const providers = Array.isArray(appMetadata?.providers)
+    ? appMetadata.providers.filter((provider): provider is string => typeof provider === "string")
+    : [];
+
+  if (providers.length > 0) {
+    return providers.map((provider) => provider.trim().toLowerCase()).filter(Boolean);
+  }
+
+  const fallbackProvider = appMetadata?.provider;
+  return typeof fallbackProvider === "string" && fallbackProvider.trim()
+    ? [fallbackProvider.trim().toLowerCase()]
+    : [];
+}
+
+function requiresPasswordForDeletion(appMetadata: { provider?: unknown; providers?: unknown } | undefined) {
+  const providers = getAuthProviders(appMetadata);
+  return providers.length === 0 || providers.includes("email");
 }
 
 function Section({
@@ -71,16 +122,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-0">
-      <h2 className="text-xl font-bold text-foreground px-0 py-3">{title}</h2>
-      <div
+    <section className="space-y-2">
+      <h2 className="px-1 py-1 text-xl font-bold text-foreground">{title}</h2>
+      <UtilityPagePanel
         className={cn(
-          "settings-section-surface overflow-hidden shadow-[0_18px_44px_rgba(0,0,0,0.18)]",
-          PANEL_SURFACE_CLASS,
+          "overflow-hidden",
         )}
       >
         {children}
-      </div>
+      </UtilityPagePanel>
     </section>
   );
 }
@@ -98,13 +148,13 @@ function Row({
 }) {
   return (
     <div
-      className={`settings-row grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 border-b border-white/10 last:border-b-0 transition-colors hover:bg-white/[0.03] ${className}`}
+      className={`settings-row flex flex-col gap-4 border-b border-white/10 px-4 py-4 transition-colors last:border-b-0 sm:px-5 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center ${className}`}
     >
       <div className="min-w-0">
         <p className="text-base font-semibold text-foreground">{title}</p>
         {description ? <div className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {action ? <div className="w-full shrink-0 lg:w-auto">{action}</div> : null}
     </div>
   );
 }
@@ -127,7 +177,7 @@ function SelectControl({
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger
-        className={`settings-select-trigger website-form-control h-11 min-w-[220px] rounded-[var(--settings-control-radius)] px-4 border-white/10 bg-white/[0.04] text-sm text-foreground focus:ring-0 focus:ring-offset-0 menu-sweep-hover ${className}`}
+        className={`settings-select-trigger website-form-control h-11 w-full min-w-0 rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] px-4 text-sm text-foreground focus:ring-0 focus:ring-offset-0 sm:min-w-[220px] ${className}`}
       >
         <SelectValue aria-label={selectedTag ? `${selectedLabel} ${selectedTag}` : selectedLabel}>
           <span className="flex min-w-0 items-center gap-3">
@@ -140,7 +190,7 @@ function SelectControl({
           </span>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent className="text-foreground">
+      <SelectContent className="settings-select-content text-foreground">
         {options.map((option) => (
           <SelectItem
             key={option.value}
@@ -181,8 +231,41 @@ function ToggleControl({
   );
 }
 
+function VolumeStyleControl({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  ariaLabel: string;
+}) {
+  const normalizedValue = Math.min(Math.max(Math.round(value), 0), 100);
+
+  return (
+    <div className="flex w-full items-center gap-3 sm:w-[320px]">
+      <div className="flex-1 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2">
+        <VolumeBar
+          volume={normalizedValue / 100}
+          onChange={(nextValue) => onChange(Math.round(nextValue * 100))}
+          ariaLabel={ariaLabel}
+          ariaValueText={(nextValue) => `${Math.round(nextValue * 100)}%`}
+          className="h-3 w-full opacity-95"
+          variant="straight"
+        />
+      </div>
+      <div className="flex items-center gap-1 rounded-[var(--settings-control-radius)] border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white/82">
+        <span className="w-9 text-right tabular-nums">{normalizedValue}</span>
+        <span className="text-white/56">%</span>
+      </div>
+    </div>
+  );
+}
+
 const SETTINGS_ACTION_BUTTON_CLASS =
-  "settings-action-button website-form-control menu-sweep-hover h-11 rounded-[var(--settings-control-radius)] border-white/12 bg-white/[0.03] px-5 text-sm font-semibold text-foreground hover:bg-white/[0.05] hover:text-black focus-visible:text-black focus:ring-0 focus:ring-offset-0";
+  "settings-action-button website-form-control menu-sweep-hover h-11 w-full justify-center rounded-[var(--settings-control-radius)] border-white/12 bg-white/[0.03] px-5 text-sm font-semibold text-foreground hover:bg-white/[0.05] hover:text-black focus-visible:text-black focus:ring-0 focus:ring-offset-0 sm:w-auto";
+const SETTINGS_DESTRUCTIVE_BUTTON_CLASS =
+  `${DESTRUCTIVE_OUTLINE_BUTTON_CLASS} settings-action-button w-full sm:w-auto`;
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -207,8 +290,6 @@ export default function SettingsPage() {
     setCardSize,
     discordPresenceEnabled,
     setDiscordPresenceEnabled,
-    websiteMode,
-    setWebsiteMode,
     pageDensity,
     setPageDensity,
     rightPanelAutoOpen,
@@ -217,17 +298,27 @@ export default function SettingsPage() {
     setRightPanelStyle,
     bottomPlayerStyle,
     setBottomPlayerStyle,
+    showFullScreenLyrics,
+    setShowFullScreenLyrics,
+    fullScreenBackgroundBlur,
+    setFullScreenBackgroundBlur,
+    fullScreenBackgroundDarkness,
+    setFullScreenBackgroundDarkness,
     showScrollbar,
     setShowScrollbar,
     downloadFormat,
     setDownloadFormat,
+    scrobblePercent,
+    setScrobblePercent,
   } = useSettings();
   const { localFiles, totalBytes } = useLocalFiles();
   const {
-    quality,
-    setQuality,
     autoQualityEnabled,
     setAutoQualityEnabled,
+    monoAudioEnabled,
+    setMonoAudioEnabled,
+    quality,
+    setQuality,
     normalization,
     toggleNormalization,
     equalizerEnabled,
@@ -244,40 +335,37 @@ export default function SettingsPage() {
   } = usePlayer();
 
   const [storageVersion, setStorageVersion] = useState(0);
+  const [browserStorageSnapshot, setBrowserStorageSnapshot] = useState<BrowserStorageSnapshot>({
+    usageBytes: null,
+    quotaBytes: null,
+    persisted: null,
+    cacheBytes: null,
+    persistenceSupported: false,
+  });
   const [serviceWorkerReady, setServiceWorkerReady] = useState(false);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [discordConnectOpen, setDiscordConnectOpen] = useState(false);
   const [discordBridgeStatus, setDiscordBridgeStatus] = useState(() => getLocalDiscordPresenceBridgeStatus());
+  const [discordWebhookEnabled, setDiscordWebhookEnabledState] = useState(() => isDiscordWebhookEnabled());
+  const [discordWebhookInput, setDiscordWebhookInput] = useState(() => getDiscordWebhookUrl());
+  const [discordWebhookName, setDiscordWebhookName] = useState<string | null>(null);
+  const [isCheckingDiscordWebhook, setIsCheckingDiscordWebhook] = useState(false);
+  const [listenBrainzEnabled, setListenBrainzEnabledState] = useState(() => isListenBrainzEnabled());
+  const [listenBrainzTokenInput, setListenBrainzTokenInput] = useState(() => getListenBrainzToken());
+  const [listenBrainzUserName, setListenBrainzUserName] = useState<string | null>(null);
+  const [isCheckingListenBrainz, setIsCheckingListenBrainz] = useState(false);
   const [playbackSessions, setPlaybackSessions] = useState<PlaybackSessionSnapshot[]>([]);
   const [isLoadingPlaybackSessions, setIsLoadingPlaybackSessions] = useState(false);
-  const [accountAction, setAccountAction] = useState<"password-reset" | "sign-out-others" | "sign-out" | null>(null);
+  const [accountAction, setAccountAction] = useState<"password-reset" | "sign-out-others" | "sign-out" | "delete-account" | null>(null);
   const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [isSettingsSearchOpen, setIsSettingsSearchOpen] = useState(false);
+  const [deleteAccountDialogOpen, setDeleteAccountDialogOpen] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
   const settingsSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const desktopApp = isKnobbDesktopApp();
-  const desktopDownloadPlatform = useMemo(() => detectDesktopDownloadPlatform(), []);
-  const desktopPlatformLabel = useMemo(() => formatDesktopPlatform(getKnobbDesktopPlatform()), []);
-  const {
-    installUpdate,
-    isLoading: desktopUpdateLoading,
-    refreshStatus: refreshDesktopUpdateStatus,
-    status: desktopUpdateStatus,
-  } = useKnobbDesktopUpdate();
-  const desktopUpdatePresentation = useMemo(
-    () => getDesktopUpdatePresentation(desktopUpdateStatus),
-    [desktopUpdateStatus],
-  );
   const discordBridgeReady = discordBridgeStatus.ok;
   const discordBridgeConfigured = discordBridgeStatus.ok && discordBridgeStatus.configured;
   const discordDesktopConnected = discordBridgeStatus.discordConnected;
   const currentPlaybackDeviceId = useMemo(() => getPlaybackDeviceId(), []);
-
-  const openDiscordSetup = useCallback(() => {
-    window.setTimeout(() => {
-      setDiscordConnectOpen(true);
-    }, 0);
-  }, []);
-
 
   const qualityOptions = useMemo<AudioQualityOption[]>(
     () => getAudioQualityOptions(language),
@@ -291,22 +379,53 @@ export default function SettingsPage() {
 
   const storageSnapshot = useMemo(() => {
     void storageVersion;
-    let bytes = 0;
-    let downloads = 0;
+    let localStorageBytes = 0;
+    let cacheBytes = 0;
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
       if (!key) continue;
       const value = localStorage.getItem(key) || "";
-      bytes += (key.length + value.length) * 2;
-      if (key.toLowerCase().includes("download")) downloads += 1;
+      const entryBytes = (key.length + value.length) * 2;
+      localStorageBytes += entryBytes;
+      if (
+        key.toLowerCase().includes("api-cache")
+        || key.toLowerCase().includes("search-cache")
+        || key.toLowerCase().includes("image-cache")
+      ) {
+        cacheBytes += entryBytes;
+      }
     }
     return {
-      cacheMb: (bytes / (1024 * 1024)).toFixed(1),
-      downloadEntries: downloads,
+      localStorageBytes,
+      cacheBytes,
     };
   }, [storageVersion]);
+  const isDesktopApp = Boolean(window.knobbDesktop?.isDesktopApp);
+  const resolvedStorageUsageBytes = browserStorageSnapshot.usageBytes ?? (storageSnapshot.localStorageBytes + totalBytes);
+  const resolvedStorageQuotaBytes = browserStorageSnapshot.quotaBytes;
+  const resolvedCacheBytes = browserStorageSnapshot.cacheBytes ?? storageSnapshot.cacheBytes;
+  const discordStatusTitle = isDesktopApp ? t("settings.discordNativeStatus") : t("settings.discordConnect");
+  const discordWebhookDescription = discordWebhookName
+    ? `${t("settings.discordWebhookDescription")} ${t("settings.connectedAs", { name: discordWebhookName })}.`
+    : t("settings.discordWebhookDescription");
+  const listenBrainzDescription = listenBrainzUserName
+    ? `${t("settings.listenBrainzDescription")} ${t("settings.connectedAs", { name: listenBrainzUserName })}.`
+    : t("settings.listenBrainzDescription");
+  const scrobblePercentLabel = `${Math.min(95, Math.max(5, Number.parseInt(scrobblePercent, 10) || 50))}%`;
 
   const discordConnectionDescription = useMemo(() => {
+    if (isDesktopApp) {
+      if (!discordBridgeReady) {
+        return t("settings.discordNativeUnavailable");
+      }
+
+      if (!discordDesktopConnected) {
+        return t("settings.discordAppWaiting");
+      }
+
+      return t("settings.discordNativeConnected");
+    }
+
     if (!discordBridgeReady) {
       return t("settings.discordBridgeMissing");
     }
@@ -320,10 +439,12 @@ export default function SettingsPage() {
     }
 
     return t("settings.discordAppConnected");
-  }, [discordBridgeConfigured, discordBridgeReady, discordDesktopConnected, t]);
+  }, [discordBridgeConfigured, discordBridgeReady, discordDesktopConnected, isDesktopApp, t]);
   const normalizedSettingsSearchQuery = normalizeSearchValue(settingsSearchQuery);
   const hasSettingsSearchQuery = normalizedSettingsSearchQuery.length > 0;
   const showSettingsSearchInput = isSettingsSearchOpen || hasSettingsSearchQuery;
+  const deleteAccountNeedsPassword = requiresPasswordForDeletion(user?.app_metadata);
+  const deleteAccountSelfServeSupported = deleteAccountNeedsPassword;
 
   const clearCache = () => {
     clearMusicApiCache();
@@ -340,6 +461,186 @@ export default function SettingsPage() {
     toast.success(t("settings.cacheCleared"));
   };
 
+  const refreshBrowserStorage = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+      setBrowserStorageSnapshot({
+        usageBytes: null,
+        quotaBytes: null,
+        persisted: null,
+        cacheBytes: null,
+        persistenceSupported: false,
+      });
+      return;
+    }
+
+    try {
+      const estimate = await navigator.storage.estimate() as StorageEstimate & {
+        usageDetails?: Record<string, number | undefined>;
+      };
+      const persisted = typeof navigator.storage.persisted === "function"
+        ? await navigator.storage.persisted().catch(() => null)
+        : null;
+
+      setBrowserStorageSnapshot({
+        usageBytes: typeof estimate.usage === "number" ? estimate.usage : null,
+        quotaBytes: typeof estimate.quota === "number" ? estimate.quota : null,
+        persisted,
+        cacheBytes: getStorageUsageDetail(estimate, "caches") ?? getStorageUsageDetail(estimate, "cacheStorage"),
+        persistenceSupported: typeof navigator.storage.persist === "function",
+      });
+    } catch {
+      setBrowserStorageSnapshot({
+        usageBytes: null,
+        quotaBytes: null,
+        persisted: null,
+        cacheBytes: null,
+        persistenceSupported: typeof navigator.storage.persist === "function",
+      });
+    }
+  }, []);
+
+  const requestPersistentStorage = useCallback(async () => {
+    if (typeof navigator === "undefined" || typeof navigator.storage?.persist !== "function") {
+      toast.info(t("settings.storagePersistenceUnsupported"));
+      return;
+    }
+
+    try {
+      const granted = await navigator.storage.persist();
+      await refreshBrowserStorage();
+      toast.success(granted ? t("settings.storagePersistenceGranted") : t("settings.storagePersistenceDenied"));
+    } catch {
+      toast.error(t("settings.storagePersistenceFailed"));
+    }
+  }, [refreshBrowserStorage, t]);
+
+  const handleDiscordWebhookBlur = useCallback(() => {
+    const nextUrl = discordWebhookInput.trim();
+    persistDiscordWebhookUrl(nextUrl);
+
+    if (!nextUrl) {
+      persistDiscordWebhookEnabled(false);
+      setDiscordWebhookEnabledState(false);
+      setDiscordWebhookName(null);
+      void clearDiscordWebhookPresence();
+    }
+  }, [discordWebhookInput]);
+
+  const validateDiscordWebhookConnection = useCallback(async (enableOnSuccess: boolean) => {
+    const candidate = discordWebhookInput.trim();
+    if (!candidate) {
+      toast.info(t("settings.discordWebhookUrlRequired"));
+      return false;
+    }
+
+    if (!user) {
+      toast.info(t("settings.discordWebhookSignInRequired"));
+      return false;
+    }
+
+    setIsCheckingDiscordWebhook(true);
+    try {
+      const result = await validateDiscordWebhook(candidate);
+      persistDiscordWebhookUrl(candidate);
+      setDiscordWebhookName(result.name);
+
+      if (enableOnSuccess) {
+        persistDiscordWebhookEnabled(true);
+        setDiscordWebhookEnabledState(true);
+      }
+
+      toast.success(
+        result.name
+          ? t("settings.connectedAs", { name: result.name })
+          : t("settings.discordWebhookConnected"),
+      );
+      return true;
+    } catch (error) {
+      persistDiscordWebhookEnabled(false);
+      setDiscordWebhookEnabledState(false);
+      setDiscordWebhookName(null);
+      toast.error(error instanceof Error ? error.message : t("settings.discordWebhookConnectionFailed"));
+      return false;
+    } finally {
+      setIsCheckingDiscordWebhook(false);
+    }
+  }, [discordWebhookInput, t, user]);
+
+  const handleDiscordWebhookToggle = useCallback((next: boolean) => {
+    if (!next) {
+      persistDiscordWebhookEnabled(false);
+      setDiscordWebhookEnabledState(false);
+      void clearDiscordWebhookPresence();
+      toast.success(t("settings.discordWebhookDisabled"));
+      return;
+    }
+
+    void validateDiscordWebhookConnection(true);
+  }, [t, validateDiscordWebhookConnection]);
+
+  const handleListenBrainzTokenBlur = useCallback(() => {
+    const nextToken = listenBrainzTokenInput.trim();
+    persistListenBrainzToken(nextToken);
+
+    if (!nextToken) {
+      persistListenBrainzEnabled(false);
+      setListenBrainzEnabledState(false);
+      setListenBrainzUserName(null);
+    }
+  }, [listenBrainzTokenInput]);
+
+  const validateListenBrainz = useCallback(async (enableOnSuccess: boolean) => {
+    const candidate = listenBrainzTokenInput.trim();
+    if (!candidate) {
+      toast.info(t("settings.listenBrainzTokenRequired"));
+      return false;
+    }
+
+    setIsCheckingListenBrainz(true);
+    try {
+      const result = await validateListenBrainzToken(candidate);
+
+      if (!result.valid) {
+        persistListenBrainzEnabled(false);
+        setListenBrainzEnabledState(false);
+        setListenBrainzUserName(null);
+        toast.error(t("settings.listenBrainzInvalidToken"));
+        return false;
+      }
+
+      persistListenBrainzToken(candidate);
+      setListenBrainzUserName(result.userName);
+
+      if (enableOnSuccess) {
+        persistListenBrainzEnabled(true);
+        setListenBrainzEnabledState(true);
+      }
+
+      toast.success(
+        result.userName
+          ? t("settings.connectedAs", { name: result.userName })
+          : t("settings.listenBrainzConnected"),
+      );
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("settings.listenBrainzConnectionFailed"));
+      return false;
+    } finally {
+      setIsCheckingListenBrainz(false);
+    }
+  }, [listenBrainzTokenInput, t]);
+
+  const handleListenBrainzToggle = useCallback((next: boolean) => {
+    if (!next) {
+      persistListenBrainzEnabled(false);
+      setListenBrainzEnabledState(false);
+      toast.success(t("settings.listenBrainzDisabled"));
+      return;
+    }
+
+    void validateListenBrainz(true);
+  }, [t, validateListenBrainz]);
+
   useEffect(() => {
     const syncDiscordBridgeStatus = () => {
       setDiscordBridgeStatus(getLocalDiscordPresenceBridgeStatus());
@@ -350,6 +651,10 @@ export default function SettingsPage() {
     syncDiscordBridgeStatus();
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    void refreshBrowserStorage();
+  }, [localFiles.length, refreshBrowserStorage, serviceWorkerReady, storageVersion, totalBytes]);
 
   const refreshPlaybackSessions = useCallback(async () => {
     if (!user) {
@@ -432,6 +737,37 @@ export default function SettingsPage() {
     navigate("/auth");
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (!deleteAccountSelfServeSupported) {
+      toast.error("In-app deletion for social sign-in accounts is not available yet.");
+      return;
+    }
+    if (deleteAccountNeedsPassword && deleteAccountPassword.trim().length < 6) {
+      toast.error("Enter your current password to delete this account.");
+      return;
+    }
+
+    setAccountAction("delete-account");
+    const { error } = await supabase.functions.invoke<{ ok: true }>("delete-account", {
+      body: deleteAccountNeedsPassword
+        ? { password: deleteAccountPassword.trim() }
+        : {},
+    });
+    setAccountAction(null);
+
+    if (error) {
+      toast.error(error.message || "Could not delete your account.");
+      return;
+    }
+
+    setDeleteAccountDialogOpen(false);
+    setDeleteAccountPassword("");
+    toast.success("Your account has been deleted.");
+    await signOut();
+    navigate("/", { replace: true });
+  };
+
   const focusSettingsSearchInput = useCallback(() => {
     window.requestAnimationFrame(() => {
       settingsSearchInputRef.current?.focus();
@@ -448,13 +784,9 @@ export default function SettingsPage() {
 
   const currentPlaybackSession = playbackSessions.find((session) => session.deviceId === currentPlaybackDeviceId) || null;
   const otherPlaybackSessions = playbackSessions.filter((session) => session.deviceId !== currentPlaybackDeviceId);
+  const visiblePlaybackSessionCount = (currentPlaybackSession ? 1 : 0) + otherPlaybackSessions.length;
 
   useEffect(() => {
-    if (desktopApp) {
-      setServiceWorkerReady(false);
-      return;
-    }
-
     const handleOnlineState = () => {
       setIsOnline(navigator.onLine);
     };
@@ -476,7 +808,7 @@ export default function SettingsPage() {
       window.removeEventListener("online", handleOnlineState);
       window.removeEventListener("offline", handleOnlineState);
     };
-  }, [desktopApp]);
+  }, []);
 
   useEffect(() => {
     if (!showSettingsSearchInput) return;
@@ -523,6 +855,12 @@ export default function SettingsPage() {
     t("settings.signOutDescription"),
     "log out logout",
   );
+  const deleteAccountRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    "Delete account",
+    "Permanently remove your Knobb account, profile, and account-scoped library data.",
+    "close account remove account",
+  );
   const guestRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.guest"),
@@ -531,7 +869,7 @@ export default function SettingsPage() {
     "account",
   );
   const accountSectionVisible = user
-    ? accountSectionTitleMatch || accountProfileRowMatch || passwordResetRowMatch || activeSessionsRowMatch || signOutRowMatch
+    ? accountSectionTitleMatch || accountProfileRowMatch || passwordResetRowMatch || activeSessionsRowMatch || signOutRowMatch || deleteAccountRowMatch
     : accountSectionTitleMatch || guestRowMatch;
 
   const languageSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, languageSectionTitle);
@@ -552,17 +890,17 @@ export default function SettingsPage() {
     ...qualityOptions.map((option) => option.label),
     ...qualityOptions.map((option) => option.tag),
   );
+  const adaptiveStreamingRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.adaptiveStreaming"),
+    t("settings.adaptiveStreamingDescription"),
+    "auto adaptive quality bandwidth network",
+  );
   const downloadFormatRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.downloadFormat"),
     downloadFormat,
     ...downloadFormatOptions.map((option) => option.label),
-  );
-  const autoQualityRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.autoAdjustQuality"),
-    t("settings.recommendedOn"),
-    "auto quality",
   );
   const equalizerRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
@@ -574,6 +912,12 @@ export default function SettingsPage() {
     t("settings.preservePitch"),
     t("settings.preservePitchDescription"),
   );
+  const monoAudioRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.monoAudio"),
+    t("settings.monoAudioDescription"),
+    "single channel stereo accessibility",
+  );
   const loudnessRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.volumeNormalization"),
@@ -581,10 +925,11 @@ export default function SettingsPage() {
   );
   const audioQualitySectionVisible = audioQualitySectionTitleMatch
     || streamingQualityRowMatch
+    || adaptiveStreamingRowMatch
     || downloadFormatRowMatch
-    || autoQualityRowMatch
     || equalizerRowMatch
     || pitchRowMatch
+    || monoAudioRowMatch
     || loudnessRowMatch;
 
   const librarySectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, librarySectionTitle);
@@ -604,13 +949,6 @@ export default function SettingsPage() {
   const librarySectionVisible = librarySectionTitleMatch || showLocalFilesRowMatch || localFilesSummaryRowMatch;
 
   const displaySectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, displaySectionTitle);
-  const websiteModeRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.websiteMode"),
-    t("settings.websiteModeDescription"),
-    t("settings.websiteModeEdgy"),
-    t("settings.websiteModeRoundish"),
-  );
   const pageDensityRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.pageDensity"),
@@ -624,6 +962,9 @@ export default function SettingsPage() {
     t("settings.fontDescription"),
     t("settings.fontDefault"),
     t("settings.fontGrotesk"),
+    t("settings.fontInter"),
+    t("settings.fontPoppins"),
+    t("settings.fontNunito"),
     font,
   );
   const dynamicCardsRowMatch = matchesSearchQuery(
@@ -669,6 +1010,26 @@ export default function SettingsPage() {
     t("settings.bottomPlayerStyleCurrent"),
     t("settings.bottomPlayerStyleBlack"),
   );
+  const fullScreenLyricsRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.fullScreenLyrics"),
+    t("settings.fullScreenLyricsDescription"),
+    t("settings.optionShow"),
+    t("settings.optionHide"),
+    "fullscreen lyrics",
+  );
+  const fullScreenBackgroundBlurRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.fullScreenBackgroundBlur"),
+    t("settings.fullScreenBackgroundBlurDescription"),
+    "fullscreen background blur backdrop",
+  );
+  const fullScreenBackgroundDarknessRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.fullScreenBackgroundDarkness"),
+    t("settings.fullScreenBackgroundDarknessDescription"),
+    "fullscreen background darkness overlay opacity",
+  );
   const cardSizeRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.cardSize"),
@@ -680,7 +1041,6 @@ export default function SettingsPage() {
     t("settings.sizeBigger"),
   );
   const displaySectionVisible = displaySectionTitleMatch
-    || websiteModeRowMatch
     || pageDensityRowMatch
     || fontRowMatch
     || dynamicCardsRowMatch
@@ -689,14 +1049,17 @@ export default function SettingsPage() {
     || rightPanelStyleRowMatch
     || rightPanelAutoOpenRowMatch
     || bottomPlayerStyleRowMatch
+    || fullScreenLyricsRowMatch
+    || fullScreenBackgroundBlurRowMatch
+    || fullScreenBackgroundDarknessRowMatch
     || cardSizeRowMatch;
 
   const socialSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, socialSectionTitle);
   const discordConnectRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
-    t("settings.discordConnect"),
+    discordStatusTitle,
     discordConnectionDescription,
-    t("settings.openSetup"),
+    isDesktopApp ? "discord desktop native rich presence" : t("settings.openSetup"),
     "discord rich presence",
   );
   const discordPresenceRowMatch = matchesSearchQuery(
@@ -705,13 +1068,50 @@ export default function SettingsPage() {
     t("settings.discordPresenceDescription"),
     "discord status activity rich presence",
   );
-  const lastFmRowMatch = matchesSearchQuery(
+  const discordWebhookRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
-    t("settings.lastfm"),
-    t("settings.lastfmDescription"),
-    "last fm scrobbling",
+    t("settings.discordWebhook"),
+    discordWebhookDescription,
+    t("settings.discordWebhookUrl"),
+    "discord web webhook browser sharing now playing",
   );
-  const socialSectionVisible = socialSectionTitleMatch || discordConnectRowMatch || discordPresenceRowMatch || lastFmRowMatch;
+  const discordWebhookUrlRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.discordWebhookUrl"),
+    discordWebhookInput,
+    t("settings.testConnection"),
+    "discord webhook url connection",
+  );
+  const listenBrainzRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.listenBrainz"),
+    listenBrainzDescription,
+    scrobblePercentLabel,
+    listenBrainzUserName,
+    "listenbrainz scrobbling",
+  );
+  const listenBrainzTokenRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.listenBrainzToken"),
+    listenBrainzTokenInput,
+    t("settings.testConnection"),
+    "token connection",
+  );
+  const scrobbleThresholdRowMatch = matchesSearchQuery(
+    normalizedSettingsSearchQuery,
+    t("settings.scrobbleThreshold"),
+    t("settings.scrobbleThresholdDescription", { percent: scrobblePercentLabel }),
+    scrobblePercentLabel,
+    "listen threshold scrobble percent",
+  );
+  const socialSectionVisible = socialSectionTitleMatch
+    || discordConnectRowMatch
+    || discordPresenceRowMatch
+    || discordWebhookRowMatch
+    || discordWebhookUrlRowMatch
+    || listenBrainzRowMatch
+    || listenBrainzTokenRowMatch
+    || scrobbleThresholdRowMatch;
 
   const adminSectionTitleMatch = matchesSearchQuery(normalizedSettingsSearchQuery, adminSectionTitle);
   const adminRowMatch = matchesSearchQuery(
@@ -726,37 +1126,18 @@ export default function SettingsPage() {
   const offlineAppRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
     t("settings.offlineApp"),
-    desktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending"),
+    isDesktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending"),
     "offline cache service worker",
   );
-  const installAppRowMatch = matchesSearchQuery(
+  const storageUsageRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
-    t("settings.desktopMainApp"),
-    t("settings.desktopDownloadsDescription"),
-    t("settings.desktopMainAppDescription"),
-    t("settings.desktopDownloadMac"),
-    t("settings.desktopDownloadWindows"),
-    t("settings.desktopViewRelease"),
-    t("settings.desktopViewRepo"),
-    desktopUpdatePresentation.title,
-    desktopUpdatePresentation.detail,
-    "desktop download update release repo mac windows",
-  );
-  const companionRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.desktopCompanionApp"),
-    t("settings.desktopCompanionDescription"),
-    t("settings.desktopDownloadMac"),
-    t("settings.desktopDownloadWindows"),
-    t("settings.desktopViewRelease"),
-    t("settings.desktopViewRepo"),
-    "desktop companion discord download release repo mac windows update",
-  );
-  const downloadsRowMatch = matchesSearchQuery(
-    normalizedSettingsSearchQuery,
-    t("settings.downloadsEntries", { count: storageSnapshot.downloadEntries }),
-    t("settings.offlineContent"),
-    "downloads offline",
+    t("settings.storageUsage"),
+    t("settings.storageUsageDescription", {
+      used: formatBytes(resolvedStorageUsageBytes),
+      quota: resolvedStorageQuotaBytes ? ` of ${formatBytes(resolvedStorageQuotaBytes)}` : "",
+    }),
+    browserStorageSnapshot.persisted ? t("settings.storagePersistent") : t("settings.storageTemporary"),
+    "storage quota persistent indexeddb cache",
   );
   const storageLocalFilesRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
@@ -765,7 +1146,7 @@ export default function SettingsPage() {
   );
   const cacheRowMatch = matchesSearchQuery(
     normalizedSettingsSearchQuery,
-    t("settings.cacheSize", { size: storageSnapshot.cacheMb }),
+    t("settings.cacheSize", { size: (resolvedCacheBytes / (1024 * 1024)).toFixed(1) }),
     t("settings.cacheDescription"),
     t("settings.clearCache"),
     "cache storage",
@@ -779,9 +1160,7 @@ export default function SettingsPage() {
   );
   const storageSectionVisible = storageSectionTitleMatch
     || offlineAppRowMatch
-    || installAppRowMatch
-    || companionRowMatch
-    || downloadsRowMatch
+    || storageUsageRowMatch
     || storageLocalFilesRowMatch
     || cacheRowMatch
     || storageLocationRowMatch;
@@ -795,115 +1174,121 @@ export default function SettingsPage() {
     || adminSectionVisible
     || storageSectionVisible;
 
+  const settingsSearchActions = (
+    <div className="flex w-full gap-3 sm:w-auto">
+      {showSettingsSearchInput ? (
+        <Input
+          ref={settingsSearchInputRef}
+          value={settingsSearchQuery}
+          onChange={(event) => setSettingsSearchQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            if (settingsSearchQuery) {
+              setSettingsSearchQuery("");
+              return;
+            }
+            setIsSettingsSearchOpen(false);
+            settingsSearchInputRef.current?.blur();
+          }}
+          placeholder={t("settings.searchPlaceholder")}
+          aria-label={t("settings.searchAria")}
+          className="h-11 w-full rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0 sm:w-72"
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={handleSettingsSearchButtonClick}
+        className="settings-search-button website-form-control menu-sweep-hover flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--settings-control-radius)] border border-white/10 bg-white/[0.04] text-muted-foreground focus:ring-0 focus:ring-offset-0"
+        aria-label={t("settings.searchAria")}
+      >
+        <Search className="w-4 h-4" />
+      </button>
+    </div>
+  );
+
   return (
     <PageTransition>
-      <div className="max-w-6xl mx-auto px-6 pb-24 pt-8 space-y-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-4xl md:text-5xl font-black tracking-tight text-foreground">{t("settings.title")}</h1>
-          <div className="flex w-full justify-end gap-3 sm:w-auto">
-            {showSettingsSearchInput ? (
-              <Input
-                ref={settingsSearchInputRef}
-                value={settingsSearchQuery}
-                onChange={(event) => setSettingsSearchQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape") return;
-                  if (settingsSearchQuery) {
-                    setSettingsSearchQuery("");
-                    return;
-                  }
-                  setIsSettingsSearchOpen(false);
-                  settingsSearchInputRef.current?.blur();
-                }}
-                placeholder={t("settings.searchPlaceholder")}
-                aria-label={t("settings.searchAria")}
-                className="h-11 w-full max-w-xs rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0 sm:w-72"
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={handleSettingsSearchButtonClick}
-              className="settings-search-button website-form-control menu-sweep-hover flex h-11 w-11 items-center justify-center rounded-[var(--settings-control-radius)] border border-white/10 bg-white/[0.04] text-muted-foreground focus:ring-0 focus:ring-offset-0"
-              aria-label={t("settings.searchAria")}
-            >
-              <Search className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+      <div className="min-h-full bg-black">
+        <UtilityPageLayout
+          eyebrow="Preferences"
+          title={t("settings.title")}
+          actions={settingsSearchActions}
+          className="settings-page-shell"
+        >
 
-        {accountSectionVisible ? (
-          <Section title={accountSectionTitle}>
-            {user ? (
-              <>
-                {accountSectionTitleMatch || accountProfileRowMatch ? (
-                  <Row
-                    title={user.user_metadata?.display_name || user.email || "Signed in"}
-                    description={
-                      <div className="space-y-1">
-                        <p>{user.email}</p>
-                        <p>
-                          {currentPlaybackSession
-                            ? `Current session: ${currentPlaybackSession.deviceName}`
-                            : "Current session is active on this device."}
-                        </p>
-                      </div>
-                    }
-                    action={
-                      <Button
-                        variant="outline"
-                        className={SETTINGS_ACTION_BUTTON_CLASS}
-                        onClick={() => navigate("/profile")}
-                      >
-                        {t("settings.view")} <ExternalLink className="w-4 h-4 ml-2" />
-                      </Button>
-                    }
-                  />
-                ) : null}
-                {accountSectionTitleMatch || passwordResetRowMatch ? (
-                  <Row
-                    title="Password reset"
-                    description="Send a reset link to your account email and finish the change securely in email."
-                    action={
-                      <Button
-                        variant="outline"
-                        className={SETTINGS_ACTION_BUTTON_CLASS}
-                        onClick={() => {
-                          void handleSendPasswordReset();
-                        }}
-                        disabled={accountAction !== null || !user.email}
-                      >
-                        {accountAction === "password-reset" ? "Sending..." : "Send reset email"}
-                      </Button>
-                    }
-                  />
-                ) : null}
-                {accountSectionTitleMatch || activeSessionsRowMatch ? (
-                  <Row
-                    title="Active sessions"
-                    description={
-                      <div className="space-y-3">
-                        <p>
-                          {isLoadingPlaybackSessions
-                            ? "Checking your active sessions..."
-                            : `${playbackSessions.length || 1} active session${playbackSessions.length === 1 ? "" : "s"} detected.`}
-                        </p>
-                        <div className="space-y-2">
-                          {currentPlaybackSession ? (
-                            <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3">
-                              <p className="text-sm font-semibold text-foreground">
-                                {currentPlaybackSession.deviceName} · This device
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {currentPlaybackSession.currentTrack
-                                  ? `${currentPlaybackSession.currentTrack.title} · ${currentPlaybackSession.currentTrack.artist}${currentPlaybackSession.isPlaying ? " · Playing" : " · Paused"}`
-                                  : "No active track right now."}
-                              </p>
-                            </div>
-                          ) : null}
-                          {otherPlaybackSessions.map((session) => (
+          {accountSectionVisible ? (
+            <Section title={accountSectionTitle}>
+              {user ? (
+                <>
+                  {accountSectionTitleMatch || accountProfileRowMatch ? (
+                    <Row
+                      title={user.user_metadata?.display_name || user.email || "Signed in"}
+                      description={
+                        <div className="space-y-1">
+                          <p>{user.email}</p>
+                          <p>
+                            {currentPlaybackSession
+                              ? `Current session: ${currentPlaybackSession.deviceName}`
+                              : "Current session is active on this device."}
+                          </p>
+                        </div>
+                      }
+                      action={
+                        <Button
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                          onClick={() => navigate("/profile")}
+                        >
+                          {t("settings.view")} <ExternalLink className="w-4 h-4 ml-2" />
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                  {accountSectionTitleMatch || passwordResetRowMatch ? (
+                    <Row
+                      title="Password reset"
+                      description="Send a reset link to your account email and finish the change securely in email."
+                      action={
+                        <Button
+                          variant="outline"
+                          className={SETTINGS_ACTION_BUTTON_CLASS}
+                          onClick={() => {
+                            void handleSendPasswordReset();
+                          }}
+                          disabled={accountAction !== null || !user.email}
+                        >
+                          {accountAction === "password-reset" ? "Sending..." : "Send reset email"}
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                  {accountSectionTitleMatch || activeSessionsRowMatch ? (
+                    <Row
+                      title="Active sessions"
+                      description={
+                        <div className="space-y-3">
+                          <p>
+                            {isLoadingPlaybackSessions
+                              ? "Checking your active sessions..."
+                              : `${visiblePlaybackSessionCount} active session${visiblePlaybackSessionCount === 1 ? "" : "s"} detected.`}
+                          </p>
+                          <div className="space-y-2">
+                            {currentPlaybackSession ? (
+                              <div className="rounded-[var(--surface-radius-sm)] border border-white/10 bg-white/[0.03] px-4 py-3">
+                                <p className="text-sm font-semibold text-foreground">
+                                  {currentPlaybackSession.deviceName} · This device
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {currentPlaybackSession.currentTrack
+                                    ? `${currentPlaybackSession.currentTrack.title} · ${currentPlaybackSession.currentTrack.artist}${currentPlaybackSession.isPlaying ? " · Playing" : " · Paused"}`
+                                    : "No active track right now."}
+                                </p>
+                              </div>
+                            ) : null}
+                            {otherPlaybackSessions.map((session) => (
                             <div
                               key={session.id}
-                              className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3"
+                              className="rounded-[var(--surface-radius-sm)] border border-white/10 bg-white/[0.03] px-4 py-3"
                             >
                               <p className="text-sm font-semibold text-foreground">{session.deviceName}</p>
                               <p className="mt-1 text-xs text-muted-foreground">
@@ -922,17 +1307,20 @@ export default function SettingsPage() {
                       </div>
                     }
                     action={
-                      <Button
-                        variant="outline"
-                        className={SETTINGS_ACTION_BUTTON_CLASS}
-                        onClick={() => {
-                          void handleSignOutOtherSessions();
-                        }}
-                        disabled={accountAction !== null || otherPlaybackSessions.length === 0}
-                      >
-                        {accountAction === "sign-out-others" ? "Signing out..." : "Sign out other sessions"}
-                      </Button>
+                      <div className="mt-3 flex w-full justify-end lg:mt-0 lg:w-auto">
+                        <Button
+                          variant="destructive"
+                          className={SETTINGS_DESTRUCTIVE_BUTTON_CLASS}
+                          onClick={() => {
+                            void handleSignOutOtherSessions();
+                          }}
+                          disabled={accountAction !== null || otherPlaybackSessions.length === 0}
+                        >
+                          {accountAction === "sign-out-others" ? "Signing out..." : "Sign out other sessions"}
+                        </Button>
+                      </div>
                     }
+                    className="lg:items-start"
                   />
                 ) : null}
                 {accountSectionTitleMatch || signOutRowMatch ? (
@@ -941,8 +1329,8 @@ export default function SettingsPage() {
                     description={t("settings.signOutDescription")}
                     action={
                       <Button
-                        variant="outline"
-                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        variant="destructive"
+                        className={SETTINGS_DESTRUCTIVE_BUTTON_CLASS}
                         onClick={() => {
                           void handleSignOutCurrentSession();
                         }}
@@ -956,6 +1344,24 @@ export default function SettingsPage() {
                         ) : (
                           t("settings.signOut")
                         )}
+                      </Button>
+                    }
+                  />
+                ) : null}
+                {accountSectionTitleMatch || deleteAccountRowMatch ? (
+                  <Row
+                    title="Delete account"
+                    description={deleteAccountSelfServeSupported
+                      ? "Permanently remove your Knobb account, profile, and account-scoped library data."
+                      : "This account uses social sign-in. Secure self-serve deletion is not available here yet."}
+                    action={
+                      <Button
+                        variant="destructive"
+                        className={SETTINGS_DESTRUCTIVE_BUTTON_CLASS}
+                        onClick={() => setDeleteAccountDialogOpen(true)}
+                        disabled={accountAction !== null}
+                      >
+                        Delete account
                       </Button>
                     }
                   />
@@ -1018,6 +1424,13 @@ export default function SettingsPage() {
                 }
               />
             ) : null}
+            {audioQualitySectionTitleMatch || adaptiveStreamingRowMatch ? (
+              <Row
+                title={t("settings.adaptiveStreaming")}
+                description={t("settings.adaptiveStreamingDescription")}
+                action={<ToggleControl checked={autoQualityEnabled} onCheckedChange={setAutoQualityEnabled} />}
+              />
+            ) : null}
             {audioQualitySectionTitleMatch || downloadFormatRowMatch ? (
               <Row
                 title={t("settings.downloadFormat")}
@@ -1028,13 +1441,6 @@ export default function SettingsPage() {
                     options={downloadFormatOptions}
                   />
                 }
-              />
-            ) : null}
-            {audioQualitySectionTitleMatch || autoQualityRowMatch ? (
-              <Row
-                title={t("settings.autoAdjustQuality")}
-                description={t("settings.recommendedOn")}
-                action={<ToggleControl checked={autoQualityEnabled} onCheckedChange={setAutoQualityEnabled} />}
               />
             ) : null}
             {audioQualitySectionTitleMatch || equalizerRowMatch ? (
@@ -1055,6 +1461,13 @@ export default function SettingsPage() {
                 title={t("settings.preservePitch")}
                 description={t("settings.preservePitchDescription")}
                 action={<ToggleControl checked={preservePitch} onCheckedChange={setPreservePitch} />}
+              />
+            ) : null}
+            {audioQualitySectionTitleMatch || monoAudioRowMatch ? (
+              <Row
+                title={t("settings.monoAudio")}
+                description={t("settings.monoAudioDescription")}
+                action={<ToggleControl checked={monoAudioEnabled} onCheckedChange={setMonoAudioEnabled} />}
               />
             ) : null}
             {audioQualitySectionTitleMatch || loudnessRowMatch ? (
@@ -1096,22 +1509,6 @@ export default function SettingsPage() {
 
         {displaySectionVisible ? (
           <Section title={displaySectionTitle}>
-            {displaySectionTitleMatch || websiteModeRowMatch ? (
-              <Row
-                title={t("settings.websiteMode")}
-                description={t("settings.websiteModeDescription")}
-                action={
-                  <SelectControl
-                    value={websiteMode}
-                    onChange={(value) => setWebsiteMode(value as typeof websiteMode)}
-                    options={[
-                      { value: "edgy", label: t("settings.websiteModeEdgy") },
-                      { value: "roundish", label: t("settings.websiteModeRoundish") },
-                    ]}
-                  />
-                }
-              />
-            ) : null}
             {displaySectionTitleMatch || pageDensityRowMatch ? (
               <Row
                 title={t("settings.pageDensity")}
@@ -1139,6 +1536,9 @@ export default function SettingsPage() {
                     options={[
                       { value: "System Default", label: t("settings.fontDefault") },
                       { value: "Space Grotesk", label: t("settings.fontGrotesk") },
+                      { value: "Inter", label: t("settings.fontInter") },
+                      { value: "Poppins", label: t("settings.fontPoppins") },
+                      { value: "Nunito", label: t("settings.fontNunito") },
                     ]}
                   />
                 }
@@ -1241,6 +1641,44 @@ export default function SettingsPage() {
                 }
               />
             ) : null}
+            {displaySectionTitleMatch || fullScreenLyricsRowMatch ? (
+              <Row
+                title={t("settings.fullScreenLyrics")}
+                description={t("settings.fullScreenLyricsDescription")}
+                action={
+                  <ToggleControl
+                    checked={showFullScreenLyrics}
+                    onCheckedChange={setShowFullScreenLyrics}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || fullScreenBackgroundBlurRowMatch ? (
+              <Row
+                title={t("settings.fullScreenBackgroundBlur")}
+                description={t("settings.fullScreenBackgroundBlurDescription")}
+                action={
+                  <VolumeStyleControl
+                    value={fullScreenBackgroundBlur}
+                    onChange={setFullScreenBackgroundBlur}
+                    ariaLabel={t("settings.fullScreenBackgroundBlur")}
+                  />
+                }
+              />
+            ) : null}
+            {displaySectionTitleMatch || fullScreenBackgroundDarknessRowMatch ? (
+              <Row
+                title={t("settings.fullScreenBackgroundDarkness")}
+                description={t("settings.fullScreenBackgroundDarknessDescription")}
+                action={
+                  <VolumeStyleControl
+                    value={fullScreenBackgroundDarkness}
+                    onChange={setFullScreenBackgroundDarkness}
+                    ariaLabel={t("settings.fullScreenBackgroundDarkness")}
+                  />
+                }
+              />
+            ) : null}
             {displaySectionTitleMatch || cardSizeRowMatch ? (
               <Row
                 title={t("settings.cardSize")}
@@ -1267,9 +1705,9 @@ export default function SettingsPage() {
           <Section title={socialSectionTitle}>
             {socialSectionTitleMatch || discordConnectRowMatch ? (
               <Row
-                title={t("settings.discordConnect")}
+                title={discordStatusTitle}
                 description={discordConnectionDescription}
-                action={
+                action={!isDesktopApp ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -1277,12 +1715,12 @@ export default function SettingsPage() {
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      openDiscordSetup();
+                      setDiscordConnectOpen(true);
                     }}
                   >
                     {t("settings.openSetup")}
                   </Button>
-                }
+                ) : undefined}
               />
             ) : null}
             {socialSectionTitleMatch || discordPresenceRowMatch ? (
@@ -1299,20 +1737,17 @@ export default function SettingsPage() {
                       }
 
                       if (!discordBridgeReady) {
-                        toast.info(t("settings.discordBridgeMissing"));
-                        openDiscordSetup();
+                        toast.info(isDesktopApp ? t("settings.discordNativeUnavailable") : t("settings.discordBridgeMissing"));
                         return;
                       }
 
-                      if (!discordBridgeConfigured) {
+                      if (!isDesktopApp && !discordBridgeConfigured) {
                         toast.info(t("settings.discordBridgeSetupRequired"));
-                        openDiscordSetup();
                         return;
                       }
 
                       if (!discordDesktopConnected) {
                         toast.info(t("settings.discordAppWaiting"));
-                        openDiscordSetup();
                         return;
                       }
 
@@ -1322,10 +1757,126 @@ export default function SettingsPage() {
                 }
               />
             ) : null}
-            {socialSectionTitleMatch || lastFmRowMatch ? (
+            {socialSectionTitleMatch || discordWebhookRowMatch ? (
               <Row
-                title={t("settings.lastfm")}
-                description={t("settings.lastfmDescription")}
+                title={t("settings.discordWebhook")}
+                description={discordWebhookDescription}
+                action={
+                  <ToggleControl
+                    checked={discordWebhookEnabled}
+                    disabled={isCheckingDiscordWebhook}
+                    onCheckedChange={handleDiscordWebhookToggle}
+                  />
+                }
+              />
+            ) : null}
+            {socialSectionTitleMatch || discordWebhookUrlRowMatch ? (
+              <Row
+                title={t("settings.discordWebhookUrl")}
+                description={discordWebhookName ? t("settings.connectedAs", { name: discordWebhookName }) : undefined}
+                action={
+                  <div className="flex w-full flex-col gap-3 sm:min-w-[360px] sm:flex-row">
+                    <Input
+                      type="password"
+                      value={discordWebhookInput}
+                      onChange={(event) => setDiscordWebhookInput(event.target.value)}
+                      onBlur={handleDiscordWebhookBlur}
+                      placeholder={t("settings.discordWebhookUrlPlaceholder")}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="h-11 rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={SETTINGS_ACTION_BUTTON_CLASS}
+                      disabled={isCheckingDiscordWebhook || discordWebhookInput.trim().length === 0}
+                      onClick={() => {
+                        void validateDiscordWebhookConnection(false);
+                      }}
+                    >
+                      {isCheckingDiscordWebhook ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          {t("settings.testingConnection")}
+                        </>
+                      ) : (
+                        t("settings.testConnection")
+                      )}
+                    </Button>
+                  </div>
+                }
+                className="lg:items-start"
+              />
+            ) : null}
+            {socialSectionTitleMatch || listenBrainzRowMatch ? (
+              <Row
+                title={t("settings.listenBrainz")}
+                description={listenBrainzDescription}
+                action={
+                  <ToggleControl
+                    checked={listenBrainzEnabled}
+                    disabled={isCheckingListenBrainz}
+                    onCheckedChange={handleListenBrainzToggle}
+                  />
+                }
+              />
+            ) : null}
+            {socialSectionTitleMatch || listenBrainzTokenRowMatch ? (
+              <Row
+                title={t("settings.listenBrainzToken")}
+                description={listenBrainzUserName ? t("settings.connectedAs", { name: listenBrainzUserName }) : undefined}
+                action={
+                  <div className="flex w-full flex-col gap-3 sm:min-w-[360px] sm:flex-row">
+                    <Input
+                      type="password"
+                      value={listenBrainzTokenInput}
+                      onChange={(event) => setListenBrainzTokenInput(event.target.value)}
+                      onBlur={handleListenBrainzTokenBlur}
+                      placeholder={t("settings.listenBrainzTokenPlaceholder")}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="h-11 rounded-[var(--settings-control-radius)] border-white/10 bg-white/[0.04] text-sm text-foreground placeholder:text-muted-foreground/80 focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={SETTINGS_ACTION_BUTTON_CLASS}
+                      disabled={isCheckingListenBrainz || listenBrainzTokenInput.trim().length === 0}
+                      onClick={() => {
+                        void validateListenBrainz(false);
+                      }}
+                    >
+                      {isCheckingListenBrainz ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          {t("settings.testingConnection")}
+                        </>
+                      ) : (
+                        t("settings.testConnection")
+                      )}
+                    </Button>
+                  </div>
+                }
+                className="lg:items-start"
+              />
+            ) : null}
+            {socialSectionTitleMatch || scrobbleThresholdRowMatch ? (
+              <Row
+                title={t("settings.scrobbleThreshold")}
+                description={t("settings.scrobbleThresholdDescription", { percent: scrobblePercentLabel })}
+                action={
+                  <SelectControl
+                    value={scrobblePercentLabel.replace("%", "")}
+                    onChange={(value) => setScrobblePercent(value)}
+                    options={[
+                      { value: "25", label: "25%" },
+                      { value: "50", label: "50%" },
+                      { value: "75", label: "75%" },
+                      { value: "90", label: "90%" },
+                    ]}
+                  />
+                }
               />
             ) : null}
           </Section>
@@ -1356,186 +1907,63 @@ export default function SettingsPage() {
             {storageSectionTitleMatch || offlineAppRowMatch ? (
               <Row
                 title={t("settings.offlineApp")}
-                description={desktopApp ? t("settings.desktopAppDescription") : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending")}
-                action={desktopApp || serviceWorkerReady ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <HelpCircle className="w-5 h-5 text-muted-foreground" />}
+                description={isDesktopApp
+                  ? t("settings.desktopAppDescription")
+                  : serviceWorkerReady ? t("settings.offlineAppReady") : t("settings.offlineAppPending")}
+                action={serviceWorkerReady || isDesktopApp ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />}
               />
             ) : null}
-            {storageSectionTitleMatch || installAppRowMatch ? (
+            {storageSectionTitleMatch || storageUsageRowMatch ? (
               <Row
-                title={t("settings.desktopMainApp")}
-                description={(
-                  <div className="space-y-1">
-                    <p>{t("settings.desktopDownloadsDescription")}</p>
-                    <p>{t("settings.desktopMainAppDescription")}</p>
-                    {desktopApp ? (
-                      <>
-                        <p>{desktopUpdatePresentation.title}. {desktopUpdatePresentation.detail}</p>
-                        <p>{t("settings.desktopUpdateVersion", { version: desktopUpdateStatus?.currentVersion || "0.0.0" })}</p>
-                        <p>{t("settings.desktopUpdatePlatform", { platform: desktopPlatformLabel })}</p>
-                      </>
+                title={t("settings.storageUsage")}
+                description={t("settings.storageUsageDescription", {
+                  used: formatBytes(resolvedStorageUsageBytes),
+                  quota: resolvedStorageQuotaBytes ? ` of ${formatBytes(resolvedStorageQuotaBytes)}` : "",
+                })}
+                action={browserStorageSnapshot.persistenceSupported ? (
+                  <div className="flex flex-col gap-2 sm:items-end">
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs font-semibold text-white/80">
+                      {browserStorageSnapshot.persisted ? t("settings.storagePersistent") : t("settings.storageTemporary")}
+                    </span>
+                    {!browserStorageSnapshot.persisted ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={SETTINGS_ACTION_BUTTON_CLASS}
+                        onClick={() => {
+                          void requestPersistentStorage();
+                        }}
+                      >
+                        {t("settings.keepOfflineData")}
+                      </Button>
                     ) : null}
                   </div>
-                )}
-                action={
-                  <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
-                    {desktopApp ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                          onClick={() => {
-                            if (desktopUpdateStatus?.status === "downloaded") {
-                              void installUpdate();
-                              return;
-                            }
-
-                            void refreshDesktopUpdateStatus();
-                          }}
-                          disabled={
-                            desktopUpdateLoading
-                            || desktopUpdateStatus?.status === "checking"
-                            || desktopUpdateStatus?.status === "downloading"
-                          }
-                        >
-                          {desktopUpdateStatus?.status === "downloaded" ? (
-                            <>
-                              {t("settings.desktopRestartUpdate")}
-                              <RotateCcw className="ml-2 h-4 w-4" />
-                            </>
-                          ) : desktopUpdateStatus?.status === "downloading" ? (
-                            <>
-                              {desktopUpdatePresentation.title}
-                              <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                            </>
-                          ) : desktopUpdateStatus?.status === "checking" ? (
-                            <>
-                              {t("settings.desktopCheckUpdates")}
-                              <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                            </>
-                          ) : (
-                            <>
-                              {desktopUpdateStatus?.status === "error" || desktopUpdateStatus?.blockingReason === "offline-grace-expired"
-                                ? t("settings.desktopRetryUpdate")
-                                : t("settings.desktopCheckUpdates")}
-                              <RotateCcw className="ml-2 h-4 w-4" />
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          asChild
-                          variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopDownloadWindows")} <Download className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={SETTINGS_ACTION_BUTTON_CLASS}
-                        >
-                          <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
-                            {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
-                          </a>
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                }
-              />
-            ) : null}
-            {storageSectionTitleMatch || companionRowMatch ? (
-              <Row
-                title={t("settings.desktopCompanionApp")}
-                description={(
-                  <div className="space-y-1">
-                    <p>{t("settings.desktopCompanionDescription")}</p>
-                  </div>
-                )}
-                action={(
-                  <div className="flex max-w-[28rem] flex-wrap justify-end gap-2">
-                    <Button
-                      asChild
-                      variant={isDesktopDownloadRecommended("windows", desktopDownloadPlatform) ? "default" : "outline"}
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_COMPANION_WINDOWS_DOWNLOAD_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopDownloadWindows")} <Download className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_RELEASES_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopViewRelease")} <ExternalLink className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      className={SETTINGS_ACTION_BUTTON_CLASS}
-                    >
-                      <a href={KNOBB_DESKTOP_REPO_URL} target="_blank" rel="noreferrer">
-                        {t("settings.desktopViewRepo")} <ExternalLink className="ml-2 h-4 w-4" />
-                      </a>
-                    </Button>
-                  </div>
-                )}
-              />
-            ) : null}
-            {storageSectionTitleMatch || downloadsRowMatch ? (
-              <Row
-                title={t("settings.downloadsEntries", { count: storageSnapshot.downloadEntries })}
-                description={t("settings.offlineContent")}
+                ) : undefined}
               />
             ) : null}
             {storageSectionTitleMatch || storageLocalFilesRowMatch ? (
               <Row
                 title={t("settings.localFilesCount", { count: localFiles.length })}
                 description={t("settings.localFilesStorage", { size: formatBytes(totalBytes) })}
-              />
-            ) : null}
-            {storageSectionTitleMatch || cacheRowMatch ? (
-              <Row
-                title={t("settings.cacheSize", { size: storageSnapshot.cacheMb })}
-                description={t("settings.cacheDescription")}
                 action={
                   <Button
                     variant="outline"
                     className={SETTINGS_ACTION_BUTTON_CLASS}
+                    onClick={() => navigate("/local-files")}
+                  >
+                    {t("settings.openLocalFiles")}
+                  </Button>
+                }
+              />
+            ) : null}
+            {storageSectionTitleMatch || cacheRowMatch ? (
+              <Row
+                title={t("settings.cacheSize", { size: (resolvedCacheBytes / (1024 * 1024)).toFixed(1) })}
+                description={t("settings.cacheDescription")}
+                action={
+                  <Button
+                    variant="destructive"
+                    className={SETTINGS_DESTRUCTIVE_BUTTON_CLASS}
                     onClick={clearCache}
                   >
                     {t("settings.clearCache")}
@@ -1546,29 +1974,109 @@ export default function SettingsPage() {
             {storageSectionTitleMatch || storageLocationRowMatch ? (
               <Row
                 title={t("settings.offlineStorageLocation")}
-                description={`${window.location.origin} · ${isOnline ? "Online" : "Offline"}`}
-                action={<HelpCircle className="w-5 h-5 text-muted-foreground" />}
+                description={`${window.location.origin} · IndexedDB + Cache Storage`}
+                action={
+                  <div className="flex items-center justify-end">
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/80">
+                      {isOnline ? t("settings.storageOnline") : t("settings.storageOffline")}
+                    </span>
+                  </div>
+                }
               />
             ) : null}
           </Section>
         ) : null}
 
         {hasSettingsSearchQuery && !hasVisibleSearchResults ? (
-          <div className={cn("rounded-[28px] border border-white/10 bg-white/[0.03] px-5 py-6 text-sm text-muted-foreground", PANEL_SURFACE_CLASS)}>
+          <UtilityPagePanel className={cn("px-5 py-6 text-sm text-muted-foreground", PANEL_SURFACE_CLASS)}>
             {t("settings.searchNoResults")}
-          </div>
+          </UtilityPagePanel>
         ) : null}
 
-        <DiscordConnectDialog
-          open={discordConnectOpen}
-          onOpenChange={setDiscordConnectOpen}
-          presenceEnabled={discordPresenceEnabled}
-          status={discordBridgeStatus}
-          onEnablePresence={() => {
-            setDiscordPresenceEnabled(true);
+        {!isDesktopApp ? (
+          <DiscordConnectDialog
+            open={discordConnectOpen}
+            onOpenChange={setDiscordConnectOpen}
+            presenceEnabled={discordPresenceEnabled}
+            status={discordBridgeStatus}
+            onEnablePresence={() => {
+              setDiscordPresenceEnabled(true);
+            }}
+          />
+        ) : null}
+
+        <Dialog
+          open={deleteAccountDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteAccountDialogOpen(open);
+            if (!open) {
+              setDeleteAccountPassword("");
+            }
           }}
-        />
-      </div >
-    </PageTransition >
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete account</DialogTitle>
+              <DialogDescription>
+                This permanently removes your Knobb account, profile, and account-scoped library data. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              {deleteAccountNeedsPassword ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Enter your current password to confirm account deletion.
+                  </p>
+                  <Input
+                    type="password"
+                    value={deleteAccountPassword}
+                    onChange={(event) => setDeleteAccountPassword(event.target.value)}
+                    placeholder="Current password"
+                    autoComplete="current-password"
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  This account uses social sign-in. Secure self-serve deletion is not available yet because Settings does
+                  not have a provider reauthentication step for this sign-in method.
+                </p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className={SETTINGS_ACTION_BUTTON_CLASS}
+                onClick={() => setDeleteAccountDialogOpen(false)}
+                disabled={accountAction === "delete-account"}
+              >
+                {deleteAccountSelfServeSupported ? "Cancel" : "Close"}
+              </Button>
+              {deleteAccountSelfServeSupported ? (
+                <Button
+                  variant="destructive"
+                  className={SETTINGS_DESTRUCTIVE_BUTTON_CLASS}
+                  onClick={() => {
+                    void handleDeleteAccount();
+                  }}
+                  disabled={accountAction === "delete-account"}
+                >
+                  {accountAction === "delete-account" ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    "Delete account"
+                  )}
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        </UtilityPageLayout>
+      </div>
+    </PageTransition>
   );
 }

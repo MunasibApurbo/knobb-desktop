@@ -1,11 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST,OPTIONS",
-};
+const PRIMARY_APP_ORIGIN = "https://knobb.netlify.app";
+const DEFAULT_ALLOWED_ORIGINS = [
+  PRIMARY_APP_ORIGIN,
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
 
 type AuthenticatedUser = {
   id: string;
@@ -54,14 +59,62 @@ async function getAuthenticatedUser(token: string): Promise<AuthenticatedUser | 
   return user as AuthenticatedUser;
 }
 
+function normalizeOrigin(value: string | null) {
+  if (!value) return null;
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function getAllowedOrigins() {
+  const configured = Deno.env.get("ALLOWED_ORIGINS");
+  if (!configured?.trim()) {
+    return new Set(DEFAULT_ALLOWED_ORIGINS);
+  }
+
+  const origins = configured
+    .split(",")
+    .map((entry) => normalizeOrigin(entry.trim()))
+    .filter((entry): entry is string => Boolean(entry));
+
+  return new Set(origins.length > 0 ? origins : DEFAULT_ALLOWED_ORIGINS);
+}
+
+function buildCorsHeaders(origin: string | null) {
+  return {
+    "Access-Control-Allow-Origin": origin ?? PRIMARY_APP_ORIGIN,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    Vary: "Origin",
+  };
+}
+
 serve(async (req) => {
+  const origin = normalizeOrigin(req.headers.get("origin"));
+  const allowedOrigins = getAllowedOrigins();
+  const isOriginAllowed = !origin || allowedOrigins.has(origin);
+  const corsHeaders = buildCorsHeaders(origin);
+
   if (req.method === "OPTIONS") {
+    if (!isOriginAllowed) {
+      return new Response("Origin not allowed", { status: 403, headers: corsHeaders });
+    }
     return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+  }
+
+  if (!isOriginAllowed) {
+    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
+      status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -88,6 +141,15 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const password = typeof body?.password === "string" ? body.password : "";
     const needsPassword = requiresPasswordReauth(user);
+    if (!needsPassword) {
+      return new Response(JSON.stringify({
+        error: "Fresh reauthentication for this sign-in method is not supported yet. Contact support to delete this account securely.",
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (needsPassword && (!password || password.length < 6)) {
       return new Response(JSON.stringify({ error: "Password required" }), {
         status: 400,

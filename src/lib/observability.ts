@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 type EventLevel = "info" | "warn" | "error";
 
@@ -82,7 +83,7 @@ export async function reportClientEvent(args: ReportClientEventArgs) {
       level_input: event.level,
       event_name_input: event.eventName,
       message_input: event.message || null,
-      payload_input: event.payload,
+      payload_input: event.payload as Json,
       source_input: event.source,
     });
   } catch {

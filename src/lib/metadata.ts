@@ -1,4 +1,5 @@
 import { HOME_SECTION_CONFIG, isHomeSectionKey } from "@/lib/homeSections";
+import { APP_HOME_PATH, CONTACT_PATH, PUBLIC_HOME_PATH } from "@/lib/routes";
 
 export type PageMetadata = {
   title?: string;
@@ -11,13 +12,14 @@ export type PageMetadata = {
   robots?: string;
   keywords?: string[];
   themeColor?: string;
+  twitterCard?: "summary" | "summary_large_image" | "app" | "player";
   structuredData?: Record<string, unknown> | Array<Record<string, unknown>>;
 };
 
 export const SITE_NAME = "KNOBB";
 export const SITE_THEME_COLOR = "#1d0834";
 export const DEFAULT_DESCRIPTION =
-  "KNOBB is a modern music app for playlists, discovery, shared listening, and direct-source archives.";
+  "KNOBB is a direct-source music app for discovery, shared playlists, new releases, and unreleased archives.";
 export const DEFAULT_IMAGE_PATH = "/brand/knobb-share.png";
 export const DEFAULT_IMAGE_ALT =
   "KNOBB share card with a silver K mark and layered KNOBB wordmark in silver, yellow, and purple on black.";
@@ -130,24 +132,48 @@ export function normalizeTitle(value?: string) {
   return `${value} • ${SITE_NAME}`;
 }
 
+function buildMusicApplicationStructuredData(url: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": SITE_NAME,
+    "applicationCategory": "MusicApplication",
+    "operatingSystem": "Web",
+    "url": url,
+    "description": DEFAULT_DESCRIPTION,
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "featureList": [
+      "Music Streaming",
+      "Shared Playlists",
+      "Direct Source Archives",
+      "Listening History Sync"
+    ]
+  };
+}
+
+function buildWebSiteStructuredData(url: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": SITE_NAME,
+    "url": url,
+    "description": DEFAULT_DESCRIPTION,
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": `${url}/search?q={search_term_string}`,
+      "query-input": "required name=search_term_string"
+    }
+  };
+}
+
 function buildDefaultStructuredData(url: string) {
   return [
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      name: SITE_NAME,
-      url,
-      description: DEFAULT_DESCRIPTION,
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      name: SITE_NAME,
-      applicationCategory: "MusicApplication",
-      operatingSystem: "Web",
-      url,
-      description: DEFAULT_DESCRIPTION,
-    },
+    buildWebSiteStructuredData(url),
+    buildMusicApplicationStructuredData(url)
   ];
 }
 
@@ -208,22 +234,6 @@ export function applyMetadata(metadata: PageMetadata) {
     name: "referrer",
     content: "strict-origin-when-cross-origin",
   });
-  ensureMetaTag('meta[name="apple-mobile-web-app-capable"]', {
-    name: "apple-mobile-web-app-capable",
-    content: "yes",
-  });
-  ensureMetaTag('meta[name="apple-mobile-web-app-status-bar-style"]', {
-    name: "apple-mobile-web-app-status-bar-style",
-    content: "black-translucent",
-  });
-  ensureMetaTag('meta[name="apple-mobile-web-app-title"]', {
-    name: "apple-mobile-web-app-title",
-    content: SITE_NAME,
-  });
-  ensureMetaTag('meta[name="mobile-web-app-capable"]', {
-    name: "mobile-web-app-capable",
-    content: "yes",
-  });
   ensureMetaTag('meta[name="msapplication-TileColor"]', {
     name: "msapplication-TileColor",
     content: themeColor,
@@ -276,7 +286,7 @@ export function applyMetadata(metadata: PageMetadata) {
 
   ensureMetaTag('meta[name="twitter:card"]', {
     name: "twitter:card",
-    content: "summary_large_image",
+    content: metadata.twitterCard || "summary_large_image",
   });
   ensureMetaTag('meta[name="twitter:title"]', {
     name: "twitter:title",
@@ -317,19 +327,55 @@ export function getRouteMetadata(pathname: string, search: string): PageMetadata
   const isEmbedMode = new URLSearchParams(search).get("embed");
   const embedActive = isEmbedMode === "1" || isEmbedMode === "true";
 
-  if (pathname === "/") {
+  if (pathname === PUBLIC_HOME_PATH) {
     return {
-      title: SITE_NAME,
-      description: DEFAULT_DESCRIPTION,
-      canonicalPath: "/",
+      title: "KNOBB",
+      description: "A cinematic music experience for discovery, playlists, stats, and high-fidelity listening.",
+      canonicalPath: PUBLIC_HOME_PATH,
+      robots: "index, follow",
+    };
+  }
+
+  if (pathname === CONTACT_PATH) {
+    return {
+      title: "Contact",
+      description: "Get in touch with KNOBB about collaborations, product ideas, and support.",
+      canonicalPath: CONTACT_PATH,
+      robots: "index, follow",
+    };
+  }
+
+  if (pathname === APP_HOME_PATH) {
+    return {
+      title: "App Home",
+      description: "Open the KNOBB feed for recommendations, recent plays, and quick access back into the app.",
+      canonicalPath: APP_HOME_PATH,
+      robots: "noindex, nofollow",
     };
   }
 
   if (pathname === "/browse") {
     return {
       title: "Browse",
-      description: "Browse playlists, artists, albums, and new releases on KNOBB.",
+      description: "Browse new releases, playlists, artists, and public discovery shelves on KNOBB.",
       canonicalPath,
+    };
+  }
+
+  if (pathname === "/browse/artistgrid") {
+    return {
+      title: "ArtistGrid Archives",
+      description: "Browse ArtistGrid unreleased archives inside KNOBB.",
+      canonicalPath,
+    };
+  }
+
+  if (pathname.startsWith("/browse/artistgrid/")) {
+    return {
+      title: "ArtistGrid Tracker",
+      description: "Open an ArtistGrid tracker inside KNOBB.",
+      canonicalPath,
+      robots: "noindex, nofollow",
     };
   }
 
@@ -344,19 +390,12 @@ export function getRouteMetadata(pathname: string, search: string): PageMetadata
   if (pathname === "/search") {
     return {
       title: "Search",
-      description: "Search for tracks, artists, albums, and playlists on KNOBB.",
+      description: "Search tracks, artists, albums, and playlists directly inside KNOBB.",
       canonicalPath,
       robots: "noindex, nofollow",
     };
   }
 
-  if (pathname === "/unreleased") {
-    return {
-      title: "Unreleased Archive",
-      description: "Browse KNOBB's unreleased archive with artist and project pages sourced from ArtistGrid.",
-      canonicalPath,
-    };
-  }
 
   if (pathname.startsWith("/home-section/")) {
     const section = pathname.split("/").pop() || "";
@@ -428,13 +467,6 @@ export function getRouteMetadata(pathname: string, search: string): PageMetadata
     };
   }
 
-  if (pathname.startsWith("/unreleased/")) {
-    return {
-      title: "Unreleased",
-      description: "Browse unreleased artist and project archives on KNOBB.",
-      canonicalPath: pathname,
-    };
-  }
 
   if (pathname === "/legal/privacy") {
     return {

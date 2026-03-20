@@ -5,12 +5,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import {
-  getKnobbDesktop,
-  getKnobbDesktopConfigDirectory,
-  getKnobbDesktopConfigFilePath,
-  isKnobbDesktopApp,
-} from "@/lib/desktopApp";
 import { getDiscordBridgeConfigTemplate, getDiscordConnectionState } from "@/lib/discordConnect";
 import {
   refreshLocalDiscordPresenceBridgeStatus,
@@ -25,7 +19,7 @@ type DiscordConnectDialogProps = {
   onEnablePresence: () => void;
 };
 
-const DESKTOP_COMMAND = "npm run desktop:app";
+const BRIDGE_COMMAND = "npm run discord:bridge";
 
 function StatusCard({
   label,
@@ -56,12 +50,15 @@ export function DiscordConnectDialog({
 }: DiscordConnectDialogProps) {
   const { t } = useLanguage();
   const [refreshing, setRefreshing] = useState(false);
-  const [configDirectory, setConfigDirectory] = useState<string | null>(null);
-  const [configFilePath, setConfigFilePath] = useState<string | null>(null);
+  const [desktopConfigDirectory, setDesktopConfigDirectory] = useState<string | null>(null);
+  const [desktopConfigFilePath, setDesktopConfigFilePath] = useState<string | null>(null);
   const connectionState = getDiscordConnectionState(status);
-  const desktopApp = isKnobbDesktopApp();
+  const desktopBridge = typeof window === "undefined" ? null : window.knobbDesktop;
+  const isDesktopApp = Boolean(desktopBridge?.isDesktopApp);
   const siteUrl = typeof window === "undefined" ? "https://your-knobb-site.example.com" : window.location.origin;
   const configTemplate = getDiscordBridgeConfigTemplate(siteUrl);
+  const desktopConfigDescriptionPath = desktopConfigDirectory || desktopConfigFilePath;
+  const desktopConfigPath = desktopConfigFilePath || desktopConfigDirectory;
 
   const bridgeLabel = status.ok ? t("settings.discordBridgeReady") : t("settings.discordBridgeStatusOffline");
   const configLabel = status.ok
@@ -77,21 +74,9 @@ export function DiscordConnectDialog({
       : connectionState === "waiting"
         ? t("settings.discordAppWaiting")
         : t("settings.discordAppConnected");
-
-  useEffect(() => {
-    if (!desktopApp) {
-      setConfigDirectory(null);
-      setConfigFilePath(null);
-      return;
-    }
-
-    void getKnobbDesktopConfigDirectory().then((nextValue) => {
-      setConfigDirectory(nextValue);
-    });
-    void getKnobbDesktopConfigFilePath().then((nextValue) => {
-      setConfigFilePath(nextValue);
-    });
-  }, [desktopApp]);
+  const configStepDescription = isDesktopApp && desktopConfigDescriptionPath
+    ? t("settings.discordConfigDesktopStepDescription", { path: desktopConfigDescriptionPath })
+    : t("settings.discordConfigStepDescription");
 
   useEffect(() => {
     if (!open || typeof document === "undefined") {
@@ -113,6 +98,35 @@ export function DiscordConnectDialog({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open, onOpenChange]);
+
+  useEffect(() => {
+    if (!open || !isDesktopApp || !desktopBridge) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all([
+      desktopBridge.getConfigDirectory?.() ?? Promise.resolve(null),
+      desktopBridge.getConfigFilePath?.() ?? Promise.resolve(null),
+    ]).then(([configDirectory, configFilePath]) => {
+      if (cancelled) {
+        return;
+      }
+
+      setDesktopConfigDirectory(configDirectory || null);
+      setDesktopConfigFilePath(configFilePath || null);
+    }).catch(() => {
+      if (!cancelled) {
+        setDesktopConfigDirectory(null);
+        setDesktopConfigFilePath(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopBridge, isDesktopApp, open]);
 
   const handleCopy = async (value: string, successMessage: string) => {
     try {
@@ -145,7 +159,7 @@ export function DiscordConnectDialog({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[90]">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <button
         type="button"
         aria-label={t("common.close")}
@@ -158,11 +172,11 @@ export function DiscordConnectDialog({
         aria-modal="true"
         aria-labelledby="discord-connect-title"
         aria-describedby="discord-connect-description"
-        className="absolute left-1/2 top-1/2 z-[91] w-[min(42rem,calc(100vw-2rem))] max-h-[calc(100vh-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--overlay-radius)] border border-white/10 bg-black/95 text-white shadow-2xl"
+        className="relative z-[91] w-full max-w-[42rem] max-h-[calc(100vh-2rem)] overflow-hidden rounded-[var(--overlay-radius)] border border-white/10 bg-black/95 text-white shadow-[0_32px_100px_rgba(0,0,0,0.82)] supports-[backdrop-filter]:bg-black/88 supports-[backdrop-filter]:backdrop-blur-xl"
       >
         <button
           type="button"
-          className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/[0.04] p-2 text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+          className="menu-sweep-hover absolute right-4 top-4 rounded-full border border-white/10 bg-white/[0.04] p-2 text-white/70 transition hover:bg-white/[0.08] hover:text-white"
           onClick={() => onOpenChange(false)}
         >
           <X className="h-4 w-4" />
@@ -208,19 +222,7 @@ export function DiscordConnectDialog({
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/45">
                   {t("settings.discordConfigStepTitle")}
                 </p>
-                <p className="mt-3 text-sm text-white/72">
-                  {desktopApp && configDirectory
-                    ? t("settings.discordConfigDesktopStepDescription", { path: configDirectory })
-                    : t("settings.discordConfigStepDescription")}
-                </p>
-                {desktopApp && configFilePath ? (
-                  <div className="mt-4 rounded-[18px] border border-white/10 bg-black/35 p-4">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/45">
-                      {t("settings.discordConfigFile")}
-                    </p>
-                    <code className="mt-3 block break-all text-xs text-white/82">{configFilePath}</code>
-                  </div>
-                ) : null}
+                <p className="mt-3 text-sm text-white/72">{configStepDescription}</p>
                 <pre className="mt-4 overflow-x-auto rounded-[18px] border border-white/10 bg-black/50 p-4 text-xs text-white/78">
                   <code>{configTemplate}</code>
                 </pre>
@@ -233,39 +235,39 @@ export function DiscordConnectDialog({
                     <Copy className="h-4 w-4" />
                     {t("settings.copyConfigTemplate")}
                   </Button>
-                  {desktopApp ? (
-                    <>
-                      {configFilePath ? (
-                        <Button
-                          variant="outline"
-                          className="h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
-                          onClick={() => void handleCopy(configFilePath, t("settings.discordConfigPathCopied"))}
-                        >
-                          <Copy className="h-4 w-4" />
-                          {t("settings.copyConfigPath")}
-                        </Button>
-                      ) : null}
-                      <Button
-                        variant="outline"
-                        className="h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
-                        onClick={() => {
-                          void getKnobbDesktop()?.revealConfigFile?.();
-                        }}
-                      >
-                        <TerminalSquare className="h-4 w-4" />
-                        {t("settings.revealConfigFile")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
-                        onClick={() => {
-                          void getKnobbDesktop()?.openConfigDirectory?.();
-                        }}
-                      >
-                        <TerminalSquare className="h-4 w-4" />
-                        {t("settings.openConfigFolder")}
-                      </Button>
-                    </>
+                  {desktopConfigPath ? (
+                    <Button
+                      variant="outline"
+                      className="h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
+                      onClick={() => void handleCopy(desktopConfigPath, t("settings.discordConfigPathCopied"))}
+                    >
+                      <Copy className="h-4 w-4" />
+                      {t("settings.copyConfigPath")}
+                    </Button>
+                  ) : null}
+                  {isDesktopApp && desktopBridge?.openConfigDirectory ? (
+                    <Button
+                      variant="outline"
+                      className="h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
+                      onClick={() => {
+                        void desktopBridge.openConfigDirectory?.();
+                      }}
+                    >
+                      <TerminalSquare className="h-4 w-4" />
+                      {t("settings.openConfigFolder")}
+                    </Button>
+                  ) : null}
+                  {isDesktopApp && desktopBridge?.revealConfigFile ? (
+                    <Button
+                      variant="outline"
+                      className="h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
+                      onClick={() => {
+                        void desktopBridge.revealConfigFile?.();
+                      }}
+                    >
+                      <TerminalSquare className="h-4 w-4" />
+                      {t("settings.revealConfigFile")}
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -276,19 +278,25 @@ export function DiscordConnectDialog({
                     {t("settings.discordCompanionStepTitle")}
                   </p>
                   <p className="mt-3 text-sm text-white/72">{t("settings.discordCompanionStepDescription")}</p>
-                  <code className="mt-4 block rounded-[18px] border border-white/10 bg-black/50 px-4 py-3 text-sm text-white/88">
-                    {desktopApp ? t("settings.discordDesktopAppRunning") : DESKTOP_COMMAND}
-                  </code>
-                  {!desktopApp ? (
-                    <Button
-                      variant="outline"
-                      className="mt-4 h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
-                      onClick={() => void handleCopy(DESKTOP_COMMAND, t("settings.discordCommandCopied"))}
-                    >
-                      <TerminalSquare className="h-4 w-4" />
-                      {t("settings.copyCompanionCommand")}
-                    </Button>
-                  ) : null}
+                  {isDesktopApp ? (
+                    <div className="mt-4 rounded-[18px] border border-emerald-400/20 bg-emerald-400/8 px-4 py-3 text-sm text-emerald-100/90">
+                      {t("settings.discordDesktopAppRunning")}
+                    </div>
+                  ) : (
+                    <>
+                      <code className="mt-4 block rounded-[18px] border border-white/10 bg-black/50 px-4 py-3 text-sm text-white/88">
+                        {BRIDGE_COMMAND}
+                      </code>
+                      <Button
+                        variant="outline"
+                        className="mt-4 h-11 border-white/12 bg-white/[0.03] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
+                        onClick={() => void handleCopy(BRIDGE_COMMAND, t("settings.discordCommandCopied"))}
+                      >
+                        <TerminalSquare className="h-4 w-4" />
+                        {t("settings.copyCompanionCommand")}
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 <div className="rounded-[18px] border border-white/10 bg-black/35 p-4">

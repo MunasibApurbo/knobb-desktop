@@ -1,8 +1,10 @@
 export interface Track {
     id: string;
+    source?: "tidal" | "youtube-music" | "local";
+    sourceId?: string;
     tidalId?: number;
-    albumId?: number;
-    artistId?: number;
+    albumId?: number | string;
+    artistId?: number | string;
     localFileId?: string;
     isLocal?: boolean;
     localFileSize?: number;
@@ -21,7 +23,7 @@ export interface Track {
     peak?: number;
     streamUrl?: string; // cached stream URL
     streamUrls?: Partial<Record<string, string>>;
-    streamTypes?: Partial<Record<string, "direct" | "dash">>;
+    streamTypes?: Partial<Record<string, "direct" | "dash" | "hls">>;
     addedAt?: string;
     audioQuality?: "LOW" | "MEDIUM" | "HIGH" | "LOSSLESS" | "MAX";
     explicit?: boolean;

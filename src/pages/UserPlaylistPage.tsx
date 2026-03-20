@@ -6,15 +6,15 @@ import { UserPlaylistHero } from "@/components/user-playlist/UserPlaylistHero";
 import { UserPlaylistManageMenu } from "@/components/user-playlist/UserPlaylistManageMenu";
 import { UserPlaylistTracksSection } from "@/components/user-playlist/UserPlaylistTracksSection";
 import { userPlaylistActionBtnClass } from "@/components/user-playlist/userPlaylistUtils";
+import { DetailHero } from "@/components/detail/DetailHero";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useUserPlaylistPage } from "@/hooks/useUserPlaylistPage";
 import { useTrackSelectionShortcutsContext } from "@/contexts/TrackSelectionShortcutsContext";
 import { downloadTracks } from "@/lib/downloadHelpers";
 import {
   Music,
-  Loader2,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Track } from "@/types/music";
 import { toast } from "sonner";
 
@@ -24,7 +24,6 @@ export default function UserPlaylistPage() {
   const {
     loading,
     playlist,
-    scrollY,
     coverUrl,
     currentTrack,
     isPlaying,
@@ -64,6 +63,7 @@ export default function UserPlaylistPage() {
     handlePlayTrack,
     handleToggleLike,
     handleMoveTrack,
+    handleRemoveTrack,
     handleRemoveTracks,
   } = useUserPlaylistPage();
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -92,51 +92,6 @@ export default function UserPlaylistPage() {
     clearSelection();
   }, [canEdit, clearSelection, handleRemoveTracks, selectedTrackIds]);
 
-  useEffect(() => {
-    if (!playlist) {
-      setActiveScope(null);
-      return;
-    }
-
-    setActiveScope({
-      id: `playlist:${playlist.id}`,
-      selectedCount: canEdit ? selectedTrackIds.length : 0,
-      selectAll,
-      clearSelection,
-      deleteSelection,
-    });
-
-    return () => {
-      setActiveScope(null);
-    };
-  }, [canEdit, clearSelection, deleteSelection, playlist, selectAll, selectedTrackIds.length, setActiveScope]);
-
-  const handleTrackClick = useCallback((event: React.MouseEvent<HTMLElement>, track: Track, index: number) => {
-    if (!playlist) return;
-
-    if (event.shiftKey && lastSelectedIndex !== null) {
-      event.preventDefault();
-      const [start, end] = [lastSelectedIndex, index].sort((a, b) => a - b);
-      const rangeIds = playlist.tracks.slice(start, end + 1).map((item) => item.id);
-      setSelectedTrackIds((previous) => Array.from(new Set([...previous, ...rangeIds])));
-      return;
-    }
-
-    if (event.metaKey || event.ctrlKey) {
-      event.preventDefault();
-      setSelectedTrackIds((previous) =>
-        previous.includes(track.id)
-          ? previous.filter((id) => id !== track.id)
-          : [...previous, track.id],
-      );
-      setLastSelectedIndex(index);
-      return;
-    }
-
-    clearSelection();
-    handlePlayTrack(track.id);
-  }, [clearSelection, handlePlayTrack, lastSelectedIndex, playlist]);
-
   const handleDownloadPlaylist = useCallback(async () => {
     if (!playlist || playlist.tracks.length === 0 || isDownloading) return;
     const confirmed = window.confirm(`Download all ${playlist.tracks.length} tracks from "${playlist.name}"?`);
@@ -163,20 +118,109 @@ export default function UserPlaylistPage() {
     toast.error(`Failed to download ${playlist.name}`);
   }, [downloadFormat, isDownloading, playlist]);
 
-  if (loading) {
+  const selectionScope = useMemo(() => (
+    !playlist
+      ? null
+      : {
+          id: `playlist:${playlist.id}`,
+          selectedCount: canEdit ? selectedTrackIds.length : 0,
+          selectAll,
+          clearSelection,
+          deleteSelection,
+          collectionActions: {
+            download: () => void handleDownloadPlaylist(),
+            play: handlePlayAll,
+            share: () => void handleCopyShareLink(),
+            shuffle: handleShuffle,
+            toggleSaved: () => void handleToggleFavoritePlaylist(),
+          },
+        }
+  ), [
+    canEdit,
+    clearSelection,
+    deleteSelection,
+    handleCopyShareLink,
+    handleDownloadPlaylist,
+    handlePlayAll,
+    handleShuffle,
+    handleToggleFavoritePlaylist,
+    playlist,
+    selectAll,
+    selectedTrackIds.length,
+  ]);
+
+  useEffect(() => {
+    if (!selectionScope) {
+      setActiveScope(null);
+      return;
+    }
+
+    setActiveScope(selectionScope);
+
+    return () => {
+      setActiveScope(null);
+    };
+  }, [selectionScope, setActiveScope]);
+
+  const handleTrackClick = useCallback((event: React.MouseEvent<HTMLElement>, track: Track, index: number) => {
+    if (!playlist || !selectionScope) return;
+
+    setActiveScope(selectionScope);
+
+    if (event.shiftKey && lastSelectedIndex !== null) {
+      event.preventDefault();
+      const [start, end] = [lastSelectedIndex, index].sort((a, b) => a - b);
+      const rangeIds = playlist.tracks.slice(start, end + 1).map((item) => item.id);
+      setSelectedTrackIds((previous) => Array.from(new Set([...previous, ...rangeIds])));
+      return;
+    }
+
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      setSelectedTrackIds((previous) =>
+        previous.includes(track.id)
+          ? previous.filter((id) => id !== track.id)
+          : [...previous, track.id],
+      );
+      setLastSelectedIndex(index);
+      return;
+    }
+
+    clearSelection();
+    handlePlayTrack(track.id);
+  }, [clearSelection, handlePlayTrack, lastSelectedIndex, playlist, selectionScope, setActiveScope]);
+
+  const activatePlaylistShortcutScope = useCallback(() => {
+    if (!selectionScope) return;
+    setActiveScope(selectionScope);
+  }, [selectionScope, setActiveScope]);
+
+  if (!playlist && !loading) {
     return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="text-center py-20">
+        <Music className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+        <p className="text-muted-foreground">Playlist not found</p>
       </div>
     );
   }
 
   if (!playlist) {
     return (
-      <div className="text-center py-20">
-        <Music className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-        <p className="text-muted-foreground">Playlist not found</p>
-      </div>
+      <PageTransition>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="page-shell"
+        >
+          <DetailHero
+            artworkUrl="/placeholder.svg"
+            label="Playlist"
+            title="Playlist"
+            body={<p>Opening playlist details.</p>}
+          />
+        </motion.div>
+      </PageTransition>
     );
   }
 
@@ -186,12 +230,13 @@ export default function UserPlaylistPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="mobile-page-shell"
+        className="page-shell"
+        onFocusCapture={activatePlaylistShortcutScope}
+        onPointerDownCapture={activatePlaylistShortcutScope}
       >
         <UserPlaylistHero
           playlist={playlist}
           coverUrl={coverUrl}
-          scrollY={scrollY}
           cornerAction={(
             <UserPlaylistManageMenu
               canEdit={canEdit}
@@ -231,6 +276,7 @@ export default function UserPlaylistPage() {
         <UserPlaylistActions
           hasTracks={playlist.tracks.length > 0}
           isCurrentPlaylist={isCurrentPlaylist}
+          isOwnerPlaylist={!!isOwner}
           isPlaying={isPlaying}
           isSavedPlaylist={isSavedPlaylist}
           isDownloading={isDownloading}
@@ -260,6 +306,7 @@ export default function UserPlaylistPage() {
           onTrackClick={handleTrackClick}
           onToggleLike={(track) => handleToggleLike(track.id)}
           onMoveTrack={(fromIndex, toIndex) => void handleMoveTrack(fromIndex, toIndex)}
+          onRemoveTrack={(trackIndex) => handleRemoveTrack(trackIndex)}
         />
       </motion.div>
     </PageTransition>

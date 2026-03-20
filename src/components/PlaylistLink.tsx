@@ -1,11 +1,12 @@
 import type { MouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { preloadRouteModule } from "@/lib/routePreload";
 
 interface PlaylistLinkProps {
   title: string;
   playlistId?: string | number;
-  kind?: "tidal" | "user" | "shared";
+  kind?: "tidal" | "youtube-music" | "user" | "shared";
   shareToken?: string;
   className?: string;
   layoutId?: string;
@@ -37,11 +38,14 @@ export function PlaylistLink({
     }
     return null;
   })();
+  const fallbackSearchPath = `/search?q=${encodeURIComponent(title)}`;
+  const preloadNavigation = () => void preloadRouteModule(targetPath ?? fallbackSearchPath);
 
   const handleNavigate = (event: MouseEvent<HTMLSpanElement>) => {
     event.preventDefault();
     event.stopPropagation();
     onClick?.(event);
+    preloadNavigation();
 
     if (targetPath) {
       if (location.pathname !== targetPath) {
@@ -50,14 +54,17 @@ export function PlaylistLink({
       return;
     }
 
-    navigate(`/search?q=${encodeURIComponent(title)}`);
+    navigate(fallbackSearchPath);
   };
 
-    return (
+  return (
     <motion.span
       layoutId={layoutId}
       className={`cursor-pointer hover:underline transition-colors ${className}`}
       onClick={handleNavigate}
+      onMouseEnter={preloadNavigation}
+      onFocus={preloadNavigation}
+      onPointerDown={preloadNavigation}
     >
       {title}
     </motion.span>

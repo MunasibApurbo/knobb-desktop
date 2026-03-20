@@ -1,3 +1,5 @@
+import type { VideoQualityPreference } from "@/lib/videoPlaybackPreferences";
+
 export const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
 export const EQ_PRESETS = {
@@ -12,6 +14,13 @@ export const EQ_PRESETS = {
 } as const;
 
 export type PlaybackSource = {
+  availableAudioQualityLabels?: string[];
+  audioUrl?: string;
+  audioQualityLabel?: string;
+  fallbackUrl?: string;
+  fallbackVideoHeight?: number;
+  videoHeight?: number;
+  videoQualityPreference?: VideoQualityPreference;
   url: string;
-  type: "direct" | "dash";
+  type: "direct" | "dash" | "hls";
 };

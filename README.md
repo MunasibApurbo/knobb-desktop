@@ -2,6 +2,8 @@
 
 Knobb is a React/Vite music app with a custom UI, a direct music data layer, and Supabase-backed account and library features.
 
+The source app in `src/` is now the canonical website build. The recovered Netlify snapshot remains available only as a fallback through the explicit backup scripts.
+
 ## What This Repo Contains
 
 - `src/`: frontend app code
@@ -81,6 +83,12 @@ npm install
 npm run dev
 ```
 
+If you need the recovered snapshot for comparison, use:
+
+```sh
+npm run dev:backup
+```
+
 Before `npm run dev`, copy `.env.example` to `.env.local`.
 
 On macOS/Linux, use:
@@ -99,21 +107,14 @@ Useful commands:
 
 ```sh
 npm run build
+npm run build:backup
+npm run desktop:app
+npm run desktop:app:dev
+npm run desktop:package:mac
 npm run test
 npm run lint
 npm run preflight
-npm run desktop:app
-npm run desktop:app:dev
-npm run desktop:package
-npm run desktop:package:mac
-npm run desktop:package:win
-npm run desktop:package:companion
-npm run desktop:package:companion:mac
-npm run desktop:package:companion:win
-npm run desktop:package:apps:mac
-npm run desktop:package:apps:win
 npm run discord:bridge
-npm run discord:companion
 ```
 
 ## Environment Variables
@@ -124,112 +125,99 @@ Frontend runtime:
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_SITE_URL` (optional, recommended for canonical/absolute metadata)
 
+Server/runtime options for the Netlify YouTube Music proxy:
+
+- `YTMUSIC_COOKIE` for a raw YouTube cookie header string
+- or `YTMUSIC_COOKIE_FILE` for a Netscape-format cookies file path
+- optional: `YTMUSIC_VISITOR_DATA`
+- optional: `YTMUSIC_PO_TOKEN`
+
 Copy `.env.example` to `.env.local` and fill in your own values before starting the app. Do not commit local env files.
 
 The current frontend code does not require a music proxy env var for normal playback/search. The direct music layer uses its built-in upstream instance pool.
 
 ## Desktop App
 
-Knobb now includes a real Electron desktop app.
+This repo can publish installable macOS and Windows apps from the same codebase.
 
-Use the production build inside Electron:
+Local desktop usage:
 
 ```sh
 npm run build
 npm run desktop:app
 ```
 
-For development against Vite:
+Desktop development against Vite:
 
 ```sh
 npm run dev
 npm run desktop:app:dev
 ```
 
-The desktop app:
-
-- runs the full Knobb UI inside Electron
-- injects native Discord Rich Presence support directly into the app
-- keeps background presence alive in the tray when you close the window
-
-To package the current host platform locally:
-
-```sh
-npm run desktop:package
-```
-
-Explicit host-platform packages:
+Packaging commands:
 
 ```sh
 npm run desktop:package:mac
 npm run desktop:package:win
-npm run desktop:package:companion:mac
-npm run desktop:package:companion:win
-npm run desktop:package:apps:mac
-npm run desktop:package:apps:win
 ```
 
-This writes Knobb Desktop artifacts to `release/desktop/` and Discord Companion artifacts to `release/companion/`.
+What the desktop build does:
 
-The desktop bundle version comes from `package.json`.
+- loads the real app at `/app`, so the packaged app never opens the marketing landing page
+- keeps the native tray + Discord presence bridge
+- uses `electron-updater` against tagged GitHub Releases from this repo
+- makes published Windows builds auto-update when you ship newer tagged releases from the current codebase
 
-Artifacts:
+Desktop release flow:
 
-- `Knobb-Desktop-macOS.dmg`
-- `Knobb-Desktop-macOS.zip`
-- `Knobb-Desktop-Setup.exe`
-- `Knobb-Discord-Companion-macOS.dmg`
-- `Knobb-Discord-Companion-macOS.zip`
-- `Knobb-Discord-Companion-Setup.exe`
-- `latest-mac.yml`
-- `latest.yml`
-
-Release publishing now uses `electron-builder` and `electron-updater` with GitHub Releases for `MunasibApurbo/knobb-desktop`.
-
-The packaged desktop app now:
-
-- support required auto-updates on published Windows builds
-- treat every newer desktop release as required
-- check automatically on launch and every 4 hours
-- block the app if a required update is available or if offline update verification has been stale for more than 3 days
-
-The Discord Companion is packaged and uploaded with the same GitHub release. It has updater support, but it does not participate in the main app's required-update flow.
-
-Current release status:
-
-- Windows releases are live through GitHub Actions tags.
-- Signed macOS publishing is on hold until Apple Developer enrollment and signing credentials are available.
-- Local macOS packaging still works for development and manual verification, but those builds are not a substitute for a live signed release.
-
-GitHub Actions release workflow:
-
-1. Bump `package.json` / `package-lock.json` with one of:
+1. Bump the app version with one of:
    - `npm run desktop:release:patch`
    - `npm run desktop:release:minor`
    - `npm run desktop:release:major`
-   - `npm run desktop:release -- --version 0.1.1`
 2. Commit the version bump.
-3. Push a matching git tag like `v0.1.1`.
-4. GitHub Actions always publishes the Windows installers and uploads the Discord Companion Windows installer to the same GitHub Release.
-5. GitHub Actions publishes signed macOS installers only when Apple signing credentials are configured.
+3. Push a matching git tag like `v0.1.8`.
+4. GitHub Actions publishes the Windows installer and update metadata used by auto-update.
+5. GitHub Actions publishes signed macOS installers when Apple signing secrets are configured.
 
-Required GitHub Actions secrets:
+Required desktop release secrets:
 
-- macOS live publishing only: `APPLE_CSC_LINK`, `APPLE_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
-- Windows signing optional: `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`
+- macOS signing + notarization: `APPLE_CSC_LINK`, `APPLE_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
+- optional Windows signing: `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`
 
-Current public release links:
+Required GitHub repository variables for desktop builds:
 
-- Windows: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Desktop-Setup.exe`
-- Companion Windows: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest/download/Knobb-Discord-Companion-Setup.exe`
-- Release page: `https://github.com/MunasibApurbo/knobb-desktop/releases/latest`
-- Repo: `https://github.com/MunasibApurbo/knobb-desktop`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- optional: `VITE_SITE_URL`
+- optional: `VITE_TURNSTILE_SITE_KEY`
+
+## Website Deployment
+
+This repo now targets the website only.
+
+GitHub Actions delivery flow:
+
+1. Push to `main` to:
+   - build the web app
+   - deploy Supabase migrations and edge functions
+   - deploy the website and Netlify functions
+2. Push a `v*` tag to publish desktop installers from the same repo
+
+Required GitHub repository variables:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- optional: `VITE_SITE_URL`
+- optional override: `SUPABASE_PROJECT_REF`
+
+Required GitHub repository secrets:
+
+- automated website deploy: `NETLIFY_AUTH_TOKEN`, `NETLIFY_SITE_ID`
+- automated Supabase deploy: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`
 
 ## Discord Rich Presence
 
-Preferred path: run Knobb Desktop on the same machine as Discord desktop.
-
-Browser fallback: use the local Discord bridge.
+Use the local Discord bridge on the same machine as Discord desktop.
 
 Setup:
 
@@ -237,20 +225,14 @@ Setup:
 2. Set `clientId` to your Discord application client ID.
 3. Set `siteUrl` to your real Knobb web app URL if you are not running Knobb locally.
 4. Optional: upload Rich Presence art assets in your Discord application and set `largeImageKey`, `playImageKey`, and `pauseImageKey`.
-5. Start Knobb Desktop with `npm run desktop:app` or a packaged app from `release/desktop/`, or use `npm run discord:bridge` if you are staying in the browser.
+5. Start the bridge with `npm run discord:bridge`.
 6. Open Discord desktop and enable `Discord activity status` in Settings.
 
 Notes:
 
-- Knobb Desktop talks to Discord directly and does not need the HTTP bridge.
 - The browser bridge listens on `http://127.0.0.1:32145` by default.
 - The browser app can queue activity for the local bridge, but Discord will only show presence if the bridge is running and your Discord client is open.
 - `discord-presence.bridge.json` is gitignored on purpose because it contains your local app configuration.
-
-Legacy companion:
-
-- `npm run discord:companion` still exists as a bridge-only helper.
-- The preferred user-facing path is now `npm run desktop:app`.
 
 ## Supabase Requirements
 
@@ -258,6 +240,7 @@ You still need a Supabase project for:
 
 - auth
 - Google login
+- Discord login
 - liked songs
 - favorite artists
 - saved albums
@@ -267,7 +250,7 @@ You still need a Supabase project for:
 - play history
 - current status / friend activity
 
-Apply the SQL migrations in [supabase/migrations](supabase/migrations) before deploying.
+The GitHub Actions delivery workflow now applies the SQL migrations in [supabase/migrations](supabase/migrations) and deploys the Supabase edge functions automatically when the required secrets are configured.
 
 ## Netlify Deployment
 
@@ -280,24 +263,37 @@ Recommended settings:
 - Publish directory: `dist`
 - Functions directory: leave empty unless you separately deploy backend functions
 
-Set these environment variables in Netlify:
+Set these environment variables in Netlify for runtime parity:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `YTMUSIC_COOKIE` or `YTMUSIC_COOKIE_FILE`
+- optional: `YTMUSIC_VISITOR_DATA`
+- optional: `YTMUSIC_PO_TOKEN`
+
+Set the same values as GitHub repository variables so the GitHub Actions build can produce the production site before deploy.
+
+If YouTube Music search works on Netlify but playback fails with a `Sign in to confirm you're not a bot` error, the production function is missing valid YouTube auth cookies. The Netlify YouTube Music fallback now forwards `YTMUSIC_COOKIE` and `YTMUSIC_COOKIE_FILE` into `yt-dlp`, so set one of those runtime vars on the site before redeploying.
 
 Deploy notes:
 
+- `npm run build` builds the current Vite source app into `dist/`.
+- `npm run build:backup` still copies the recovered Netlify deploy bundle from `deploy-backup-site/` into `dist/` if you need a fallback artifact.
+- `main` pushes are intended to deploy through GitHub Actions.
 - `dist/404.html` is generated automatically so SPA routes still resolve on static hosts.
 - For manual deploys, upload the contents of `dist/` as the site root, not a parent folder containing `dist`.
 - If the site loads but auth is broken, your Netlify domain is usually missing from Supabase Auth URL settings.
 
 For the initial release, treat the deployment as a soft public launch and use [docs/soft-public-launch.md](docs/soft-public-launch.md) as the release checklist.
 
-For Google login:
+For Google and Discord login:
 
-- enable Google provider in Supabase Auth
+- enable the Google and Discord providers in Supabase Auth
 - add your Netlify domain to Supabase site URL / redirect URLs
-- add the Supabase callback URL in Google Cloud OAuth
+- add the Supabase callback URL to each provider's OAuth app settings
+  - format: `https://<project-ref>.supabase.co/auth/v1/callback`
+  - for this repo: `https://nqggizilkxudjdyxdsnl.supabase.co/auth/v1/callback`
+- for local OAuth testing with `npm run dev`, allow `http://localhost:5173/auth` and `http://127.0.0.1:5173/auth` in Supabase redirect URLs
 
 ## Performance Notes
 

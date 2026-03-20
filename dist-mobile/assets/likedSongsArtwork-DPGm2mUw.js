@@ -1,0 +1,1 @@
+function d(a){let r=null,l=null,o=Number.NEGATIVE_INFINITY;for(const e of a){if(!e.coverUrl)continue;r??(r=e.coverUrl);const t=e.addedAt?Date.parse(e.addedAt):Number.NaN;Number.isNaN(t)||t<=o||(o=t,l=e.coverUrl)}return l??r}export{d as g};

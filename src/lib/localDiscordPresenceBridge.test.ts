@@ -13,6 +13,7 @@ describe("localDiscordPresenceBridge", () => {
     vi.stubGlobal("fetch", fetchMock);
     delete window.__KNOBB_DISCORD_RPC__;
     delete window.__KNOBB_LOCAL_DISCORD_RPC_BRIDGE__;
+    delete window.knobbDesktop;
   });
 
   afterEach(() => {
@@ -96,6 +97,59 @@ describe("localDiscordPresenceBridge", () => {
       });
     });
 
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("adapts a desktop bridge from window.knobbDesktop", async () => {
+    const setDiscordPresenceActivity = vi.fn().mockResolvedValue(true);
+    const clearDiscordPresenceActivity = vi.fn().mockResolvedValue(true);
+
+    window.knobbDesktop = {
+      isDesktopApp: true,
+      platform: "darwin",
+      getLaunchTarget: vi.fn().mockResolvedValue(null),
+      openExternal: vi.fn().mockResolvedValue(true),
+      getDiscordPresenceStatus: vi.fn().mockResolvedValue({
+        ok: true,
+        configured: true,
+        discordConnected: true,
+        bridgeVersion: "desktop-native",
+      }),
+      setDiscordPresenceActivity,
+      clearDiscordPresenceActivity,
+      onDiscordPresenceStatus(listener) {
+        listener({
+          ok: true,
+          configured: true,
+          discordConnected: true,
+          bridgeVersion: "desktop-native",
+        });
+        return () => undefined;
+      },
+    };
+
+    installLocalDiscordPresenceBridge();
+
+    await vi.waitFor(() => {
+      expect(getLocalDiscordPresenceBridgeStatus()).toMatchObject({
+        ok: true,
+        configured: true,
+        discordConnected: true,
+        bridgeVersion: "desktop-native",
+      });
+    });
+
+    await window.__KNOBB_DISCORD_RPC__?.setActivity?.({
+      details: "Track title",
+      state: "Artist",
+      largeImageText: "Album",
+      smallImageKey: "play",
+      smallImageText: "Playing",
+    });
+    await window.__KNOBB_DISCORD_RPC__?.clearActivity?.();
+
+    expect(setDiscordPresenceActivity).toHaveBeenCalled();
+    expect(clearDiscordPresenceActivity).toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
